@@ -1,0 +1,13 @@
+data_roots:
+  eeg_dataset: /mnt/dataset4/sitian/DailyEEG_dataset
+  video: /mnt/dataset1/sitian/video
+  wear: /mnt/dataset0/sitian/DailyEmotion/Wear_data/out
+
+work_root: /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding
+
+outputs:
+  manifests: /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding/outputs/manifests
+  embeddings: /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding/outputs/embeddings
+  logs: /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding/outputs/logs
+  reports: /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding/outputs/reports
+

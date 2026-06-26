@@ -1,0 +1,4 @@
+smoke:
+  max_events: 10
+  require_all_modalities: true
+

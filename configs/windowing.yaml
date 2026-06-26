@@ -1,0 +1,16 @@
+event_window:
+  start_seconds: -60
+  end_seconds: 0
+
+video_audio:
+  timezone: Asia/Shanghai
+  mp4_creation_time_timezone: UTC
+
+resample:
+  eeg_hz: 250
+  ppg_hz: 64
+  gsr_hz: 32
+  acc_hz: 32
+  audio_hz: 16000
+  video_fps: 1
+

@@ -1,0 +1,9 @@
+[project]
+name = "daily-multimodal-embedding"
+version = "0.1.0"
+description = "Manifest and smoke-test tooling for Daily Multimodal embedding extraction."
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+

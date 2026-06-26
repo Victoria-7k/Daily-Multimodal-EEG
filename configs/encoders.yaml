@@ -1,0 +1,20 @@
+encoders:
+  eeg:
+    name: baseline_placeholder
+    output_dim: 256
+  ppg:
+    name: statistics_mlp_placeholder
+    output_dim: 128
+  gsr:
+    name: statistics_mlp_placeholder
+    output_dim: 128
+  acc:
+    name: statistics_mlp_placeholder
+    output_dim: 128
+  video:
+    name: openface_pooling_placeholder
+    output_dim: 256
+  audio:
+    name: wav2vec2_pooling_placeholder
+    output_dim: 768
+
