@@ -5,7 +5,9 @@ from datetime import datetime
 
 _TIME_FORMATS = (
     "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M:%S.%f",
     "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%dT%H:%M:%S.%f",
     "%d-%b-%Y %H:%M:%S",
 )
 
@@ -30,4 +32,3 @@ def subject_to_video_subject(subject_id: str) -> str:
 def time_to_video_day(value: datetime) -> str:
     """Return the MMDD folder name used by the video tree."""
     return value.strftime("%m%d")
-

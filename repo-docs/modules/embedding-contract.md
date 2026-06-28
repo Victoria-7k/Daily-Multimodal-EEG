@@ -1,0 +1,29 @@
+# 统一 embedding 契约
+
+## 白话模型
+
+统一 embedding 契约让后续模型不用关心每个模态当前是真实编码器还是 smoke encoder。每个窗口都会尝试产出四个固定维度数组：EEG、wear、face、audio。缺失或不可用的模态用零向量和 `modality_mask` 表示，成功读取的模态用同样长度的向量表示。
+
+这个契约先服务工程闭环。它证明路径、窗口、mask、质量报告和批量保存是通的；模型效果不是当前 `basic` profile 的目标。后续替换真实编码器时，最重要的是保持数组键、样本顺序、mask 顺序和报告字段可读。
+
+## 代码模型
+
+[basic encoder](../../src/daily_multimodal/embeddings/basic.py) 定义 `EMBED_DIM = 256` 和 `MODALITY_ORDER = ("eeg", "wear", "face", "audio")`。`extract_basic_embedding` 读取一个窗口，返回 `EmbeddingSample`。wear 分支会扫描 PPG/GSR/ACC CSV 的窗口内数值，计算均值、标准差、最小值、最大值等基础统计；EEG、face、audio 分支在当前阶段使用文件大小、窗口时长和路径 salt 生成 metadata-derived smoke 向量。
+
+[批处理保存器](../../src/daily_multimodal/embeddings/pipeline.py) 把多个 `EmbeddingSample` 堆叠成 `.npz`：
+
+```text
+eeg_emb, wear_emb, face_emb, audio_emb -> (N, 256)
+modality_mask -> (N, 4), order [eeg, wear, face, audio]
+sample_id, event_id, subject_id, session_id -> object arrays
+labels, source_paths -> JSON strings
+```
+
+[embedding 测试](../../tests/test_embedding_pipeline.py) 确认一个只有 wear 可用的窗口会得到 `[0, 1, 0, 0]` mask、非零 `wear_emb` 和零 `eeg_emb`。同一测试也确认保存后的 `.npz` 维度是 `(2, 256)` 和 `(2, 4)`，并确认精确 `video_candidates` 会优先于日期级 `candidate_mp4_paths`。
+
+## 接下去阅读
+
+在主路径里，[Step 5: basic encoder 写出统一 embedding 契约](../walkthroughs/one-real-run.md#step-5-basic-encoder-写出统一-embedding-契约) 解释这层契约如何被脚本使用。需要查 `.npz`、报告和阶段产物时读 [运行命令和产物](../references/commands-and-artifacts.md)；需要查窗口字段时读 [字段契约](../references/data-contracts.md)。
+
+证据状态：除特别标注外，本页基于当前源码和测试已确认。
+

@@ -1,6 +1,8 @@
 event_window:
   start_seconds: -60
   end_seconds: 0
+  base_window_seconds: 10
+  base_stride_seconds: 5
 
 video_audio:
   timezone: Asia/Shanghai
@@ -13,4 +15,3 @@ resample:
   acc_hz: 32
   audio_hz: 16000
   video_fps: 1
-
