@@ -16,7 +16,6 @@
 
 当前本地 `outputs/` 副本显示：事件总数为 `1272`，完整 wear 事件为 `1127`，有视频日期候选的事件为 `1103`，完整多模态候选为 `995`。这些数字来自 [manifest 汇总报告](../outputs/reports/manifest_summary.json) 和服务器验证记录；新的数据同步后应重新核对。
 
-本指南覆盖的是当前前半段流水线。阶段 7 的单被试基础闭环脚本已经存在；`scripts/07_extract_all_embeddings.py` 仍是全量提取占位入口。后续替换真实 EEG、OpenFace、WavLM/openSMILE 等编码器时，应同步更新 [统一 embedding 契约](modules/embedding-contract.md) 和 [变更记录](change-log.md)。
+本指南覆盖的是当前前半段流水线。视频音频精确对齐入口已经支持 ffprobe cache、失败重试和不限时重跑；阶段 7 的单被试基础闭环脚本已经存在；`scripts/07_extract_all_embeddings.py` 仍是全量提取占位入口。本地同步产物目前还没有精确对齐后的 manifest、alignment report、ffprobe cache 或单被试 embedding。后续替换真实 EEG、OpenFace、WavLM/openSMILE 等编码器时，应同步更新 [统一 embedding 契约](modules/embedding-contract.md) 和 [变更记录](change-log.md)。
 
 证据状态：除特别标注外，本页基于当前源码、测试、配置和本地同步产物已确认。
-
