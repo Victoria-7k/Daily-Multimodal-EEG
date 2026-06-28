@@ -3,7 +3,9 @@ from __future__ import annotations
 import csv
 import hashlib
 import math
+from bisect import bisect_left
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -148,8 +150,39 @@ def _read_numeric_window_stats(
         return {"rows": 0, "features": [0.0] * (len(value_columns) * 4)}
     start = parse_absolute_time(start_time)
     end = parse_absolute_time(end_time)
+    stat = path.stat()
+    timestamps, columns = _load_numeric_csv_cached(
+        str(path),
+        time_column,
+        tuple(value_columns),
+        stat.st_mtime_ns,
+        stat.st_size,
+    )
+    start_index = bisect_left(timestamps, start)
+    end_index = bisect_left(timestamps, end, lo=start_index)
+    values = [
+        [value for value in column[start_index:end_index] if math.isfinite(value)]
+        for column in columns
+    ]
+    features: list[float] = []
+    rows = max((len(column_values) for column_values in values), default=0)
+    for column_values in values:
+        features.extend(_basic_stats(column_values))
+    return {"rows": rows, "features": features}
+
+
+@lru_cache(maxsize=12)
+def _load_numeric_csv_cached(
+    path_text: str,
+    time_column: str,
+    value_columns: tuple[str, ...],
+    mtime_ns: int,
+    size: int,
+) -> tuple[tuple[Any, ...], tuple[tuple[float, ...], ...]]:
+    del mtime_ns, size
+    timestamps: list[Any] = []
     values: list[list[float]] = [[] for _ in value_columns]
-    with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+    with Path(path_text).open("r", encoding="utf-8", errors="replace", newline="") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
             raw_time = row.get(time_column)
@@ -159,20 +192,13 @@ def _read_numeric_window_stats(
                 timestamp = parse_absolute_time(raw_time)
             except ValueError:
                 continue
-            if timestamp < start:
-                continue
-            if timestamp >= end:
-                break
+            timestamps.append(timestamp)
             for index, column in enumerate(value_columns):
                 try:
                     values[index].append(float(row.get(column, "")))
                 except ValueError:
-                    continue
-    features: list[float] = []
-    rows = max((len(column_values) for column_values in values), default=0)
-    for column_values in values:
-        features.extend(_basic_stats(column_values))
-    return {"rows": rows, "features": features}
+                    values[index].append(math.nan)
+    return tuple(timestamps), tuple(tuple(column_values) for column_values in values)
 
 
 def _basic_stats(values: list[float]) -> list[float]:

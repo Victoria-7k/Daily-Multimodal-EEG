@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
+from daily_multimodal.embeddings import basic
 from daily_multimodal.embeddings.basic import extract_basic_embedding
 from daily_multimodal.embeddings.pipeline import (
     extract_many_basic_embeddings,
@@ -13,6 +14,10 @@ from daily_multimodal.embeddings.pipeline import (
 
 
 class BasicEmbeddingPipelineTests(unittest.TestCase):
+    def setUp(self):
+        if hasattr(basic, "_load_numeric_csv_cached"):
+            basic._load_numeric_csv_cached.cache_clear()
+
     def test_extract_basic_embedding_returns_unified_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -107,6 +112,38 @@ class BasicEmbeddingPipelineTests(unittest.TestCase):
         self.assertEqual(wear_shape, (2, 256))
         self.assertEqual(mask_shape, (2, 4))
         self.assertEqual(report["summary"]["success_count"], 2)
+
+    def test_reuses_cached_csv_parse_for_repeated_wear_windows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ppg.csv"
+            path.write_text(
+                "PPG,csv_time_PPG\n"
+                + "\n".join(
+                    f"{idx},2025-02-28 14:{13 + idx // 60:02d}:{idx % 60:02d}"
+                    for idx in range(120)
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            first = basic._read_numeric_window_stats(
+                str(path),
+                time_column="csv_time_PPG",
+                value_columns=["PPG"],
+                start_time="2025-02-28 14:13:10",
+                end_time="2025-02-28 14:13:20",
+            )
+            second = basic._read_numeric_window_stats(
+                str(path),
+                time_column="csv_time_PPG",
+                value_columns=["PPG"],
+                start_time="2025-02-28 14:13:20",
+                end_time="2025-02-28 14:13:30",
+            )
+
+        self.assertEqual(first["rows"], 10)
+        self.assertEqual(second["rows"], 10)
+        self.assertGreaterEqual(basic._load_numeric_csv_cached.cache_info().hits, 1)
 
 
 if __name__ == "__main__":
