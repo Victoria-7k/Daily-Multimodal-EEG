@@ -113,6 +113,44 @@ class BasicEmbeddingPipelineTests(unittest.TestCase):
         self.assertEqual(mask_shape, (2, 4))
         self.assertEqual(report["summary"]["success_count"], 2)
 
+    def test_basic_embedding_prefers_precise_video_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            precise = root / "precise.MP4"
+            daily = root / "daily.MP4"
+            precise.write_bytes(b"precise")
+            daily.write_bytes(b"daily")
+            window = {
+                "sample_id": "sub-02_ses-03_00_row-0012_win-0000",
+                "event_id": "sub-02_ses-03_00_row-0012",
+                "subject_id": "sub-02",
+                "session_id": "ses-03",
+                "window_start_time": "2025-02-28 14:13:00",
+                "window_end_time": "2025-02-28 14:13:10",
+                "candidate_mp4_paths": [str(daily)],
+                "video_candidates": [
+                    {
+                        "mp4_path": str(precise),
+                        "has_audio_stream": True,
+                        "clip_start_seconds": 10.0,
+                        "clip_end_seconds": 20.0,
+                    }
+                ],
+                "label_columns": {},
+                "has_eeg": False,
+                "has_ppg": False,
+                "has_gsr": False,
+                "has_acc": False,
+                "has_face": True,
+                "has_audio": True,
+            }
+
+            sample = extract_basic_embedding(window)
+
+        self.assertEqual(sample.source_paths["face"], [str(precise)])
+        self.assertEqual(sample.source_paths["audio"], [str(precise)])
+        np.testing.assert_array_equal(sample.modality_mask, np.array([0, 0, 1, 1], dtype=np.int8))
+
     def test_reuses_cached_csv_parse_for_repeated_wear_windows(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "ppg.csv"

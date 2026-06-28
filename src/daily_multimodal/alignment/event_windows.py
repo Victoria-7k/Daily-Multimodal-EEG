@@ -38,6 +38,13 @@ def build_window_index(
             window_start = event_time + timedelta(seconds=offset)
             window_end = window_start + timedelta(seconds=float(window_size_seconds))
             event_id = row["event_id"]
+            video_candidates = row.get("video_candidates", [])
+            has_face = bool(video_candidates) if "video_candidates" in row else bool(row.get("has_video"))
+            has_audio = (
+                any(bool(candidate.get("has_audio_stream")) for candidate in video_candidates)
+                if "video_candidates" in row
+                else bool(row.get("has_audio"))
+            )
             windows.append(
                 {
                     "sample_id": f"{event_id}_win-{window_id:04d}",
@@ -74,8 +81,8 @@ def build_window_index(
                     "has_gsr": bool(row.get("has_gsr")),
                     "has_acc": bool(row.get("has_acc")),
                     "has_wear": bool(row.get("has_ppg") or row.get("has_gsr") or row.get("has_acc")),
-                    "has_face": bool(row.get("has_video")),
-                    "has_audio": bool(row.get("has_audio")),
+                    "has_face": has_face,
+                    "has_audio": has_audio,
                 }
             )
             window_id += 1

@@ -39,6 +39,11 @@ class EmbeddingSample:
 
 def extract_basic_embedding(window: dict[str, Any]) -> EmbeddingSample:
     """Extract deterministic stage-5 smoke embeddings for one window."""
+    precise_video_paths = _precise_video_paths(window)
+    face_paths = precise_video_paths or _as_list(window.get("candidate_mp4_paths"))
+    audio_paths = _as_list(window.get("candidate_audio_paths")) or precise_video_paths or _as_list(
+        window.get("candidate_mp4_paths")
+    )
     eeg_emb, eeg_quality, eeg_available = _metadata_embedding(
         "eeg",
         [window.get("eeg_bdf_path", "")],
@@ -48,13 +53,13 @@ def extract_basic_embedding(window: dict[str, Any]) -> EmbeddingSample:
     wear_emb, wear_quality, wear_available = _wear_embedding(window)
     face_emb, face_quality, face_available = _metadata_embedding(
         "face",
-        _as_list(window.get("candidate_mp4_paths")),
+        face_paths,
         window,
         enabled=bool(window.get("has_face")),
     )
     audio_emb, audio_quality, audio_available = _metadata_embedding(
         "audio",
-        _as_list(window.get("candidate_audio_paths")) or _as_list(window.get("candidate_mp4_paths")),
+        audio_paths,
         window,
         enabled=bool(window.get("has_audio")),
     )
@@ -80,8 +85,8 @@ def extract_basic_embedding(window: dict[str, Any]) -> EmbeddingSample:
             "wear_ppg": window.get("wear_ppg_path", ""),
             "wear_gsr": window.get("wear_gsr_path", ""),
             "wear_acc": window.get("wear_acc_path", ""),
-            "face": _as_list(window.get("candidate_mp4_paths")),
-            "audio": _as_list(window.get("candidate_audio_paths")) or _as_list(window.get("candidate_mp4_paths")),
+            "face": face_paths,
+            "audio": audio_paths,
         },
         encoder_versions={
             "eeg": "basic_smoke_metadata_v1",
@@ -277,3 +282,12 @@ def _as_list(value: Any) -> list[str]:
     if isinstance(value, str):
         return [value] if value else []
     return [str(value)]
+
+
+def _precise_video_paths(window: dict[str, Any]) -> list[str]:
+    paths: list[str] = []
+    for candidate in window.get("video_candidates", []) or []:
+        path = candidate.get("mp4_path")
+        if path:
+            paths.append(str(path))
+    return paths
