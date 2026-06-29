@@ -38,6 +38,12 @@
 
 这说明阶段 7 的风险主要不在输出契约，而在样本选择、长时间 CSV 读取、精确视频候选和服务器资源。阶段 4-6 的服务器验证报告已经记录过一次性能问题：重复读取大型 wear CSV 会拖慢 smoke test；当前实现通过缓存 CSV 解析和二分定位窗口范围解决。
 
+## Step 7: 完整候选集和 baseline 验收
+
+`scripts/07_extract_all_embeddings.py` 现在负责阶段 8：读取已有 `window_index` 或从 manifest 构建基础窗口，默认保留 `has_eeg`、`has_ppg`、`has_gsr`、`has_acc`、`has_face` 和 `has_audio` 都为真的完整候选窗口，再复用同一个 basic embedding 批处理器写出 `all_complete_basic_embeddings.npz`、`all_complete_multimodal_manifest.jsonl`、全量报告和失败清单。
+
+`scripts/08_train_baseline_mlp.py` 负责阶段 9：读取全量 `.npz`，先做 128 窗口以内的过拟合检查，再按 subject split 训练 `eeg_only`、`wear_only`、`audio_only`、`face_only`、`eeg_wear`、`eeg_audio`、`eeg_face` 和 `full` 八组轻量 MLP 回归 baseline。当前实现是 numpy 版小模型，不依赖 PyTorch，目标是验收 embedding 是否可被稳定读取和学习；真实模型升级应继续与这个 baseline 在同一 split 下对照。
+
 ## 验证
 
 本地最小验证命令是：
@@ -46,6 +52,6 @@
 python -m pytest tests -q
 ```
 
-理解主线后，可以按 [运行命令和产物](../references/commands-and-artifacts.md) 在服务器或同步副本上复现阶段命令。没有真实数据路径时，单元测试仍能确认 manifest 匹配、窗口切分、视频音频对齐、embedding 输出和 subject 选择这些核心行为。
+理解主线后，可以按 [运行命令和产物](../references/commands-and-artifacts.md) 在服务器或同步副本上复现阶段命令。没有真实数据路径时，单元测试仍能确认 manifest 匹配、窗口切分、视频音频对齐、embedding 输出、subject 选择、完整候选集提取和 baseline subject split 这些核心行为。
 
 证据状态：除特别标注外，本页基于当前源码、测试、配置、本地输出副本和阶段验证记录已确认。
