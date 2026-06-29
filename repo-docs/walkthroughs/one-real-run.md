@@ -56,6 +56,12 @@
 
 阶段 12 再运行 `scripts/11_prepare_real_embedding_cache.py`，从窗口索引准备真实缓存。Audio 会按 `video_candidates` 的精确秒数切出 mono 16 kHz wav；face 只生成 OpenFace CSV 目标路径；EEG 和 wear 写出窗口 JSON，记录 BDF 或 PPG/GSR/ACC 源路径、窗口时间和目标采样参数。readiness report 会列出 EEG、wear、face、audio 各自的 ready count、missing count 和失败清单路径。这个阶段的目标是先区分“数据切片不可用”和“深度模型不可用”，避免阶段 13 以后把 ffmpeg、OpenFace、checkpoint 和模型 shape 问题混成一类错误。
 
+## Step 10: Audio 先接真实 frozen encoder
+
+阶段 13 的入口是 `scripts/12_extract_audio_embeddings.py`。它读取阶段 12 生成的 `audio_clips` cache，而不是重新从 MP4 切片；每个窗口通过 `audio.json` 找到 16 kHz mono wav，交给 WavLM 或 wav2vec2 frozen backend 生成 frame-level hidden states，再做 mean pooling 和固定种子投影，写出 `audio_emb` 为 `(N, 256)` 的 `.npz`。输出还带 `sample_id`、`event_id`、`subject_id`、`modality_mask`、`quality_flags` 和 `encoder_version`，方便后面把 only-audio-replaced 对照接回阶段 9/10 的训练入口。
+
+这一阶段不允许静默 fallback。checkpoint 路径不存在时写 `checkpoint_missing`；服务器缺 `torch`、`torchaudio` 或 `transformers` 时写 `dependency_missing`；cache 或 wav 缺失时写 `source_missing`。2026-06-29 的服务器验证使用 `lzs` 环境和 `facebook/wav2vec2-base-960h` safetensors fallback 跑通了 10 窗口和 `sub-12` 单被试；全量与 ablation 留到后续统一执行。
+
 ## 验证
 
 本地最小验证命令是：
@@ -64,6 +70,6 @@
 python -m pytest tests -q
 ```
 
-理解主线后，可以按 [运行命令和产物](../references/commands-and-artifacts.md) 在服务器或同步副本上复现阶段命令。没有真实数据路径时，单元测试仍能确认 manifest 匹配、窗口切分、视频音频对齐、embedding 输出、subject 选择、完整候选集提取、baseline subject split、升级对照判定、真实 embedding 契约和阶段 12 缓存失败语义这些核心行为。
+理解主线后，可以按 [运行命令和产物](../references/commands-and-artifacts.md) 在服务器或同步副本上复现阶段命令。没有真实数据路径时，单元测试仍能确认 manifest 匹配、窗口切分、视频音频对齐、embedding 输出、subject 选择、完整候选集提取、baseline subject split、升级对照判定、真实 embedding 契约、阶段 12 缓存失败语义和阶段 13 audio real 输出契约这些核心行为。
 
 证据状态：除特别标注外，本页基于当前源码、测试、配置、本地输出副本和阶段验证记录已确认。

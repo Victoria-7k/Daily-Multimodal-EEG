@@ -29,3 +29,33 @@ profiles:
     wear: wear_sequence_v1
     face: openface_temporal_v1
     audio: wavlm_frozen_v1
+
+audio_real_profiles:
+  wavlm_frozen_v1:
+    output_dim: 256
+    target_sample_rate_hz: 16000
+    pooling: mean
+    checkpoint_required: true
+  wav2vec2_frozen_v1:
+    output_dim: 256
+    target_sample_rate_hz: 16000
+    pooling: mean
+    checkpoint_required: true
+
+eeg_real_profiles:
+  eeg_bandpower_v1:
+    output_dim: 256
+    target_sample_rate_hz: 250
+    target_window_samples: 2500
+    notch_hz: 50
+    bandpass_hz: [1, 45]
+    checkpoint_required: false
+  eeg_deep_frozen_v1:
+    backend: braindecode_eegpt
+    checkpoint_repo: braindecode/eegpt-pretrained
+    checkpoint_path: outputs/checkpoints/eegpt-pretrained
+    output_dim: 256
+    target_sample_rate_hz: 250
+    target_window_samples: 2500
+    frozen_feature_dim: 2048
+    checkpoint_required: true

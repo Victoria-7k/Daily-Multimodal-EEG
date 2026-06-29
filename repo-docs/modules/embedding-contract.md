@@ -27,6 +27,8 @@ labels, source_paths -> JSON strings
 
 阶段 12 的 [真实缓存准备模块](../../src/daily_multimodal/embeddings/cache.py) 尚不生成最终真实 embedding；它先把切片边界和目标缓存路径固定下来。cache key 使用 `{sample_id}/{modality}/{encoder_profile}`，audio 写 mono 16 kHz wav，face 写 OpenFace CSV 目标路径，EEG 和 wear 写窗口 JSON 描述。这样后续 WavLM、OpenFace、EEG 和 wear sequence encoder 失败时，可以先判断是缓存/切片问题还是模型问题。
 
+[Audio 真实模块](../../src/daily_multimodal/embeddings/audio_real.py) 是第一个消费真实缓存的 encoder 接入点。它从 `audio_clips/<sample_id>/<encoder_profile>/audio.json` 读取 wav 路径，要求 frozen backend 返回 `[frames, hidden_dim]`，再 mean pooling 并投影到 256 维。输出 `.npz` 的 `modality_mask` 只把 audio 位置置为 1；后续全模态打包或 only-audio-replaced 对照再把这组 `audio_emb` 合回完整样本表。
+
 ## 接下去阅读
 
 在主路径里，[Step 5: basic encoder 写出统一 embedding 契约](../walkthroughs/one-real-run.md#step-5-basic-encoder-写出统一-embedding-契约) 解释这层契约如何被脚本使用。需要查 `.npz`、报告和阶段产物时读 [运行命令和产物](../references/commands-and-artifacts.md)；需要查窗口字段时读 [字段契约](../references/data-contracts.md)。

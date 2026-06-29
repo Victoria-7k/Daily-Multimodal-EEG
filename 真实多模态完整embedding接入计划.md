@@ -326,12 +326,12 @@ No full fine-tuning in this phase
 
 **Tasks:**
 
-- [ ] 检查服务器是否有 `torch`、`torchaudio`、`transformers`。
-- [ ] 如果 checkpoint 不存在，记录 `checkpoint_missing`，不静默 fallback。
-- [ ] 从 audio cache 读取 16 kHz mono wav。
-- [ ] WavLM/wav2vec2 输出 frame embedding 后做 mean pooling。
-- [ ] 用固定随机种子或保存 projection 权重，将输出投影到 256 维。
-- [ ] 写 `audio_real_embeddings.npz`，包含 `audio_emb`、`sample_id`、`modality_mask`、`quality_flags`。
+- [x] 检查服务器是否有 `torch`、`torchaudio`、`transformers`。默认 Python 缺少依赖，但 conda 环境 `lzs` 已确认具备 `torch`、`torchaudio`、`transformers` 和 `huggingface_hub`。
+- [x] 如果 checkpoint 不存在，记录 `checkpoint_missing`，不静默 fallback。
+- [x] 从 audio cache 读取 16 kHz mono wav。
+- [x] WavLM/wav2vec2 输出 frame embedding 后做 mean pooling。生产路径已实现；服务器已用 `wav2vec2_frozen_v1` 真 checkpoint 跑通 10 窗口和 `sub-12` 单被试。
+- [x] 用固定随机种子或保存 projection 权重，将输出投影到 256 维。
+- [x] 写 `audio_real_embeddings.npz`，包含 `audio_emb`、`sample_id`、`modality_mask`、`quality_flags`。
 - [ ] 接入 `scripts/17_run_real_embedding_ablation.py`，比较：
   - baseline full；
   - 当前 stage 10 fusion；
@@ -340,7 +340,15 @@ No full fine-tuning in this phase
 **Small-run command:**
 
 ```bash
-ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/12_extract_audio_embeddings.py --window-index outputs/window_index/window_index.jsonl --max-windows 10 --encoder-profile wavlm_frozen_v1 --out outputs/embeddings/audio_real_10_embeddings.npz --failures-out outputs/reports/audio_real_10_failures.json"
+ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && source /home/lzs/miniconda3/etc/profile.d/conda.sh && conda activate lzs && PYTHONPATH=src python scripts/12_extract_audio_embeddings.py --window-index outputs/window_index/real_cache_complete_10.jsonl --max-windows 10 --cache-root outputs/cache/real_stage12_wav2vec2_10 --encoder-profile wav2vec2_frozen_v1 --checkpoint outputs/checkpoints/wav2vec2-base-960h --device cuda --out outputs/embeddings/audio_real_wav2vec2_10_embeddings.npz --failures-out outputs/reports/audio_real_wav2vec2_10_failures.json --summary-out outputs/reports/audio_real_wav2vec2_10_quality_summary.json"
+```
+
+注意：`microsoft/wavlm-base-plus` 已下载到 `outputs/checkpoints/wavlm-base-plus`，但该仓库当前可用权重为 `.bin`，在服务器 `torch 2.5.1` + 新版 `transformers` 下会触发 torch>=2.6 的安全限制；阶段 13 先采用带 `model.safetensors` 的 `facebook/wav2vec2-base-960h` 作为 frozen fallback。缺少依赖或 checkpoint 时，该命令仍应写出 `dependency_missing` 或 `checkpoint_missing`，不能生成伪 real embedding。
+
+**Single-subject command:**
+
+```bash
+ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && source /home/lzs/miniconda3/etc/profile.d/conda.sh && conda activate lzs && PYTHONPATH=src python scripts/12_extract_audio_embeddings.py --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl --cache-root outputs/cache/real_stage12_wav2vec2_sub-12 --encoder-profile wav2vec2_frozen_v1 --checkpoint outputs/checkpoints/wav2vec2-base-960h --device cuda --out outputs/embeddings/audio_real_wav2vec2_sub-12_embeddings.npz --failures-out outputs/reports/audio_real_wav2vec2_sub-12_failures.json --summary-out outputs/reports/audio_real_wav2vec2_sub-12_quality_summary.json"
 ```
 
 **Full command:**
@@ -351,7 +359,8 @@ ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && pyth
 
 **Acceptance:**
 
-- 10 窗口先通过，`audio_emb.shape == (10, 256)`。
+- 10 窗口先通过，`audio_emb.shape == (10, 256)`。已通过：`success_count=10`、`failure_count=0`、`nan_count=0`。
+- 全量前先跑单被试。已通过：`sub-12` 共 25 条完整窗口，Stage 12 cache 四模态 `ready=25, missing=0`，Stage 13 `audio_emb.shape == (25, 256)`、失败清单 `[]`、NaN 数量 0。
 - 全量 audio 成功率、失败类型、平均音频时长写入质量摘要。
 - NaN 数量为 0。
 - 若失败率超过 5%，不进入下一个真实模态，先排查音频切片和 checkpoint。
@@ -486,26 +495,32 @@ No full fine-tuning in this phase
 
 **Tasks:**
 
-- [ ] MNE 读取 BDF，只裁剪窗口附近数据，不整段加载后重复处理。
-- [ ] 统一重采样到 250 Hz。
-- [ ] notch 50 Hz，bandpass 1-45 Hz。
-- [ ] 输出窗口形状 `[channels, 2500]`，不符合时记录 `shape_mismatch`。
-- [ ] 先实现 bandpower/statistics real baseline，确认真实 EEG 数据读取链路。
-- [ ] 再接 LaBraM/EEGPT frozen encoder，checkpoint 缺失时记录 `checkpoint_missing`。
-- [ ] projection 到 256 维，写 `eeg_real_embeddings.npz`。
+- [x] MNE 读取 BDF，只裁剪窗口附近数据，不整段加载后重复处理。
+- [x] 统一重采样到 250 Hz。
+- [x] notch 50 Hz，bandpass 1-45 Hz。
+- [x] 输出窗口形状 `[channels, 2500]`，不符合时记录 `shape_mismatch`。
+- [x] 先实现 bandpower/statistics real baseline，确认真实 EEG 数据读取链路。
+- [x] 再接 LaBraM/EEGPT frozen encoder，checkpoint 缺失时记录 `checkpoint_missing`。已接入 Braindecode EEGPT `braindecode/eegpt-pretrained`，checkpoint 位于服务器 `outputs/checkpoints/eegpt-pretrained`。
+- [x] projection 到 256 维，写 `eeg_real_embeddings.npz`。
 
 **Small-run command:**
 
 ```bash
-ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/14_extract_eeg_embeddings.py --window-index outputs/window_index/window_index.jsonl --max-windows 10 --encoder-profile eeg_bandpower_v1 --out outputs/embeddings/eeg_real_10_embeddings.npz --failures-out outputs/reports/eeg_real_10_failures.json"
+ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && source /home/lzs/miniconda3/etc/profile.d/conda.sh && conda activate lzs && PYTHONPATH=src python scripts/14_extract_eeg_embeddings.py --window-index outputs/window_index/real_cache_complete_10.jsonl --cache-root outputs/cache/real_stage12_wav2vec2_10 --encoder-profile eeg_bandpower_v1 --out outputs/embeddings/eeg_real_bandpower_10_embeddings.npz --failures-out outputs/reports/eeg_real_bandpower_10_failures.json --summary-out outputs/reports/eeg_real_bandpower_10_quality_summary.json"
+```
+
+**Deep checkpoint command:**
+
+```bash
+ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && source /home/lzs/miniconda3/etc/profile.d/conda.sh && conda activate lzs && PYTHONPATH=src python scripts/14_extract_eeg_embeddings.py --window-index outputs/window_index/real_cache_complete_10.jsonl --cache-root outputs/cache/real_stage12_eegpt_10 --encoder-profile eeg_deep_frozen_v1 --checkpoint outputs/checkpoints/eegpt-pretrained --device cpu --out outputs/embeddings/eeg_real_eegpt_10_embeddings.npz --failures-out outputs/reports/eeg_real_eegpt_10_failures.json --summary-out outputs/reports/eeg_real_eegpt_10_quality_summary.json"
 ```
 
 **Acceptance:**
 
-- 10 窗口 EEG 读取和重采样通过。
-- 每个成功窗口 shape 为 `[channels, 2500]` 或报告中记录原始 channel count 和有效 channel count。
-- 全量前必须先跑单被试，例如 `sub-10`。
-- EEG deep encoder 失败时可回退 `eeg_bandpower_v1`。
+- 10 窗口 EEG 读取和重采样通过。已通过：`eeg_emb.shape == (10, 256)`、`success_count=10`、`failure_count=0`、`nan_count=0`、平均 64 通道。
+- 每个成功窗口 shape 为 `[channels, 2500]` 或报告中记录原始 channel count 和有效 channel count。已记录 `mean_channel_count=64.0` 和 `target_window_samples=2500`。
+- 全量前必须先跑单被试，例如 `sub-10`。已用 `sub-12` 25 条完整窗口通过：`eeg_emb.shape == (25, 256)`、失败清单 `[]`、NaN 数量 0。
+- EEG deep encoder 失败时可回退 `eeg_bandpower_v1`。已验证 deep 路径：10 窗口 `eeg_emb.shape == (10, 256)`，`sub-12` 单被试 `eeg_emb.shape == (25, 256)`，失败清单均为 `[]`，NaN 数量 0；CUDA 单被试因显存不足会记录 `oom`，当前验收使用 CPU。
 
 ### 阶段 16：Wear 真实 sequence embedding
 
