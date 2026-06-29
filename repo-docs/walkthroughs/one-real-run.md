@@ -10,9 +10,9 @@
 
 ## Step 2: 视频音频候选变成精确片段
 
-日期级视频候选只能说明某一天目录里有 MP4，不能保证某个评分窗口被哪段视频覆盖。`scripts/02_align_video_audio.py` 会先从 manifest 收集候选 MP4，再让 [视频音频对齐模块](../../src/daily_multimodal/alignment/video_audio_alignment.py) 调用 `ffprobe`，读取 `creation_time`、`duration` 和音频流元数据。
+日期级视频候选只能说明某一天目录里有 MP4，不能保证某个评分窗口被哪段视频覆盖。`scripts/02_align_video_audio.py` 会先从 manifest 收集候选 MP4，再让 [视频音频对齐模块](../../src/daily_multimodal/alignment/video_audio_alignment.py) 调用 `ffprobe`，读取 `creation_time`、`duration` 和音频流元数据。长任务复跑时，脚本会复用 ffprobe cache；`--retry-failed-ffprobe` 会重新探测失败记录，`--ffprobe-timeout 0` 或负数会把超时传给 subprocess 时改成不限时。
 
-对齐模块把 MP4 的 UTC `creation_time` 转到 `Asia/Shanghai`，再和事件窗口相交。相交结果写入 `video_candidates`，包含 `clip_start_seconds`、`clip_end_seconds`、`overlap_seconds`、`covers_window` 和音频流信息。这个步骤让后面的 `basic` embedding 优先使用精确 `video_candidates`，而不是只拿日期目录里的第一个候选。
+对齐模块把 MP4 的 UTC `creation_time` 转到 `Asia/Shanghai`，再和事件窗口相交。相交结果写入 `video_candidates`，包含 `clip_start_seconds`、`clip_end_seconds`、`overlap_seconds`、`covers_window` 和音频流信息。这个步骤让后面的 `basic` embedding 优先使用精确 `video_candidates`，而不是只拿日期目录里的第一个候选。当前本地 `outputs/` 尚未同步精确对齐产物，所以读本地副本时仍要区分日期级候选和代码已支持的精确候选。
 
 ## Step 3: 事件切成可复用窗口
 

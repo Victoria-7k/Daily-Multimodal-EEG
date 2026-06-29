@@ -19,4 +19,3 @@
 本指南覆盖的是当前前半段流水线。阶段 8 的完整候选集基础 embedding 入口已经由 `scripts/07_extract_all_embeddings.py` 提供；阶段 9 的轻量 baseline 由 `scripts/08_train_baseline_mlp.py` 提供，使用 subject split 训练单模态、双模态和全模态对照。后续替换真实 EEG、OpenFace、WavLM/openSMILE 等编码器时，应同步更新 [统一 embedding 契约](modules/embedding-contract.md) 和 [变更记录](change-log.md)。
 
 证据状态：除特别标注外，本页基于当前源码、测试、配置和本地同步产物已确认。
-
