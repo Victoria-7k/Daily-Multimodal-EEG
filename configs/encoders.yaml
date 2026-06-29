@@ -18,3 +18,14 @@ encoders:
     name: wav2vec2_pooling_placeholder
     output_dim: 768
 
+profiles:
+  basic:
+    eeg: basic_smoke_metadata_v1
+    wear: basic_wear_statistics_v1
+    face: basic_smoke_metadata_v1
+    audio: basic_smoke_metadata_v1
+  real_v1:
+    eeg: eeg_real_frozen_v1
+    wear: wear_sequence_v1
+    face: openface_temporal_v1
+    audio: wavlm_frozen_v1
