@@ -15,7 +15,8 @@
 | 单事件 embedding | `python scripts/04_extract_one_event_embeddings.py --window-index outputs/window_index/window_index.jsonl --require-all-modalities --encoder-profile basic` | `one_event_embeddings.npz`、`one_event_embedding_report.json` | [单事件 embedding 入口](../../scripts/04_extract_one_event_embeddings.py) |
 | 10 条 smoke embedding | `python scripts/05_extract_smoke_embeddings.py --window-index outputs/window_index/window_index.jsonl --require-all-modalities --max-events 10 --encoder-profile basic` | `smoke_10_events_basic_embeddings.npz`、`smoke_10_events_basic_report.json` | [smoke embedding 入口](../../scripts/05_extract_smoke_embeddings.py) |
 | 单被试 embedding | `python scripts/06_extract_subject_embeddings.py --window-index outputs/window_index/window_index.jsonl --subject-id sub-10 --require-all-modalities --encoder-profile basic` | `sub-10_basic_embeddings.npz`、`sub-10_basic_report.json` | [单被试入口](../../scripts/06_extract_subject_embeddings.py) |
-| 全量 embedding | `python scripts/07_extract_all_embeddings.py` | 当前为占位错误消息 | [全量占位入口](../../scripts/07_extract_all_embeddings.py) |
+| 全量 embedding | `python scripts/07_extract_all_embeddings.py --window-index outputs/window_index/window_index.jsonl --require-all-modalities` | `all_complete_basic_embeddings.npz`、`all_complete_multimodal_manifest.jsonl`、全量报告和失败清单 | [全量入口](../../scripts/07_extract_all_embeddings.py) |
+| baseline MLP | `python scripts/08_train_baseline_mlp.py --embeddings outputs/embeddings/all_complete_basic_embeddings.npz --split subject --out-dir outputs/models` | `baseline_mlp.pt`、`baseline_mlp_metrics.json`、`baseline_mlp_table.md` | [baseline 入口](../../scripts/08_train_baseline_mlp.py) |
 
 ## 视频音频对齐重跑参数
 
@@ -37,7 +38,7 @@
 | `outputs/embeddings/one_event_embeddings.npz` | 单事件 smoke embedding | [本地产物](../../outputs/embeddings/one_event_embeddings.npz) |
 | `outputs/embeddings/smoke_10_events_basic_embeddings.npz` | 10 条事件 smoke embedding | [本地产物](../../outputs/embeddings/smoke_10_events_basic_embeddings.npz) |
 
-当前本地同步产物尚未包含 `events_manifest_with_video_audio.jsonl`、`video_audio_alignment_report.json`、ffprobe cache 或单被试 embedding；运行对应阶段后需要从服务器同步回本地再更新本表。
+阶段 8/9 的入口已在本地微型合成数据上验证通过；完整服务器产物需要在 `wzw` 工作目录中按小规模到全量顺序重新生成。
 
 ## 常用验证
 
