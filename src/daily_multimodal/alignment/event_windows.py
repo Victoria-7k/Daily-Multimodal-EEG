@@ -101,7 +101,7 @@ def save_window_index(rows: list[dict[str, Any]], output: Path | str) -> Path:
 
 def load_window_index(path: Path | str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    with Path(path).open("r", encoding="utf-8") as handle:
+    with Path(path).open("r", encoding="utf-8-sig") as handle:
         for line in handle:
             if line.strip():
                 rows.append(json.loads(line))

@@ -17,6 +17,9 @@
 | 单被试 embedding | `python scripts/06_extract_subject_embeddings.py --window-index outputs/window_index/window_index.jsonl --subject-id sub-10 --require-all-modalities --encoder-profile basic` | `sub-10_basic_embeddings.npz`、`sub-10_basic_report.json` | [单被试入口](../../scripts/06_extract_subject_embeddings.py) |
 | 全量 embedding | `python scripts/07_extract_all_embeddings.py --window-index outputs/window_index/window_index.jsonl --require-all-modalities` | `all_complete_basic_embeddings.npz`、`all_complete_multimodal_manifest.jsonl`、全量报告和失败清单 | [全量入口](../../scripts/07_extract_all_embeddings.py) |
 | baseline MLP | `python scripts/08_train_baseline_mlp.py --embeddings outputs/embeddings/all_complete_basic_embeddings.npz --split subject --out-dir outputs/models` | `baseline_mlp.pt`、`baseline_mlp_metrics.json`、`baseline_mlp_table.md` | [baseline 入口](../../scripts/08_train_baseline_mlp.py) |
+| baseline 基准快照 | `python scripts/10_run_upgrade_ablation.py --embeddings outputs/embeddings/all_complete_basic_embeddings.npz --baseline outputs/reports/baseline_mlp_metrics.json --snapshot-baseline --target-label alert` | `baseline_reference_metrics.json`、`baseline_reference_table.md`、`baseline_reference_manifest.json` | [升级对照入口](../../scripts/10_run_upgrade_ablation.py) |
+| 融合升级对照 | `python scripts/10_run_upgrade_ablation.py --embeddings outputs/embeddings/all_complete_basic_embeddings.npz --baseline outputs/reports/baseline_reference_metrics.json --upgrade modality_token_attention --target-label alert` | `modality_token_fusion.pt`、`modality_token_fusion_metrics.json`、`model_upgrade_ablation_table.md`、`model_upgrade_failures.json` | [升级对照入口](../../scripts/10_run_upgrade_ablation.py) |
+| 真实 embedding 缓存准备 | `python scripts/11_prepare_real_embedding_cache.py --window-index outputs/window_index/window_index.jsonl --max-windows 10 --out-report outputs/reports/real_embedding_readiness_10.md --failures-out outputs/reports/real_embedding_failures_10.json` | `outputs/cache/audio_clips/`、`outputs/cache/openface/`、`outputs/cache/eeg_windows/`、`outputs/cache/wear_windows/`、readiness report、真实 encoder 失败清单 | [缓存准备入口](../../scripts/11_prepare_real_embedding_cache.py) |
 
 ## 视频音频对齐重跑参数
 
@@ -38,12 +41,13 @@
 | `outputs/embeddings/one_event_embeddings.npz` | 单事件 smoke embedding | [本地产物](../../outputs/embeddings/one_event_embeddings.npz) |
 | `outputs/embeddings/smoke_10_events_basic_embeddings.npz` | 10 条事件 smoke embedding | [本地产物](../../outputs/embeddings/smoke_10_events_basic_embeddings.npz) |
 
-阶段 8/9 的入口已在本地微型合成数据上验证通过；完整服务器产物需要在 `wzw` 工作目录中按小规模到全量顺序重新生成。
+阶段 8/9/10 的入口已在本地合成数据和服务器 `wzw` 工作目录中验证通过。服务器阶段 10 全量对照显示 `modality_token_attention` 相比 baseline full test RMSE 从 `0.8756` 降到 `0.6968`，判定为 `accepted`。阶段 11/12 的本地测试覆盖了真实 embedding 契约、失败清单、缓存 key、四模态 cache 记录和缺失源失败语义；服务器阶段 12 使用 `window_index_with_video_audio.jsonl` 中 10 条完整且带 `video_candidates` 的窗口验证通过，EEG、Wear、Face、Audio 均为 `ready=10, missing=0, failures=0`，失败清单为 `[]`。
 
 ## 常用验证
 
 | 目的 | 命令 |
 | --- | --- |
 | 跑全部单元测试 | `python -m pytest tests -q` |
+| 跑阶段 11-12 单元测试 | `python -m pytest tests/test_real_embedding_contracts.py tests/test_embedding_failures.py tests/test_real_pipeline.py -q` |
 | 检查导入和语法 | `python -m compileall -q src scripts tests` |
 | 验证 repo-docs 结构 | `python C:\Users\28303\.codex\skills\repo-docs\scripts\validate_repo_docs.py repo-docs --repo-root .` |

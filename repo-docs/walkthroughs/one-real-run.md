@@ -44,6 +44,18 @@
 
 `scripts/08_train_baseline_mlp.py` 负责阶段 9：读取全量 `.npz`，先做 128 窗口以内的过拟合检查，再按 subject split 训练 `eeg_only`、`wear_only`、`audio_only`、`face_only`、`eeg_wear`、`eeg_audio`、`eeg_face` 和 `full` 八组轻量 MLP 回归 baseline。当前实现是 numpy 版小模型，不依赖 PyTorch，目标是验收 embedding 是否可被稳定读取和学习；真实模型升级应继续与这个 baseline 在同一 split 下对照。
 
+## Step 8: baseline 固化后做第一个融合升级
+
+`scripts/10_run_upgrade_ablation.py` 负责阶段 10。第一步用 `--snapshot-baseline` 固化阶段 9 的 `baseline_mlp_metrics.json` 和表格，写出 `baseline_reference_metrics.json`、`baseline_reference_table.md` 和 `baseline_reference_manifest.json`。这个快照是后续进阶模型的回退基准，避免新实验覆盖原始 baseline。
+
+第一版真实升级是 `modality_token_attention`，它不重新抽 EEG、视频或音频原始特征，而是复用阶段 8 的四个 `(N, 256)` embedding。实现会把 EEG、wear、audio、face 堆成四个 modality token，用 `modality_mask` 排除缺失 token，以轻量 attention pooling 得到 `[N, 256]` 融合向量，再接阶段 9 同一套 MLP 回归头和 subject split。服务器全量对照中，baseline full test RMSE 为 `0.8756`，`modality_token_attention` test RMSE 为 `0.6968`，因此在 `model_upgrade_ablation_table.md` 中标记为 `accepted`。
+
+## Step 9: 真实 encoder 前先固定契约和缓存
+
+阶段 11 不直接接 WavLM、OpenFace 或 EEG 深度模型，而是先把真实 encoder 的边界收紧。[真实契约模块](../../src/daily_multimodal/embeddings/contracts.py) 要求每个真实单模态 embedding 是 `(256,)` 或 `(N, 256)` 浮点数组，不能包含 NaN 或无限值；[失败清单模块](../../src/daily_multimodal/embeddings/failures.py) 要求每条失败都带上 sample、modality、encoder profile、stage、error type 和 source path。空失败清单仍写为 `[]`，这样成功运行和“没有写失败文件”不会混在一起。
+
+阶段 12 再运行 `scripts/11_prepare_real_embedding_cache.py`，从窗口索引准备真实缓存。Audio 会按 `video_candidates` 的精确秒数切出 mono 16 kHz wav；face 只生成 OpenFace CSV 目标路径；EEG 和 wear 写出窗口 JSON，记录 BDF 或 PPG/GSR/ACC 源路径、窗口时间和目标采样参数。readiness report 会列出 EEG、wear、face、audio 各自的 ready count、missing count 和失败清单路径。这个阶段的目标是先区分“数据切片不可用”和“深度模型不可用”，避免阶段 13 以后把 ffmpeg、OpenFace、checkpoint 和模型 shape 问题混成一类错误。
+
 ## 验证
 
 本地最小验证命令是：
@@ -52,6 +64,6 @@
 python -m pytest tests -q
 ```
 
-理解主线后，可以按 [运行命令和产物](../references/commands-and-artifacts.md) 在服务器或同步副本上复现阶段命令。没有真实数据路径时，单元测试仍能确认 manifest 匹配、窗口切分、视频音频对齐、embedding 输出、subject 选择、完整候选集提取和 baseline subject split 这些核心行为。
+理解主线后，可以按 [运行命令和产物](../references/commands-and-artifacts.md) 在服务器或同步副本上复现阶段命令。没有真实数据路径时，单元测试仍能确认 manifest 匹配、窗口切分、视频音频对齐、embedding 输出、subject 选择、完整候选集提取、baseline subject split、升级对照判定、真实 embedding 契约和阶段 12 缓存失败语义这些核心行为。
 
 证据状态：除特别标注外，本页基于当前源码、测试、配置、本地输出副本和阶段验证记录已确认。

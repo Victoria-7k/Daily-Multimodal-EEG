@@ -10,6 +10,10 @@
 
 [basic encoder](../../src/daily_multimodal/embeddings/basic.py) 定义 `EMBED_DIM = 256` 和 `MODALITY_ORDER = ("eeg", "wear", "face", "audio")`。`extract_basic_embedding` 读取一个窗口，返回 `EmbeddingSample`。wear 分支会扫描 PPG/GSR/ACC CSV 的窗口内数值，计算均值、标准差、最小值、最大值等基础统计；EEG、face、audio 分支在当前阶段使用文件大小、窗口时长和路径 salt 生成 metadata-derived smoke 向量。
 
+[真实 embedding 契约](../../src/daily_multimodal/embeddings/contracts.py) 是阶段 11 后新增的保护层。`RealEmbeddingResult` 记录一个真实单模态结果的 `sample_id`、`event_id`、`subject_id`、`modality`、`embedding`、`mask_value`、`quality_flags`、`encoder_version` 和 `source_paths`；`validate_embedding_shape` 只接受 `(256,)` 或 `(N, 256)` 的浮点数组，并拒绝 NaN、无限值和非浮点 dtype。真实 encoder 后续替换时，应先通过这层检查，再进入 `.npz` 打包。
+
+[失败清单模块](../../src/daily_multimodal/embeddings/failures.py) 固化了真实 encoder 的可定位失败记录。`EmbeddingFailure` 必须包含 `modality`、`encoder_profile`、`stage`、`error_type` 和 `source_path` 等定位字段；`write_failure_list` 即使没有失败也会写出 JSON 空数组 `[]`，让阶段 12 以后每个失败窗口都能追到模态、文件、依赖或处理阶段。
+
 [批处理保存器](../../src/daily_multimodal/embeddings/pipeline.py) 把多个 `EmbeddingSample` 堆叠成 `.npz`：
 
 ```text
@@ -21,9 +25,10 @@ labels, source_paths -> JSON strings
 
 [embedding 测试](../../tests/test_embedding_pipeline.py) 确认一个只有 wear 可用的窗口会得到 `[0, 1, 0, 0]` mask、非零 `wear_emb` 和零 `eeg_emb`。同一测试也确认保存后的 `.npz` 维度是 `(2, 256)` 和 `(2, 4)`，并确认精确 `video_candidates` 会优先于日期级 `candidate_mp4_paths`。
 
+阶段 12 的 [真实缓存准备模块](../../src/daily_multimodal/embeddings/cache.py) 尚不生成最终真实 embedding；它先把切片边界和目标缓存路径固定下来。cache key 使用 `{sample_id}/{modality}/{encoder_profile}`，audio 写 mono 16 kHz wav，face 写 OpenFace CSV 目标路径，EEG 和 wear 写窗口 JSON 描述。这样后续 WavLM、OpenFace、EEG 和 wear sequence encoder 失败时，可以先判断是缓存/切片问题还是模型问题。
+
 ## 接下去阅读
 
 在主路径里，[Step 5: basic encoder 写出统一 embedding 契约](../walkthroughs/one-real-run.md#step-5-basic-encoder-写出统一-embedding-契约) 解释这层契约如何被脚本使用。需要查 `.npz`、报告和阶段产物时读 [运行命令和产物](../references/commands-and-artifacts.md)；需要查窗口字段时读 [字段契约](../references/data-contracts.md)。
 
 证据状态：除特别标注外，本页基于当前源码和测试已确认。
-

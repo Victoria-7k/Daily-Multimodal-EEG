@@ -16,6 +16,6 @@
 
 当前本地 `outputs/` 副本显示：事件总数为 `1272`，完整 wear 事件为 `1127`，有视频日期候选的事件为 `1103`，完整多模态候选为 `995`。这些数字来自 [manifest 汇总报告](../outputs/reports/manifest_summary.json) 和服务器验证记录；新的数据同步后应重新核对。
 
-本指南覆盖的是当前前半段流水线。阶段 8 的完整候选集基础 embedding 入口已经由 `scripts/07_extract_all_embeddings.py` 提供；阶段 9 的轻量 baseline 由 `scripts/08_train_baseline_mlp.py` 提供，使用 subject split 训练单模态、双模态和全模态对照。后续替换真实 EEG、OpenFace、WavLM/openSMILE 等编码器时，应同步更新 [统一 embedding 契约](modules/embedding-contract.md) 和 [变更记录](change-log.md)。
+本指南覆盖的是当前前半段流水线和真实 encoder 接入前的准备层。阶段 8 到阶段 10 已经形成从完整候选集 embedding、轻量 baseline，到第一版融合升级对照的闭环；阶段 11 到阶段 12 新增真实 embedding 契约、失败清单和四模态缓存准备入口。具体入口集中在 [运行命令和产物](references/commands-and-artifacts.md)。后续替换真实 EEG、OpenFace、WavLM/openSMILE 等编码器时，应同步更新 [统一 embedding 契约](modules/embedding-contract.md) 和 [变更记录](change-log.md)。
 
 证据状态：除特别标注外，本页基于当前源码、测试、配置和本地同步产物已确认。

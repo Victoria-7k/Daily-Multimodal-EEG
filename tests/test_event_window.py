@@ -1,6 +1,9 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
-from daily_multimodal.alignment.event_windows import build_window_index
+from daily_multimodal.alignment.event_windows import build_window_index, load_window_index
 
 
 class EventWindowTests(unittest.TestCase):
@@ -83,6 +86,20 @@ class EventWindowTests(unittest.TestCase):
             [-20, -15, -10],
         )
         self.assertEqual(windows[-1]["window_end_time"], "2025-02-28 14:13:10")
+
+    def test_load_window_index_accepts_utf8_bom_jsonl(self):
+        row = {
+            "sample_id": "sample-cli-1",
+            "event_id": "event-cli-1",
+            "subject_id": "sub-02",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "window_index.jsonl"
+            path.write_text(json.dumps(row) + "\n", encoding="utf-8-sig")
+
+            loaded = load_window_index(path)
+
+        self.assertEqual(loaded, [row])
 
 
 if __name__ == "__main__":
