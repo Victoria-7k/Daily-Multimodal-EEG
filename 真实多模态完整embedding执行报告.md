@@ -50,3 +50,325 @@ PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
 ```
 
 结果：`outputs/window_index/window_index_with_video_audio.jsonl` 中筛出的 10 条完整且带 `video_candidates` 的窗口全部通过缓存准备；EEG、Wear、Face、Audio 均为 `ready=10, missing=0, failures=0`，失败清单为 `[]`。缓存计数为 `audio.wav=10`、`audio.json=10`、`openface_target.json=10`、`eeg window.json=10`、`wear window.json=10`。
+
+## 阶段 13：Audio 真实 embedding，WavLM/wav2vec2 frozen
+
+状态：阶段 13 音频真实 embedding 路径已跑通到单被试；全量和 ablation 留到后续统一执行。
+
+- 新增 `src/daily_multimodal/embeddings/audio_real.py`，从阶段 12 的 `audio_clips` cache 读取 16 kHz mono wav，调用 frozen audio backend 输出 frame embedding，mean pooling 后用固定随机种子投影到 256 维。
+- 新增 `scripts/12_extract_audio_embeddings.py`，写出 `audio_real_embeddings.npz`，包含 `audio_emb`、`sample_id`、`event_id`、`subject_id`、`modality_mask`、`quality_flags` 和 `encoder_version`。
+- checkpoint 不存在时写入 `checkpoint_missing`，缺少 `torch`、`torchaudio` 或 `transformers` 时写入 `dependency_missing`，不静默回退到 metadata 或随机 embedding。
+- 新增 `tests/test_audio_real_embedding.py`，用可注入 fake backend 验证成功路径，用 CLI smoke 验证缺 checkpoint 会写失败清单并返回失败码。
+- `configs/encoders.yaml` 增加 `audio_real_profiles`，记录 `wavlm_frozen_v1` 和 `wav2vec2_frozen_v1` 的 256 维、16 kHz、mean pooling、checkpoint required 约束。
+
+本地验证：
+
+```powershell
+python -m pytest tests/test_audio_real_embedding.py -q
+python -m compileall -q src scripts tests
+```
+
+服务器依赖巡检：
+
+```text
+默认 Python: torch=False, torchaudio=False, transformers=False
+conda env lzs: torch=True, torchaudio=True, transformers=True, huggingface_hub=True
+```
+
+缺 checkpoint 验证：
+
+```text
+failure_count=10
+failure_types={"checkpoint_missing": 10}
+audio_emb_shape=(0, 256)
+modality_mask_shape=(0, 4)
+nan_count=0
+```
+
+上述负向验证用于确认缺 checkpoint 或默认环境缺依赖时不会静默生成伪 real embedding；真模型验收已切到具备依赖的 `lzs` 环境，并使用 wav2vec2 safetensors fallback 完成。
+
+真实 checkpoint 处理：
+
+- `microsoft/wavlm-base-plus` 已下载到 `outputs/checkpoints/wavlm-base-plus`，但当前可用权重是 `.bin`，在服务器 `torch 2.5.1` + 新版 `transformers` 下会触发 torch>=2.6 的安全限制，未用于阶段 13 验收。
+- `facebook/wav2vec2-base-960h` 已通过 HF mirror 下载到 `outputs/checkpoints/wav2vec2-base-960h`，使用 `model.safetensors` 作为 `wav2vec2_frozen_v1` fallback checkpoint。
+
+服务器真模型 10 窗口验证：
+
+```bash
+cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding
+source /home/lzs/miniconda3/etc/profile.d/conda.sh
+conda activate lzs
+PYTHONPATH=src python scripts/12_extract_audio_embeddings.py \
+  --window-index outputs/window_index/real_cache_complete_10.jsonl \
+  --cache-root outputs/cache/real_stage12_wav2vec2_10 \
+  --encoder-profile wav2vec2_frozen_v1 \
+  --checkpoint outputs/checkpoints/wav2vec2-base-960h \
+  --device cuda \
+  --out outputs/embeddings/audio_real_wav2vec2_10_embeddings.npz \
+  --failures-out outputs/reports/audio_real_wav2vec2_10_failures.json \
+  --summary-out outputs/reports/audio_real_wav2vec2_10_quality_summary.json
+```
+
+结果：
+
+```text
+audio_emb.shape=(10, 256)
+sample_count=10
+failure_count=0
+nan_count=0
+modality_mask[0]=[0, 0, 0, 1]
+failures=[]
+```
+
+服务器单被试验证：
+
+```bash
+cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding
+source /home/lzs/miniconda3/etc/profile.d/conda.sh
+conda activate lzs
+PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --cache-root outputs/cache/real_stage12_wav2vec2_sub-12 \
+  --audio-encoder-profile wav2vec2_frozen_v1 \
+  --out-report outputs/reports/real_embedding_readiness_wav2vec2_sub-12.md \
+  --failures-out outputs/reports/real_embedding_failures_wav2vec2_sub-12.json
+PYTHONPATH=src python scripts/12_extract_audio_embeddings.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --cache-root outputs/cache/real_stage12_wav2vec2_sub-12 \
+  --encoder-profile wav2vec2_frozen_v1 \
+  --checkpoint outputs/checkpoints/wav2vec2-base-960h \
+  --device cuda \
+  --out outputs/embeddings/audio_real_wav2vec2_sub-12_embeddings.npz \
+  --failures-out outputs/reports/audio_real_wav2vec2_sub-12_failures.json \
+  --summary-out outputs/reports/audio_real_wav2vec2_sub-12_quality_summary.json
+```
+
+结果：
+
+```text
+filtered_subject=sub-12
+filtered_count=25
+eeg_ready_count=25, eeg_missing_count=0
+wear_ready_count=25, wear_missing_count=0
+face_ready_count=25, face_missing_count=0
+audio_ready_count=25, audio_missing_count=0
+audio_emb.shape=(25, 256)
+sample_count=25
+failure_count=0
+nan_count=0
+failures=[]
+```
+
+全量 audio embedding 和 `scripts/17_run_real_embedding_ablation.py` 对照尚未执行，按当前安排留到后续与其它真实模态统一跑。
+
+## 阶段 15：EEG 真实 embedding，MNE + bandpower/statistics baseline
+
+状态：`eeg_bandpower_v1` 和 `eeg_deep_frozen_v1` 已跑通到单被试；全量 EEG 和后续 ablation 留到后续统一执行。
+
+- 新增 `src/daily_multimodal/embeddings/eeg_real.py`，读取阶段 12 的 `eeg_windows` cache，使用 MNE 从 BDF 裁剪窗口附近数据，执行 50 Hz notch、1-45 Hz bandpass、250 Hz 重采样，并要求窗口为 `[channels, 2500]`。
+- 新增 `scripts/14_extract_eeg_embeddings.py`，写出 `eeg_real_embeddings.npz`，包含 `eeg_emb`、`sample_id`、`event_id`、`subject_id`、`modality_mask`、`quality_flags` 和 `encoder_version`。
+- `eeg_bandpower_v1` 使用每通道统计量和 1-4/4-8/8-13/13-30/30-45 Hz bandpower 聚合，再用固定随机种子投影到 256 维。
+- `eeg_deep_frozen_v1` 使用 Braindecode EEGPT frozen backend，从 `braindecode/eegpt-pretrained` 的 `model.safetensors` 抽取 2048 维 deep feature，再投影到 256 维。
+- 缺 cache 或 BDF 时写 `source_missing`；窗口维度不是 2500 samples、空通道或非有限值时写 `shape_mismatch`；缺 MNE/Braindecode 时写 `dependency_missing`；缺 deep checkpoint 时写 `checkpoint_missing`；CUDA/CPU OOM 时写 `oom`。
+- 新增 `tests/test_eeg_real_embedding.py`，覆盖成功写 `.npz`、缺 cache、shape mismatch、deep checkpoint 缺失、deep feature shape mismatch、OOM 分类和 CLI 失败清单。
+- `configs/encoders.yaml` 增加 `eeg_real_profiles`，记录 `eeg_bandpower_v1` 和 `eeg_deep_frozen_v1` 的 256 维、250 Hz、2500 samples、Braindecode EEGPT backend 和 checkpoint 约束。
+
+本地验证：
+
+```powershell
+python -m pytest tests -q
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+47 passed
+compileall passed
+```
+
+服务器验证：
+
+```bash
+cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding
+source /home/lzs/miniconda3/etc/profile.d/conda.sh
+conda activate lzs
+PYTHONPATH=src python -m unittest discover -s tests
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+Ran 47 tests
+OK
+compileall passed
+```
+
+服务器 10 窗口验证：
+
+```bash
+PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
+  --window-index outputs/window_index/real_cache_complete_10.jsonl \
+  --cache-root outputs/cache/real_stage12_wav2vec2_10 \
+  --eeg-encoder-profile eeg_bandpower_v1 \
+  --audio-encoder-profile wav2vec2_frozen_v1 \
+  --out-report outputs/reports/real_embedding_readiness_eeg_bandpower_10.md \
+  --failures-out outputs/reports/real_embedding_failures_eeg_bandpower_10.json
+PYTHONPATH=src python scripts/14_extract_eeg_embeddings.py \
+  --window-index outputs/window_index/real_cache_complete_10.jsonl \
+  --cache-root outputs/cache/real_stage12_wav2vec2_10 \
+  --encoder-profile eeg_bandpower_v1 \
+  --out outputs/embeddings/eeg_real_bandpower_10_embeddings.npz \
+  --failures-out outputs/reports/eeg_real_bandpower_10_failures.json \
+  --summary-out outputs/reports/eeg_real_bandpower_10_quality_summary.json
+```
+
+结果：
+
+```text
+eeg_ready_count=10, eeg_missing_count=0
+eeg_emb.shape=(10, 256)
+success_count=10
+failure_count=0
+nan_count=0
+mean_channel_count=64.0
+target_window_samples=2500
+failures=[]
+```
+
+服务器单被试验证：
+
+```bash
+PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --cache-root outputs/cache/real_stage12_wav2vec2_sub-12 \
+  --eeg-encoder-profile eeg_bandpower_v1 \
+  --audio-encoder-profile wav2vec2_frozen_v1 \
+  --out-report outputs/reports/real_embedding_readiness_eeg_bandpower_sub-12.md \
+  --failures-out outputs/reports/real_embedding_failures_eeg_bandpower_sub-12.json
+PYTHONPATH=src python scripts/14_extract_eeg_embeddings.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --cache-root outputs/cache/real_stage12_wav2vec2_sub-12 \
+  --encoder-profile eeg_bandpower_v1 \
+  --out outputs/embeddings/eeg_real_bandpower_sub-12_embeddings.npz \
+  --failures-out outputs/reports/eeg_real_bandpower_sub-12_failures.json \
+  --summary-out outputs/reports/eeg_real_bandpower_sub-12_quality_summary.json
+```
+
+结果：
+
+```text
+eeg_ready_count=25, eeg_missing_count=0
+eeg_emb.shape=(25, 256)
+sample_count=25
+success_count=25
+failure_count=0
+nan_count=0
+mean_channel_count=64.0
+target_window_samples=2500
+failures=[]
+```
+
+EEGPT checkpoint 接入：
+
+```bash
+cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding
+source /home/lzs/miniconda3/etc/profile.d/conda.sh
+conda activate lzs
+HF_ENDPOINT=https://hf-mirror.com python - <<'PY'
+from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id="braindecode/eegpt-pretrained",
+    local_dir="outputs/checkpoints/eegpt-pretrained",
+    resume_download=True,
+)
+PY
+```
+
+服务器环境：
+
+```text
+braindecode=1.5.2
+pandas=2.3.3
+checkpoint=outputs/checkpoints/eegpt-pretrained
+checkpoint files=config.json, model.safetensors, pytorch_model.bin
+```
+
+加载说明：Braindecode 1.5.2 的 `EEGPT.from_pretrained()` 对该 checkpoint 的 `chans_id` 会出现 62 vs 19 的 shape mismatch；当前 backend 改为按真实 BDF 窗口通道数懒初始化模型，并从 `model.safetensors` 过滤加载 shape 匹配权重。10 窗口和单被试结果中均为 `loaded_key_count=102`、`skipped_key_count=1`、`skipped_keys_preview=['chans_id']`。
+
+服务器 EEGPT 10 窗口验证：
+
+```bash
+PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
+  --window-index outputs/window_index/real_cache_complete_10.jsonl \
+  --cache-root outputs/cache/real_stage12_eegpt_10 \
+  --eeg-encoder-profile eeg_deep_frozen_v1 \
+  --audio-encoder-profile wav2vec2_frozen_v1 \
+  --out-report outputs/reports/real_embedding_readiness_eegpt_10.md \
+  --failures-out outputs/reports/real_embedding_failures_eegpt_10.json
+PYTHONPATH=src python scripts/14_extract_eeg_embeddings.py \
+  --window-index outputs/window_index/real_cache_complete_10.jsonl \
+  --cache-root outputs/cache/real_stage12_eegpt_10 \
+  --encoder-profile eeg_deep_frozen_v1 \
+  --checkpoint outputs/checkpoints/eegpt-pretrained \
+  --device cpu \
+  --out outputs/embeddings/eeg_real_eegpt_10_embeddings.npz \
+  --failures-out outputs/reports/eeg_real_eegpt_10_failures.json \
+  --summary-out outputs/reports/eeg_real_eegpt_10_quality_summary.json
+```
+
+结果：
+
+```text
+eeg_ready_count=10, eeg_missing_count=0
+eeg_emb.shape=(10, 256)
+sample_count=10
+success_count=10
+failure_count=0
+nan_count=0
+mean_channel_count=64.0
+target_window_samples=2500
+deep_backend=braindecode_eegpt
+deep_feature_dim=2048
+failures=[]
+```
+
+服务器 EEGPT 单被试验证：
+
+```bash
+PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --cache-root outputs/cache/real_stage12_eegpt_sub-12 \
+  --eeg-encoder-profile eeg_deep_frozen_v1 \
+  --audio-encoder-profile wav2vec2_frozen_v1 \
+  --out-report outputs/reports/real_embedding_readiness_eegpt_sub-12.md \
+  --failures-out outputs/reports/real_embedding_failures_eegpt_sub-12.json
+PYTHONPATH=src python scripts/14_extract_eeg_embeddings.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --cache-root outputs/cache/real_stage12_eegpt_sub-12 \
+  --encoder-profile eeg_deep_frozen_v1 \
+  --checkpoint outputs/checkpoints/eegpt-pretrained \
+  --device cpu \
+  --out outputs/embeddings/eeg_real_eegpt_sub-12_embeddings.npz \
+  --failures-out outputs/reports/eeg_real_eegpt_sub-12_failures.json \
+  --summary-out outputs/reports/eeg_real_eegpt_sub-12_quality_summary.json
+```
+
+结果：
+
+```text
+eeg_ready_count=25, eeg_missing_count=0
+eeg_emb.shape=(25, 256)
+sample_count=25
+success_count=25
+failure_count=0
+nan_count=0
+mean_channel_count=64.0
+target_window_samples=2500
+deep_backend=braindecode_eegpt
+deep_feature_dim=2048
+failures=[]
+```
+
+补充：单被试使用 `--device cuda` 时服务器显存不足，失败清单会写 `error_type=oom`；当前 deep checkpoint 验收使用 CPU 完成。剩余项为全量 EEG embedding 和后续 ablation。
