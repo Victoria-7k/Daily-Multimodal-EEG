@@ -1,0 +1,208 @@
+{
+  "stage": "real_embedding_quality_summary",
+  "generated_from": [
+    "outputs/reports/audio_real_wav2vec2_full_quality_summary.json",
+    "outputs/reports/eeg_real_eegpt_full_quality_summary.json",
+    "outputs/reports/face_raw_openface_full_quality_summary.json",
+    "outputs/reports/wear_real_sequence_full_quality_summary.json",
+    "outputs/reports/all_complete_real_embedding_report.json",
+    "outputs/reports/real_embedding_ablation_metrics.json"
+  ],
+  "all_real_embedding": {
+    "embedding_path": "outputs/embeddings/all_complete_real_embeddings.npz",
+    "row_count": 781,
+    "embedding_shapes": {
+      "eeg_emb": [
+        781,
+        256
+      ],
+      "wear_emb": [
+        781,
+        256
+      ],
+      "face_emb": [
+        781,
+        256
+      ],
+      "audio_emb": [
+        781,
+        256
+      ]
+    },
+    "modality_mask_shape": [
+      781,
+      4
+    ],
+    "modality_mask_sum": [
+      738,
+      781,
+      657,
+      781
+    ],
+    "nan_count": {
+      "eeg_emb": 0,
+      "wear_emb": 0,
+      "face_emb": 0,
+      "audio_emb": 0
+    },
+    "pack_failure_count": 43
+  },
+  "modalities": {
+    "audio": {
+      "summary_path": "outputs/reports/audio_real_wav2vec2_full_quality_summary.json",
+      "embedding_path": "outputs/embeddings/audio_real_wav2vec2_full_embeddings.npz",
+      "encoder_profile": "wav2vec2_frozen_v1",
+      "embedded_count": null,
+      "success_count": 781,
+      "failure_count": 0,
+      "masked_count": null,
+      "nan_count": 0,
+      "failure_types": {},
+      "metrics": {
+        "failure_count": 0,
+        "mean_duration_seconds": 58.01817797695262,
+        "nan_count": 0,
+        "success_count": 781
+      }
+    },
+    "eeg": {
+      "summary_path": "outputs/reports/eeg_real_eegpt_full_quality_summary.json",
+      "embedding_path": "outputs/embeddings/eeg_real_eegpt_full_embeddings.npz",
+      "encoder_profile": "eeg_deep_frozen_v1",
+      "embedded_count": null,
+      "success_count": 738,
+      "failure_count": 43,
+      "masked_count": null,
+      "nan_count": 0,
+      "failure_types": {
+        "shape_mismatch": 43
+      },
+      "metrics": {
+        "failure_count": 43,
+        "mean_channel_count": 64.0,
+        "nan_count": 0,
+        "success_count": 738
+      }
+    },
+    "face": {
+      "summary_path": "outputs/reports/face_raw_openface_full_quality_summary.json",
+      "embedding_path": "outputs/embeddings/face_raw_openface_full_embeddings.npz",
+      "encoder_profile": "face_raw_openface_stats_v1",
+      "embedded_count": 781,
+      "success_count": 657,
+      "failure_count": 124,
+      "masked_count": 124,
+      "nan_count": 0,
+      "failure_types": {
+        "quality_threshold_failed": 124
+      },
+      "metrics": {
+        "embedded_count": 781,
+        "failure_count": 124,
+        "masked_count": 124,
+        "mean_blur_frame_ratio": null,
+        "mean_dark_frame_ratio": null,
+        "mean_face_detection_success_rate": 0.6355953905249679,
+        "mean_low_confidence_ratio": 0.9325224071702944,
+        "mean_multi_face_ratio": 0.0,
+        "mean_openface_confidence": 0.40522933537653255,
+        "mean_pose_bad_ratio": 0.0,
+        "nan_count": 0,
+        "success_count": 657
+      }
+    },
+    "wear": {
+      "summary_path": "outputs/reports/wear_real_sequence_full_quality_summary.json",
+      "embedding_path": "outputs/embeddings/wear_real_sequence_full_embeddings.npz",
+      "encoder_profile": "wear_sequence_v1",
+      "embedded_count": 781,
+      "success_count": 781,
+      "failure_count": 0,
+      "masked_count": 0,
+      "nan_count": 0,
+      "failure_types": {},
+      "metrics": {
+        "embedded_count": 781,
+        "failure_count": 0,
+        "masked_count": 0,
+        "mean_acc_effective_sampling_rate_hz": 1.0,
+        "mean_gsr_effective_sampling_rate_hz": 1.0,
+        "mean_motion_intensity": 9.951365379304189,
+        "mean_ppg_effective_sampling_rate_hz": 1.0,
+        "mean_stationary_ratio": 0.7930793653342111,
+        "nan_count": 0,
+        "success_count": 781
+      }
+    }
+  },
+  "ablation": {
+    "metrics_path": "outputs/reports/real_embedding_ablation_metrics.json",
+    "table_path": "outputs/reports/real_embedding_ablation_table.md",
+    "experiment_count": 13,
+    "failure_count": 0,
+    "accepted": [
+      "stage10_modality_token_attention",
+      "face_real_only_replaced"
+    ],
+    "rollback": [
+      "audio_real_only_replaced",
+      "face_raw_openface_stats_v1",
+      "face_preprocessed_openface_stats_v1",
+      "eeg_real_only_replaced",
+      "wear_real_only_replaced",
+      "all_real_concat_mlp",
+      "all_real_modality_token_attention",
+      "all_real_without_face",
+      "all_real_with_raw_face",
+      "all_real_with_preprocessed_face"
+    ],
+    "split": {
+      "train_subjects": [
+        "sub-02",
+        "sub-03",
+        "sub-04",
+        "sub-05",
+        "sub-06",
+        "sub-07",
+        "sub-08",
+        "sub-09",
+        "sub-10"
+      ],
+      "val_subjects": [
+        "sub-11",
+        "sub-12"
+      ],
+      "test_subjects": [
+        "sub-13",
+        "sub-14",
+        "sub-15"
+      ],
+      "sample_counts": {
+        "train": 554,
+        "val": 85,
+        "test": 142
+      }
+    },
+    "face_seed_summary": {
+      "experiment": "face_raw_openface_stats_v1",
+      "seed_count": 5,
+      "seeds": [
+        17,
+        29,
+        41,
+        53,
+        67
+      ],
+      "test_rmse_median": 0.9027857184410095,
+      "test_rmse_mean": 0.9043174982070923,
+      "test_rmse_std": 0.03412192687392235,
+      "test_rmse_best": 0.8568586707115173,
+      "test_rmse_worst": 0.9455887675285339,
+      "bootstrap_ci95_delta_rmse": {
+        "low": -0.0011442303657531738,
+        "high": 0.05857163667678833,
+        "iterations": 1000
+      }
+    }
+  }
+}

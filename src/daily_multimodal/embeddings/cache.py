@@ -212,6 +212,7 @@ def _prepare_face_cache(
     if not source.is_file():
         _record_missing(summary, failures, window, modality, encoder_profile, "select_face_source", str(source))
         return
+    start_seconds, end_seconds = _candidate_clip_bounds(candidate, window)
     output_dir = _sample_cache_dir(cache_root, "openface", window, encoder_profile)
     record_out = output_dir / "openface_target.json"
     _write_json(
@@ -220,6 +221,8 @@ def _prepare_face_cache(
             **_base_cache_record(window, modality, encoder_profile),
             "source_path": str(source),
             "target_csv_path": str(output_dir / "openface.csv"),
+            "clip_start_seconds": start_seconds,
+            "clip_end_seconds": end_seconds,
             "openface_required": False,
             "note": "Stage 12 records the target CSV path; OpenFace runs in stage 14.",
         },

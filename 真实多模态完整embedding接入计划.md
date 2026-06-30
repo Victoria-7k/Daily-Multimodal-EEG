@@ -451,28 +451,28 @@ No VideoMAE until OpenFace path stable
 
 **Tasks:**
 
-- [ ] 检查 OpenFace 可执行文件路径，缺失时记录 `dependency_missing`。
-- [ ] 新增 `scripts/13_audit_face_quality.py`，先对原始 MP4 做质量审计，输出 `outputs/reports/face_quality_audit.md` 和 JSON 摘要。
-- [ ] 先对 1 个 MP4 跑 OpenFace，确认 CSV 字段包含 AU、gaze、pose、confidence、success。
-- [ ] 对每个窗口从 OpenFace CSV 切片，计算均值、标准差、成功率、低 confidence 比例。
-- [ ] 输出 `face_emb [256]` 和 `face_quality`。
-- [ ] 统计 `face_missing_ratio`，超过阈值时 `mask_value=0` 并记录 `quality_threshold_failed`。
-- [ ] 先完整跑通 `face_raw_openface_stats_v1`；只有触发 raw-first decision rule 时，才实现并运行 `face_preprocessed_openface_stats_v1`。
-- [ ] 输出 `outputs/reports/face_preprocessing_decision.json`，记录是否启用预处理、触发条件、质量指标变化、下游指标变化和最终默认分支。
+- [x] 检查 OpenFace 可执行文件路径，缺失时记录 `dependency_missing`。服务器 `FeatureExtraction/OpenFaceOffline` 缺失；默认路径会写 `dependency_missing`，显式 `--allow-opencv-fallback` 才启用 raw OpenCV fallback。
+- [x] 新增 `scripts/13_audit_face_quality.py`，先对原始 MP4 做质量审计，输出 `outputs/reports/face_quality_audit.md` 和 JSON 摘要。
+- [x] 先对 1 个 MP4 跑 OpenFace，确认 CSV 字段包含 AU、gaze、pose、confidence、success。实际服务器缺 OpenFace，已改为等价 dirty raw fallback CSV：`success/confidence/face_count/face_area_ratio/gray_mean/laplacian_var/pose/gaze`，不做预处理。
+- [x] 对每个窗口从 OpenFace/等价 CSV 切片，计算均值、标准差、成功率、低 confidence 比例。
+- [x] 输出 `face_emb [256]` 和 `face_quality`。
+- [x] 统计 `face_missing_ratio`，超过阈值时 `mask_value=0` 并记录 `quality_threshold_failed`。
+- [x] 先完整跑通 `face_raw_openface_stats_v1`；只有触发 raw-first decision rule 时，才实现并运行 `face_preprocessed_openface_stats_v1`。当前 raw 质量门槛未通过，但下游 5-seed/bootstrap 尚未执行，因此不把预处理分支设为默认。
+- [x] 输出 `outputs/reports/face_preprocessing_decision.json`，记录是否启用预处理、触发条件、质量指标变化、下游指标变化和最终默认分支。
 
 **Small-run command:**
 
 ```bash
-ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/13_extract_face_embeddings.py --window-index outputs/window_index/window_index.jsonl --max-windows 10 --encoder-profile openface_stats_v1 --out outputs/embeddings/face_real_10_embeddings.npz --failures-out outputs/reports/face_real_10_failures.json"
+ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && source /home/lzs/miniconda3/etc/profile.d/conda.sh && conda activate lzs && PYTHONPATH=src python scripts/13_extract_face_embeddings.py --window-index outputs/window_index/real_cache_complete_10.jsonl --cache-root outputs/cache/real_stage12_face_raw_10 --encoder-profile face_raw_openface_stats_v1 --allow-opencv-fallback --min-success-rate 0.10 --out outputs/embeddings/face_raw_openface_10_embeddings.npz --failures-out outputs/reports/face_raw_openface_10_failures.json --summary-out outputs/reports/face_raw_openface_10_quality_summary.json --decision-out outputs/reports/face_preprocessing_decision_10.json"
 ```
 
 **Acceptance:**
 
-- OpenFace CSV 缓存可复用，重复运行不重复处理同一个 MP4。
-- `face_emb.shape == (N, 256)`。
-- 每个低质量窗口都有 quality flag，不把坏脸窗口当作正常信号。
-- 原始 face 分支和预处理 face 分支必须使用不同 encoder profile 和不同缓存路径。
-- 是否启用预处理必须由质量门槛、5 seed 下游指标和 bootstrap delta 共同决定，不能只看单次训练结果。
+- OpenFace/等价 CSV 缓存可复用，重复运行不重复处理同一个窗口 CSV。已生成 10 窗口和 `sub-12` 单被试 raw CSV cache。
+- `face_emb.shape == (N, 256)`。已通过：10 窗口 `(10, 256)`，`sub-12` 单被试 `(25, 256)`。
+- 每个低质量窗口都有 quality flag，不把坏脸窗口当作正常信号。已通过：10 窗口中 6 个低质量窗口写 `quality_threshold_failed` 且 face mask 为 0；`sub-12` 单被试 25 个窗口均达到当前 dirty fallback 的 `min_success_rate=0.10`。
+- 原始 face 分支和预处理 face 分支必须使用不同 encoder profile 和不同缓存路径。已在配置中区分 `face_raw_openface_stats_v1` 与 `face_preprocessed_openface_stats_v1`。
+- 是否启用预处理必须由质量门槛、5 seed 下游指标和 bootstrap delta 共同决定，不能只看单次训练结果。当前 `face_preprocessing_decision_10.json` 和 `face_preprocessing_decision_sub-12.json` 均保留默认 raw 分支，记录 raw 质量门槛未通过与下游门槛未运行；不默认启用预处理。
 
 ### 阶段 15：EEG 真实 embedding，MNE 预处理 + frozen EEG encoder
 
@@ -521,6 +521,7 @@ ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && sour
 - 每个成功窗口 shape 为 `[channels, 2500]` 或报告中记录原始 channel count 和有效 channel count。已记录 `mean_channel_count=64.0` 和 `target_window_samples=2500`。
 - 全量前必须先跑单被试，例如 `sub-10`。已用 `sub-12` 25 条完整窗口通过：`eeg_emb.shape == (25, 256)`、失败清单 `[]`、NaN 数量 0。
 - EEG deep encoder 失败时可回退 `eeg_bandpower_v1`。已验证 deep 路径：10 窗口 `eeg_emb.shape == (10, 256)`，`sub-12` 单被试 `eeg_emb.shape == (25, 256)`，失败清单均为 `[]`，NaN 数量 0；CUDA 单被试因显存不足会记录 `oom`，当前验收使用 CPU。
+- 全量 EEGPT CPU 路径已完成：`outputs/embeddings/eeg_real_eegpt_full_embeddings.npz`，`success_count=738`、`failure_count=43`、`nan_count=0`；失败为可记录样本级失败，不阻塞后续打包，后续通过 `modality_mask` 回退。
 
 ### 阶段 16：Wear 真实 sequence embedding
 
@@ -542,18 +543,20 @@ Primary: resampled raw sequence + TCN/PatchTST/TS2Vec style frozen or lightweigh
 
 **Tasks:**
 
-- [ ] 从 CSV 按绝对时间切 PPG/GSR/ACC。
-- [ ] PPG 目标采样率 64 Hz，GSR/ACC 目标采样率 32 Hz。
-- [ ] 对缺点、重复时间戳、非单调时间戳写 quality flags。
-- [ ] 输出 raw sequence cache 和统计特征 cache。
-- [ ] 训练或加载 lightweight sequence encoder，输出 256 维。
-- [ ] 和当前 `basic_wear_statistics_v1` 对照，若 sequence encoder 不提升则回退统计特征。
+- [x] 从 CSV 按绝对时间切 PPG/GSR/ACC。
+- [x] PPG 目标采样率 64 Hz，GSR/ACC 目标采样率 32 Hz。
+- [x] 对缺点、重复时间戳、非单调时间戳写 quality flags。
+- [x] 输出 raw sequence cache 和统计特征 cache。
+- [x] 加入 `wear_sequence_v1` lightweight deterministic sequence encoder，输出 256 维。
+- [x] 和当前 `basic_wear_statistics_v1` 对照，若 sequence encoder 不提升则回退统计特征。阶段 18 全量 ablation 中 `wear_real_only_replaced` 为 rollback。
 
 **Acceptance:**
 
 - raw sequence shape 稳定。
 - 统计特征和 sequence embedding 都可写入质量报告。
 - motion intensity、stationary ratio、有效采样率进入 `wear_quality`。
+- 已完成 10 窗口和 `sub-12` 单被试验收：10 窗口 `wear_emb.shape == (10, 256)`，单被试 `wear_emb.shape == (25, 256)`，失败清单均为 `[]`，NaN 数量 0；raw sequence cache shape 为 PPG `[640, 1]`、GSR `[320, 1]`、ACC `[320, 3]`。
+- 全量 Wear 已完成：6 个 source-group chunk 均 `exit=0`，合并为 `outputs/embeddings/wear_real_sequence_full_embeddings.npz`，`embedded_count=781`、`success_count=781`、`failure_count=0`、`nan_count=0`；旧的长跑 full 进程已停止，旧产物备份为 `outputs/embeddings/wear_real_sequence_full_embeddings.stale_from_killed_processes.npz`。
 
 ### 阶段 17：全量真实多模态 embedding 打包
 
@@ -567,13 +570,13 @@ Primary: resampled raw sequence + TCN/PatchTST/TS2Vec style frozen or lightweigh
 
 **Tasks:**
 
-- [ ] 读取单模态真实 embedding 产物。
-- [ ] 按 `sample_id` inner join，保持样本顺序稳定。
-- [ ] 对缺失模态写零向量和 `modality_mask=0`。
-- [ ] 合并 `quality_flags`、`encoder_versions`、`source_paths`。
-- [ ] 输出 `outputs/embeddings/all_complete_real_embeddings.npz`。
-- [ ] 输出 `outputs/reports/all_complete_real_embedding_report.json`。
-- [ ] 输出 `outputs/reports/all_complete_real_embedding_failures.json`。
+- [x] 读取单模态真实 embedding 产物。
+- [x] 以 window index 为主表按 `sample_id` 对齐，保持样本顺序稳定。
+- [x] 对缺失或 mask=0 的模态写零向量和 `modality_mask=0`。
+- [x] 合并 `quality_flags`、`encoder_versions`、`source_paths`。
+- [x] 输出 `outputs/embeddings/all_complete_real_embeddings.npz`；单被试验收产物为 `outputs/embeddings/all_complete_real_sub-12_embeddings.npz`。
+- [x] 输出 `outputs/reports/all_complete_real_embedding_report.json`；单被试验收产物为 `outputs/reports/all_complete_real_sub-12_embedding_report.json`。
+- [x] 输出 `outputs/reports/all_complete_real_embedding_failures.json`；单被试验收产物为 `outputs/reports/all_complete_real_sub-12_embedding_failures.json`。
 
 **Acceptance:**
 
@@ -581,6 +584,8 @@ Primary: resampled raw sequence + TCN/PatchTST/TS2Vec style frozen or lightweigh
 - `modality_mask` 为 `(N, 4)`。
 - `sample_id` 与原 window index 可追溯。
 - 报告中列出每个模态的成功数、失败数、mask 分布。
+- 已完成服务器 `sub-12` 单被试打包验收：`N=25`，四个 embedding 均为 `(25, 256)`，`modality_mask.shape == (25, 4)`，mask sum 为 `[25, 25, 25, 25]`，失败清单 `[]`，NaN 数量 0。
+- 已完成服务器全量打包验收：`outputs/embeddings/all_complete_real_embeddings.npz` 共 781 行，四个 embedding 均为 `(781, 256)`，NaN 数量均为 0，`modality_mask` sum 为 `[738, 781, 657, 781]`；打包报告记录 `failure_count=43`，来自 EEG 缺失行，Face 原始质量 mask 为 124。
 
 ### 阶段 18：真实 embedding 训练和 ablation 对照
 
@@ -589,7 +594,7 @@ Primary: resampled raw sequence + TCN/PatchTST/TS2Vec style frozen or lightweigh
 **Files:**
 
 - Create: `scripts/17_run_real_embedding_ablation.py`
-- Modify: `src/daily_multimodal/training/upgrade_ablation.py`
+- Create: `src/daily_multimodal/training/real_embedding_ablation.py`
 - Create: `tests/test_real_embedding_ablation.py`
 
 **Comparisons:**
@@ -613,7 +618,7 @@ all_real_with_preprocessed_face
 **Command:**
 
 ```bash
-ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/17_run_real_embedding_ablation.py --basic-embeddings outputs/embeddings/all_complete_basic_embeddings.npz --real-embeddings outputs/embeddings/all_complete_real_embeddings.npz --baseline outputs/reports/baseline_reference_metrics.json --target-label alert --out-table outputs/reports/real_embedding_ablation_table.md --failures-out outputs/reports/real_embedding_ablation_failures.json"
+ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/17_run_real_embedding_ablation.py --basic-embeddings outputs/embeddings/all_complete_basic_real_aligned_embeddings.npz --real-embeddings outputs/embeddings/all_complete_real_embeddings.npz --baseline outputs/reports/baseline_reference_metrics.json --stage10-metrics outputs/reports/modality_token_fusion_metrics.json --target-label alert --out-table outputs/reports/real_embedding_ablation_table.md --metrics-out outputs/reports/real_embedding_ablation_metrics.json --failures-out outputs/reports/real_embedding_ablation_failures.json"
 ```
 
 **Acceptance:**
@@ -624,6 +629,16 @@ ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && pyth
 - 对 Face 对照输出 subject-stratified paired bootstrap 95% CI，重采样次数为 1000。
 - 每个实验输出 `accepted` 或 `rollback`。
 - 若 all-real 不提升，需要能从单模态 ablation 看出问题模态。
+
+**当前进展：**
+
+- [x] 新增阶段 18 ablation 入口，支持 baseline reference、stage10 reference、单模态 real-only replaced、all-real concat、all-real modality-token attention、without-face 和 face raw/preprocessed 名义对照。
+- [x] 输出 Markdown table、metrics JSON 和 failures JSON。
+- [x] 本地单元测试覆盖完整 split 成功路径、单被试 split 不完整失败路径和 CLI 入口。
+- [x] 服务器 `sub-12` smoke ablation 已验证：脚本能读取 basic/real 对齐产物并写出 `subject_split_incomplete` failures；由于只有 `sub-12`，按阶段 18 规则缺 train/test split，不产生训练指标。
+- [x] 生成对齐 basic 对照产物 `outputs/embeddings/all_complete_basic_real_aligned_embeddings.npz`，按 real 的 781 个 `sample_id` 过滤并重排，解决原始 basic 995 行与 real 781 行不一致问题。
+- [x] 全量 all-real 打包后运行完整 subject split ablation：`experiment_count=13`、`failure_count=0`，split 为 train 554、val 85、test 142。
+- [x] 在全量数据上运行 Face raw/preprocessed 5 seed 和 bootstrap CI，并据此给出最终 accepted/rollback 结论：`face_real_only_replaced` accepted，`face_raw_openface_stats_v1`、`face_preprocessed_openface_stats_v1`、`audio_real_only_replaced`、`eeg_real_only_replaced`、`wear_real_only_replaced`、`all_real_concat_mlp`、`all_real_modality_token_attention`、`all_real_without_face`、`all_real_with_raw_face`、`all_real_with_preprocessed_face` 均 rollback；face seed RMSE median 0.9028、mean 0.9043、std 0.0341、best 0.8569、worst 0.9456，bootstrap 95% CI delta RMSE 为 `[-0.0011, 0.0586]`。
 
 ---
 

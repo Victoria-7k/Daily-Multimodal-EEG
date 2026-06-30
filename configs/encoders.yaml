@@ -59,3 +59,40 @@ eeg_real_profiles:
     target_window_samples: 2500
     frozen_feature_dim: 2048
     checkpoint_required: true
+
+face_real_profiles:
+  face_raw_openface_stats_v1:
+    output_dim: 256
+    source: raw_video
+    extractor: openface
+    low_confidence_threshold: 0.80
+    min_success_rate: 0.50
+    preprocessing_enabled: false
+  face_preprocessed_openface_stats_v1:
+    output_dim: 256
+    source: preprocessed_face_crop
+    extractor: openface
+    low_confidence_threshold: 0.80
+    min_success_rate: 0.50
+    preprocessing_enabled: true
+    activation_rule: face_preprocessing_decision
+
+wear_real_profiles:
+  wear_sequence_v1:
+    output_dim: 256
+    encoder: deterministic_sequence_projection
+    target_sample_rates_hz:
+      ppg: 64
+      gsr: 32
+      acc: 32
+    raw_sequence_cache: true
+    statistics_cache: true
+    checkpoint_required: false
+  wear_deep_sequence_v1:
+    output_dim: 256
+    encoder: patchtst_or_ts2vec_frozen
+    target_sample_rates_hz:
+      ppg: 64
+      gsr: 32
+      acc: 32
+    checkpoint_required: true

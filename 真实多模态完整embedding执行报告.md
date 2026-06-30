@@ -1,5 +1,15 @@
 # 真实多模态完整 Embedding 执行报告
 
+## 最终状态摘要
+
+状态：完成定义已补齐并完成服务器验证。
+
+- 完成定义列出的 7 个最终产物均已生成：`outputs/embeddings/all_complete_real_embeddings.npz`、`outputs/reports/all_complete_real_embedding_report.json`、`outputs/reports/all_complete_real_embedding_failures.json`、`outputs/reports/real_embedding_quality_summary.json`、`outputs/reports/real_embedding_ablation_table.md`、`outputs/reports/real_embedding_ablation_failures.json`、`真实多模态完整embedding执行报告.md`。
+- 全量真实多模态总包为 781 行；`eeg_emb`、`wear_emb`、`face_emb`、`audio_emb` 均为 `(781, 256)`，四个 embedding 的 NaN 数均为 0。
+- 全量 `modality_mask` sum 为 `[738, 781, 657, 781]`，对应 EEG 738、Wear 781、Face 657、Audio 781 个可用窗口；打包 failure count 为 43，来自 EEG 缺失行，Face 原始质量 mask 为 124。
+- 阶段 18 全量 ablation 已完成：13 个实验、0 个失败。`stage10_modality_token_attention` 和 `face_real_only_replaced` 为 accepted；其它 real-only/all-real 组合按当前 baseline 口径 rollback。
+- `outputs/reports/real_embedding_quality_summary.json` 已作为最终质量总汇补齐，汇总单模态 quality summary、全量总包 mask/NaN 和阶段 18 ablation 结论。
+
 ## 阶段 11：真实 encoder 契约和失败清单
 
 状态：完成。
@@ -53,7 +63,7 @@ PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
 
 ## 阶段 13：Audio 真实 embedding，WavLM/wav2vec2 frozen
 
-状态：阶段 13 音频真实 embedding 路径已跑通到单被试；全量和 ablation 留到后续统一执行。
+状态：阶段 13 音频真实 embedding 路径已完成全量服务器验证，并进入阶段 17/18 总包与 ablation。
 
 - 新增 `src/daily_multimodal/embeddings/audio_real.py`，从阶段 12 的 `audio_clips` cache 读取 16 kHz mono wav，调用 frozen audio backend 输出 frame embedding，mean pooling 后用固定随机种子投影到 256 维。
 - 新增 `scripts/12_extract_audio_embeddings.py`，写出 `audio_real_embeddings.npz`，包含 `audio_emb`、`sample_id`、`event_id`、`subject_id`、`modality_mask`、`quality_flags` 和 `encoder_version`。
@@ -120,6 +130,222 @@ modality_mask[0]=[0, 0, 0, 1]
 failures=[]
 ```
 
+服务器全量验证：
+
+```text
+embedding_path=outputs/embeddings/audio_real_wav2vec2_full_embeddings.npz
+success_count=781
+failure_count=0
+nan_count=0
+encoder_profile=wav2vec2_frozen_v1
+```
+
+## 阶段 17：全量真实多模态 embedding 打包
+
+状态：阶段17打包入口已完成，并已通过服务器 `sub-12` 单被试和 781 行全量真实产物验证。当前实现以 window index 为主表，保留窗口顺序、标签、subject/session 和 source paths；四个单模态 `.npz` 按 `sample_id` 对齐，缺失或 mask=0 的模态写零向量并保持 `modality_mask=0`。
+
+- 新增 `src/daily_multimodal/embeddings/real_pipeline.py`，读取 EEG/Wear/Face/Audio 单模态真实 embedding，输出训练入口兼容的统一 `.npz`。
+- 新增 `scripts/16_extract_all_real_embeddings.py`，命令行参数显式接收 `--eeg`、`--wear`、`--face`、`--audio` 和 `--window-index`。
+- 输出字段包括 `sample_id`、`event_id`、`subject_id`、`session_id`、`labels`、`eeg_emb`、`wear_emb`、`face_emb`、`audio_emb`、`modality_mask`、`quality_flags`、`encoder_versions`、`source_paths`。
+- 输出报告 `all_complete_real_embedding_report.json` 汇总每个模态的 `success_count`、`missing_count`、`masked_count` 和 encoder profile；失败清单记录缺失单模态行的 `source_missing`。
+
+本地验证：
+
+```powershell
+python -m pytest tests/test_real_pipeline.py -q
+python -m pytest tests -q
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+2 passed
+60 passed
+compileall passed
+```
+
+服务器验证：
+
+```bash
+cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding
+source /home/lzs/miniconda3/etc/profile.d/conda.sh
+conda activate lzs
+PYTHONPATH=src python -m unittest discover -s tests
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+Ran 60 tests
+OK
+compileall passed
+```
+
+服务器 `sub-12` all-real 打包验证：
+
+```bash
+PYTHONPATH=src python scripts/16_extract_all_real_embeddings.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --eeg outputs/embeddings/eeg_real_eegpt_sub-12_embeddings.npz \
+  --wear outputs/embeddings/wear_real_sequence_sub-12_embeddings.npz \
+  --face outputs/embeddings/face_raw_openface_sub-12_embeddings.npz \
+  --audio outputs/embeddings/audio_real_wav2vec2_sub-12_embeddings.npz \
+  --out outputs/embeddings/all_complete_real_sub-12_embeddings.npz \
+  --report-out outputs/reports/all_complete_real_sub-12_embedding_report.json \
+  --failures-out outputs/reports/all_complete_real_sub-12_embedding_failures.json
+```
+
+结果：
+
+```text
+selected_windows=25
+failure_count=0
+eeg_success_count=25 eeg_missing_count=0 eeg_masked_count=0
+wear_success_count=25 wear_missing_count=0 wear_masked_count=0
+face_success_count=25 face_missing_count=0 face_masked_count=0
+audio_success_count=25 audio_missing_count=0 audio_masked_count=0
+eeg_emb.shape=(25, 256), nan_count=0
+wear_emb.shape=(25, 256), nan_count=0
+face_emb.shape=(25, 256), nan_count=0
+audio_emb.shape=(25, 256), nan_count=0
+modality_mask.shape=(25, 4)
+modality_mask.sum(axis=0)=[25, 25, 25, 25]
+failures=[]
+encoder_versions={"eeg": "eeg_deep_frozen_v1", "wear": "wear_sequence_v1", "face": "face_raw_openface_stats_v1", "audio": "wav2vec2_frozen_v1"}
+```
+
+服务器全量 all-real 打包验证：
+
+```text
+embedding_path=outputs/embeddings/all_complete_real_embeddings.npz
+selected_windows=781
+failure_count=43
+eeg_success_count=738 eeg_missing_count=43 eeg_masked_count=0
+wear_success_count=781 wear_missing_count=0 wear_masked_count=0
+face_success_count=657 face_missing_count=0 face_masked_count=124
+audio_success_count=781 audio_missing_count=0 audio_masked_count=0
+eeg_emb.shape=(781, 256), nan_count=0
+wear_emb.shape=(781, 256), nan_count=0
+face_emb.shape=(781, 256), nan_count=0
+audio_emb.shape=(781, 256), nan_count=0
+modality_mask.shape=(781, 4)
+modality_mask.sum(axis=0)=[738, 781, 657, 781]
+```
+
+## 阶段 18：真实 embedding 训练和 ablation 对照入口
+
+状态：阶段18 ablation 入口已实现并完成本地测试；服务器已完成 `sub-12` smoke 验证和 781 行全量 subject split ablation。全量运行使用按 real `sample_id` 对齐后的 `outputs/embeddings/all_complete_basic_real_aligned_embeddings.npz` 作为 basic 对照。
+
+- 新增 `src/daily_multimodal/training/real_embedding_ablation.py`，复用阶段9/10的 MLP、subject split、MAE/RMSE/Pearson 指标口径。
+- 新增 `scripts/17_run_real_embedding_ablation.py`，读取 `--basic-embeddings`、`--real-embeddings`、baseline reference 和可选 stage10 metrics。
+- 支持实验项：baseline reference、stage10 modality-token reference、`audio_real_only_replaced`、`face_real_only_replaced`、`eeg_real_only_replaced`、`wear_real_only_replaced`、`all_real_concat_mlp`、`all_real_modality_token_attention`、`all_real_without_face`、`all_real_with_raw_face`、`all_real_with_preprocessed_face`。
+- 输出 `real_embedding_ablation_table.md`、`real_embedding_ablation_metrics.json` 和 `real_embedding_ablation_failures.json`。
+- Face seed summary 输出 seed count、median、mean、std、best、worst 和 `bootstrap_ci95_delta_rmse` 字段；全量阶段已使用 5 seeds 和 1000 bootstrap iterations 生成最终结论。
+
+本地验证：
+
+```powershell
+python -m pytest tests/test_real_embedding_ablation.py -q
+python -m pytest tests -q
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+3 passed
+63 passed
+compileall passed
+```
+
+服务器验证：
+
+```bash
+cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding
+source /home/lzs/miniconda3/etc/profile.d/conda.sh
+conda activate lzs
+PYTHONPATH=src python -m unittest discover -s tests
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+Ran 63 tests
+OK
+compileall passed
+```
+
+服务器 `sub-12` smoke ablation：
+
+```bash
+PYTHONPATH=src python scripts/17_run_real_embedding_ablation.py \
+  --basic-embeddings outputs/embeddings/all_complete_basic_sub-12_aligned_embeddings.npz \
+  --real-embeddings outputs/embeddings/all_complete_real_sub-12_embeddings.npz \
+  --baseline outputs/reports/baseline_reference_metrics.json \
+  --stage10-metrics outputs/reports/modality_token_fusion_metrics.json \
+  --target-label alert \
+  --out-table outputs/reports/real_embedding_ablation_sub-12_table.md \
+  --metrics-out outputs/reports/real_embedding_ablation_sub-12_metrics.json \
+  --failures-out outputs/reports/real_embedding_ablation_sub-12_failures.json \
+  --epochs 20 \
+  --overfit-limit 4 \
+  --seeds 5 \
+  --bootstrap-iterations 10
+```
+
+结果：
+
+```text
+experiment_count=0
+failure_count=2
+failures=[
+  {"source": "basic_embeddings", "error_type": "subject_split_incomplete", "missing_splits": ["train", "test"]},
+  {"source": "real_embeddings", "error_type": "subject_split_incomplete", "missing_splits": ["train", "test"]}
+]
+```
+
+解释：这说明阶段18入口和失败语义可用，但单被试不能证明训练效果；最终训练效果以后续全量 ablation 为准。
+
+服务器全量 ablation：
+
+```bash
+PYTHONPATH=src python scripts/17_run_real_embedding_ablation.py \
+  --basic-embeddings outputs/embeddings/all_complete_basic_real_aligned_embeddings.npz \
+  --real-embeddings outputs/embeddings/all_complete_real_embeddings.npz \
+  --baseline outputs/reports/baseline_reference_metrics.json \
+  --stage10-metrics outputs/reports/modality_token_fusion_metrics.json \
+  --target-label alert \
+  --out-table outputs/reports/real_embedding_ablation_table.md \
+  --metrics-out outputs/reports/real_embedding_ablation_metrics.json \
+  --failures-out outputs/reports/real_embedding_ablation_failures.json
+```
+
+结果：
+
+```text
+experiment_count=13
+failure_count=0
+split=train 554, val 85, test 142
+baseline_reference_full_concat_mlp rmse=0.8756 decision=reference
+stage10_modality_token_attention rmse=0.6968 decision=accepted
+audio_real_only_replaced rmse=0.9730 decision=rollback
+face_real_only_replaced rmse=0.8509 decision=accepted
+face_raw_openface_stats_v1 rmse=0.9654 decision=rollback
+face_preprocessed_openface_stats_v1 rmse=0.9129 decision=rollback
+eeg_real_only_replaced rmse=0.9172 decision=rollback
+wear_real_only_replaced rmse=1.0360 decision=rollback
+all_real_concat_mlp rmse=0.9930 decision=rollback
+all_real_modality_token_attention rmse=1.0990 decision=rollback
+all_real_without_face rmse=0.9533 decision=rollback
+all_real_with_raw_face rmse=1.0047 decision=rollback
+all_real_with_preprocessed_face rmse=0.9825 decision=rollback
+face_seed_summary median=0.9028 mean=0.9043 std=0.0341 best=0.8569 worst=0.9456
+bootstrap_ci95_delta_rmse=[-0.0011, 0.0586]
+```
+
 服务器单被试验证：
 
 ```bash
@@ -159,11 +385,11 @@ nan_count=0
 failures=[]
 ```
 
-全量 audio embedding 和 `scripts/17_run_real_embedding_ablation.py` 对照尚未执行，按当前安排留到后续与其它真实模态统一跑。
+全量 audio embedding 已纳入阶段17总包和阶段18 ablation；单独 audio real-only 对照结果为 rollback。
 
 ## 阶段 15：EEG 真实 embedding，MNE + bandpower/statistics baseline
 
-状态：`eeg_bandpower_v1` 和 `eeg_deep_frozen_v1` 已跑通到单被试；全量 EEG 和后续 ablation 留到后续统一执行。
+状态：`eeg_bandpower_v1` 和 `eeg_deep_frozen_v1` 已跑通到单被试；`eeg_deep_frozen_v1` 已完成全量 CPU 路径并纳入阶段17/18。
 
 - 新增 `src/daily_multimodal/embeddings/eeg_real.py`，读取阶段 12 的 `eeg_windows` cache，使用 MNE 从 BDF 裁剪窗口附近数据，执行 50 Hz notch、1-45 Hz bandpass、250 Hz 重采样，并要求窗口为 `[channels, 2500]`。
 - 新增 `scripts/14_extract_eeg_embeddings.py`，写出 `eeg_real_embeddings.npz`，包含 `eeg_emb`、`sample_id`、`event_id`、`subject_id`、`modality_mask`、`quality_flags` 和 `encoder_version`。
@@ -371,4 +597,284 @@ deep_feature_dim=2048
 failures=[]
 ```
 
-补充：单被试使用 `--device cuda` 时服务器显存不足，失败清单会写 `error_type=oom`；当前 deep checkpoint 验收使用 CPU 完成。剩余项为全量 EEG embedding 和后续 ablation。
+补充：单被试使用 `--device cuda` 时服务器显存不足，失败清单会写 `error_type=oom`；当前 deep checkpoint 验收使用 CPU 完成。全量 EEGPT CPU 产物为 `outputs/embeddings/eeg_real_eegpt_full_embeddings.npz`，`success_count=738`、`failure_count=43`、`nan_count=0`；43 个失败以 `modality_mask` 回退，不阻塞总包和 ablation。
+
+## 阶段 14：Face 真实 embedding，raw dirty video quality first
+
+状态：`face_raw_openface_stats_v1` 已跑通到 10 窗口、`sub-12` 单被试和全量 781 行；服务器缺 OpenFace 可执行文件，当前显式使用 OpenCV Haar dirty raw fallback，不做裁剪/增强/跟踪预处理。5 seed 下游对照和 bootstrap 已在阶段18完成。
+
+- 新增 `src/daily_multimodal/embeddings/face_real.py`，读取阶段 12 的 `openface` cache，复用已有 CSV；缺 CSV 时默认要求 OpenFace `FeatureExtraction/OpenFaceOffline`，缺失则写 `dependency_missing`。
+- 新增显式 `--allow-opencv-fallback`：仅在用户/命令显式启用时，从原始 MP4 的窗口片段用 ffmpeg 抽样帧，再用 OpenCV Haar detector 生成等价 dirty CSV。该 fallback 不做 face crop、亮度增强、跟踪、去模糊或表情修复。
+- 由于服务器当前走 OpenCV Haar fallback，下面报告中的 `mean_face_detection_success_rate`、`mean_openface_confidence`、`mean_low_confidence_ratio` 是 fallback 生成的 OpenFace-compatible 质量字段，不是 OpenFace 原生可执行文件输出。
+- 新增 `scripts/13_extract_face_embeddings.py` 和 `scripts/13_audit_face_quality.py`，输出 `.npz`、失败清单、质量 summary、Markdown audit 和 `face_preprocessing_decision*.json`。
+- 低质量窗口保留样本行但把 face mask 置 0，同时写 `quality_threshold_failed`；这样不丢样本对齐，也不把坏脸窗口当作有效 face 信号。
+- `configs/encoders.yaml` 增加 `face_raw_openface_stats_v1` 和 `face_preprocessed_openface_stats_v1`，两者缓存路径和 profile 分离。
+
+本地验证：
+
+```powershell
+python -m pytest tests -q
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+53 passed
+compileall passed
+```
+
+服务器验证：
+
+```bash
+cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding
+source /home/lzs/miniconda3/etc/profile.d/conda.sh
+conda activate lzs
+PYTHONPATH=src python -m unittest discover -s tests
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+Ran 53 tests
+OK
+compileall passed
+```
+
+服务器环境检查：
+
+```text
+FeatureExtraction=None
+OpenFaceOffline=None
+ffmpeg=/usr/bin/ffmpeg
+cv2=True
+```
+
+服务器 10 窗口 raw face 验证：
+
+```bash
+PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
+  --window-index outputs/window_index/real_cache_complete_10.jsonl \
+  --cache-root outputs/cache/real_stage12_face_raw_10 \
+  --face-encoder-profile face_raw_openface_stats_v1 \
+  --audio-encoder-profile wav2vec2_frozen_v1 \
+  --eeg-encoder-profile eeg_deep_frozen_v1 \
+  --out-report outputs/reports/real_embedding_readiness_face_raw_10.md \
+  --failures-out outputs/reports/real_embedding_failures_face_raw_10.json
+PYTHONPATH=src python scripts/13_extract_face_embeddings.py \
+  --window-index outputs/window_index/real_cache_complete_10.jsonl \
+  --cache-root outputs/cache/real_stage12_face_raw_10 \
+  --encoder-profile face_raw_openface_stats_v1 \
+  --allow-opencv-fallback \
+  --min-success-rate 0.10 \
+  --out outputs/embeddings/face_raw_openface_10_embeddings.npz \
+  --failures-out outputs/reports/face_raw_openface_10_failures.json \
+  --summary-out outputs/reports/face_raw_openface_10_quality_summary.json \
+  --decision-out outputs/reports/face_preprocessing_decision_10.json
+```
+
+结果：
+
+```text
+face_ready_count=10, face_missing_count=0
+face_emb.shape=(10, 256)
+nan_count=0
+embedded_count=10
+success_count=4
+failure_count=6
+masked_count=6
+failure_types={"quality_threshold_failed": 6}
+mean_face_detection_success_rate=0.10
+mean_openface_confidence=0.0535
+mean_low_confidence_ratio=1.0
+```
+
+服务器 `sub-12` 单被试 raw face 验证：
+
+```bash
+PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --cache-root outputs/cache/real_stage12_face_raw_sub-12 \
+  --face-encoder-profile face_raw_openface_stats_v1 \
+  --audio-encoder-profile wav2vec2_frozen_v1 \
+  --eeg-encoder-profile eeg_deep_frozen_v1 \
+  --out-report outputs/reports/real_embedding_readiness_face_raw_sub-12.md \
+  --failures-out outputs/reports/real_embedding_failures_face_raw_sub-12.json
+PYTHONPATH=src python scripts/13_extract_face_embeddings.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --cache-root outputs/cache/real_stage12_face_raw_sub-12 \
+  --encoder-profile face_raw_openface_stats_v1 \
+  --allow-opencv-fallback \
+  --min-success-rate 0.10 \
+  --out outputs/embeddings/face_raw_openface_sub-12_embeddings.npz \
+  --failures-out outputs/reports/face_raw_openface_sub-12_failures.json \
+  --summary-out outputs/reports/face_raw_openface_sub-12_quality_summary.json \
+  --decision-out outputs/reports/face_preprocessing_decision_sub-12.json
+```
+
+结果：
+
+```text
+face_ready_count=25, face_missing_count=0
+face_emb.shape=(25, 256)
+nan_count=0
+embedded_count=25
+success_count=25
+failure_count=0
+masked_count=0
+mean_face_detection_success_rate=0.7760
+mean_openface_confidence=0.5806
+mean_low_confidence_ratio=0.6960
+```
+
+决策：
+
+```text
+enable_preprocessing=false
+default_branch=face_raw_openface_stats_v1
+raw_quality_gate_passed=false
+triggered_conditions=["raw_quality_gate_incomplete_or_failed"]
+```
+
+解释：raw dirty face 分支已经能生成真实视频派生 embedding，但质量门槛未通过，尤其 OpenCV fallback 的 confidence 和 low-confidence ratio 明显偏弱。全量下游对照中 `face_real_only_replaced` 为 accepted，但命名的 `face_raw_openface_stats_v1` 和 `face_preprocessed_openface_stats_v1` 对照均 rollback；当前不把预处理设为默认。
+
+## 阶段 16：Wear 真实 sequence embedding
+
+状态：`wear_sequence_v1` 已跑通到 10 窗口、`sub-12` 单被试和全量 781 行。当前版本不依赖外部 checkpoint，使用 PPG/GSR/ACC 真实窗口序列重采样、质量统计和固定投影生成 256 维 embedding；和 `basic_wear_statistics_v1` 的下游指标对照已在阶段 18 完成，结果为 rollback。
+
+- 新增 `src/daily_multimodal/embeddings/wear_real.py`，读取阶段 12 的 `wear_windows/<sample_id>/<encoder_profile>/window.json`，按绝对时间切 PPG/GSR/ACC CSV。
+- PPG 重采样到 64 Hz，10 秒窗口输出 `[640, 1]`；GSR/ACC 重采样到 32 Hz，分别输出 `[320, 1]` 和 `[320, 3]`。
+- 对缺行、重复时间戳、非单调时间戳、有效采样率、motion intensity、stationary ratio 写入 quality flags。
+- 每个窗口写 raw sequence cache `sequence.npz` 和统计质量 cache `stats.json`。
+- 新增 `scripts/15_extract_wear_embeddings.py`，输出 `wear_real_embeddings.npz`、失败清单和质量 summary。
+- `configs/encoders.yaml` 增加 `wear_sequence_v1` 与预留的 `wear_deep_sequence_v1` profile。
+
+本地验证：
+
+```powershell
+python -m pytest tests/test_wear_real_embedding.py -q
+python -m pytest tests -q
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+5 passed
+58 passed
+compileall passed
+```
+
+服务器验证：
+
+```bash
+cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding
+source /home/lzs/miniconda3/etc/profile.d/conda.sh
+conda activate lzs
+PYTHONPATH=src python -m unittest discover -s tests
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+Ran 58 tests
+OK
+compileall passed
+```
+
+服务器 10 窗口 Wear sequence 验证：
+
+```bash
+PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
+  --window-index outputs/window_index/real_cache_complete_10.jsonl \
+  --cache-root outputs/cache/real_stage12_wear_sequence_10 \
+  --wear-encoder-profile wear_sequence_v1 \
+  --audio-encoder-profile wav2vec2_frozen_v1 \
+  --eeg-encoder-profile eeg_deep_frozen_v1 \
+  --face-encoder-profile face_raw_openface_stats_v1 \
+  --out-report outputs/reports/real_embedding_readiness_wear_sequence_10.md \
+  --failures-out outputs/reports/real_embedding_failures_wear_sequence_10.json
+PYTHONPATH=src python scripts/15_extract_wear_embeddings.py \
+  --window-index outputs/window_index/real_cache_complete_10.jsonl \
+  --cache-root outputs/cache/real_stage12_wear_sequence_10 \
+  --encoder-profile wear_sequence_v1 \
+  --out outputs/embeddings/wear_real_sequence_10_embeddings.npz \
+  --failures-out outputs/reports/wear_real_sequence_10_failures.json \
+  --summary-out outputs/reports/wear_real_sequence_10_quality_summary.json
+```
+
+结果：
+
+```text
+wear_ready_count=10, wear_missing_count=0
+wear_emb.shape=(10, 256)
+sample_count=10
+success_count=10
+failure_count=0
+masked_count=0
+nan_count=0
+mean_motion_intensity=9.840719890594482
+mean_stationary_ratio=0.6489028213166145
+mean_ppg_effective_sampling_rate_hz=1.0
+mean_gsr_effective_sampling_rate_hz=1.0
+mean_acc_effective_sampling_rate_hz=1.0
+failures=[]
+raw_sequence_shapes=PPG [640, 1], GSR [320, 1], ACC [320, 3]
+```
+
+服务器 `sub-12` 单被试 Wear sequence 验证：
+
+```bash
+PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --cache-root outputs/cache/real_stage12_wear_sequence_sub-12 \
+  --wear-encoder-profile wear_sequence_v1 \
+  --audio-encoder-profile wav2vec2_frozen_v1 \
+  --eeg-encoder-profile eeg_deep_frozen_v1 \
+  --face-encoder-profile face_raw_openface_stats_v1 \
+  --out-report outputs/reports/real_embedding_readiness_wear_sequence_sub-12.md \
+  --failures-out outputs/reports/real_embedding_failures_wear_sequence_sub-12.json
+PYTHONPATH=src python scripts/15_extract_wear_embeddings.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --cache-root outputs/cache/real_stage12_wear_sequence_sub-12 \
+  --encoder-profile wear_sequence_v1 \
+  --out outputs/embeddings/wear_real_sequence_sub-12_embeddings.npz \
+  --failures-out outputs/reports/wear_real_sequence_sub-12_failures.json \
+  --summary-out outputs/reports/wear_real_sequence_sub-12_quality_summary.json
+```
+
+结果：
+
+```text
+wear_ready_count=25, wear_missing_count=0
+wear_emb.shape=(25, 256)
+sample_count=25
+success_count=25
+failure_count=0
+masked_count=0
+nan_count=0
+mean_motion_intensity=9.988039436340332
+mean_stationary_ratio=0.8234482758620689
+mean_ppg_effective_sampling_rate_hz=1.0
+mean_gsr_effective_sampling_rate_hz=1.0
+mean_acc_effective_sampling_rate_hz=1.0
+failures=[]
+```
+
+服务器全量 Wear sequence 验证：
+
+```text
+6 个 source-group chunk 均 exit=0
+embedding_path=outputs/embeddings/wear_real_sequence_full_embeddings.npz
+embedded_count=781
+success_count=781
+failure_count=0
+nan_count=0
+mean_motion_intensity=9.9514
+mean_stationary_ratio=0.7931
+mean_ppg_effective_sampling_rate_hz=1.0
+mean_gsr_effective_sampling_rate_hz=1.0
+mean_acc_effective_sampling_rate_hz=1.0
+```
