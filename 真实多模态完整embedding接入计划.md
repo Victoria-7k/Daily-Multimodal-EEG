@@ -568,13 +568,13 @@ Primary: resampled raw sequence + TCN/PatchTST/TS2Vec style frozen or lightweigh
 
 **Tasks:**
 
-- [ ] 读取单模态真实 embedding 产物。
-- [ ] 按 `sample_id` inner join，保持样本顺序稳定。
-- [ ] 对缺失模态写零向量和 `modality_mask=0`。
-- [ ] 合并 `quality_flags`、`encoder_versions`、`source_paths`。
-- [ ] 输出 `outputs/embeddings/all_complete_real_embeddings.npz`。
-- [ ] 输出 `outputs/reports/all_complete_real_embedding_report.json`。
-- [ ] 输出 `outputs/reports/all_complete_real_embedding_failures.json`。
+- [x] 读取单模态真实 embedding 产物。
+- [x] 以 window index 为主表按 `sample_id` 对齐，保持样本顺序稳定。
+- [x] 对缺失或 mask=0 的模态写零向量和 `modality_mask=0`。
+- [x] 合并 `quality_flags`、`encoder_versions`、`source_paths`。
+- [x] 输出 `outputs/embeddings/all_complete_real_embeddings.npz`；单被试验收产物为 `outputs/embeddings/all_complete_real_sub-12_embeddings.npz`。
+- [x] 输出 `outputs/reports/all_complete_real_embedding_report.json`；单被试验收产物为 `outputs/reports/all_complete_real_sub-12_embedding_report.json`。
+- [x] 输出 `outputs/reports/all_complete_real_embedding_failures.json`；单被试验收产物为 `outputs/reports/all_complete_real_sub-12_embedding_failures.json`。
 
 **Acceptance:**
 
@@ -582,6 +582,7 @@ Primary: resampled raw sequence + TCN/PatchTST/TS2Vec style frozen or lightweigh
 - `modality_mask` 为 `(N, 4)`。
 - `sample_id` 与原 window index 可追溯。
 - 报告中列出每个模态的成功数、失败数、mask 分布。
+- 已完成服务器 `sub-12` 单被试打包验收：`N=25`，四个 embedding 均为 `(25, 256)`，`modality_mask.shape == (25, 4)`，mask sum 为 `[25, 25, 25, 25]`，失败清单 `[]`，NaN 数量 0。
 
 ### 阶段 18：真实 embedding 训练和 ablation 对照
 

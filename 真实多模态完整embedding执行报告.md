@@ -120,6 +120,84 @@ modality_mask[0]=[0, 0, 0, 1]
 failures=[]
 ```
 
+## 阶段 17：全量真实多模态 embedding 打包
+
+状态：阶段17打包入口已完成，并用服务器 `sub-12` 单被试真实产物通过验证。当前实现以 window index 为主表，保留窗口顺序、标签、subject/session 和 source paths；四个单模态 `.npz` 按 `sample_id` 对齐，缺失或 mask=0 的模态写零向量并保持 `modality_mask=0`。
+
+- 新增 `src/daily_multimodal/embeddings/real_pipeline.py`，读取 EEG/Wear/Face/Audio 单模态真实 embedding，输出训练入口兼容的统一 `.npz`。
+- 新增 `scripts/16_extract_all_real_embeddings.py`，命令行参数显式接收 `--eeg`、`--wear`、`--face`、`--audio` 和 `--window-index`。
+- 输出字段包括 `sample_id`、`event_id`、`subject_id`、`session_id`、`labels`、`eeg_emb`、`wear_emb`、`face_emb`、`audio_emb`、`modality_mask`、`quality_flags`、`encoder_versions`、`source_paths`。
+- 输出报告 `all_complete_real_embedding_report.json` 汇总每个模态的 `success_count`、`missing_count`、`masked_count` 和 encoder profile；失败清单记录缺失单模态行的 `source_missing`。
+
+本地验证：
+
+```powershell
+python -m pytest tests/test_real_pipeline.py -q
+python -m pytest tests -q
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+2 passed
+60 passed
+compileall passed
+```
+
+服务器验证：
+
+```bash
+cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding
+source /home/lzs/miniconda3/etc/profile.d/conda.sh
+conda activate lzs
+PYTHONPATH=src python -m unittest discover -s tests
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+Ran 60 tests
+OK
+compileall passed
+```
+
+服务器 `sub-12` all-real 打包验证：
+
+```bash
+PYTHONPATH=src python scripts/16_extract_all_real_embeddings.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --eeg outputs/embeddings/eeg_real_eegpt_sub-12_embeddings.npz \
+  --wear outputs/embeddings/wear_real_sequence_sub-12_embeddings.npz \
+  --face outputs/embeddings/face_raw_openface_sub-12_embeddings.npz \
+  --audio outputs/embeddings/audio_real_wav2vec2_sub-12_embeddings.npz \
+  --out outputs/embeddings/all_complete_real_sub-12_embeddings.npz \
+  --report-out outputs/reports/all_complete_real_sub-12_embedding_report.json \
+  --failures-out outputs/reports/all_complete_real_sub-12_embedding_failures.json
+```
+
+结果：
+
+```text
+selected_windows=25
+failure_count=0
+eeg_success_count=25 eeg_missing_count=0 eeg_masked_count=0
+wear_success_count=25 wear_missing_count=0 wear_masked_count=0
+face_success_count=25 face_missing_count=0 face_masked_count=0
+audio_success_count=25 audio_missing_count=0 audio_masked_count=0
+eeg_emb.shape=(25, 256), nan_count=0
+wear_emb.shape=(25, 256), nan_count=0
+face_emb.shape=(25, 256), nan_count=0
+audio_emb.shape=(25, 256), nan_count=0
+modality_mask.shape=(25, 4)
+modality_mask.sum(axis=0)=[25, 25, 25, 25]
+failures=[]
+encoder_versions={"eeg": "eeg_deep_frozen_v1", "wear": "wear_sequence_v1", "face": "face_raw_openface_stats_v1", "audio": "wav2vec2_frozen_v1"}
+```
+
+剩余项：阶段17的全量 995 窗口打包尚未执行；阶段18 需要基于全量 all-real 产物运行 baseline/stage10/real-only/all-real ablation。
+
 服务器单被试验证：
 
 ```bash
@@ -379,6 +457,7 @@ failures=[]
 
 - 新增 `src/daily_multimodal/embeddings/face_real.py`，读取阶段 12 的 `openface` cache，复用已有 CSV；缺 CSV 时默认要求 OpenFace `FeatureExtraction/OpenFaceOffline`，缺失则写 `dependency_missing`。
 - 新增显式 `--allow-opencv-fallback`：仅在用户/命令显式启用时，从原始 MP4 的窗口片段用 ffmpeg 抽样帧，再用 OpenCV Haar detector 生成等价 dirty CSV。该 fallback 不做 face crop、亮度增强、跟踪、去模糊或表情修复。
+- 由于服务器当前走 OpenCV Haar fallback，下面报告中的 `mean_face_detection_success_rate`、`mean_openface_confidence`、`mean_low_confidence_ratio` 是 fallback 生成的 OpenFace-compatible 质量字段，不是 OpenFace 原生可执行文件输出。
 - 新增 `scripts/13_extract_face_embeddings.py` 和 `scripts/13_audit_face_quality.py`，输出 `.npz`、失败清单、质量 summary、Markdown audit 和 `face_preprocessing_decision*.json`。
 - 低质量窗口保留样本行但把 face mask 置 0，同时写 `quality_threshold_failed`；这样不丢样本对齐，也不把坏脸窗口当作有效 face 信号。
 - `configs/encoders.yaml` 增加 `face_raw_openface_stats_v1` 和 `face_preprocessed_openface_stats_v1`，两者缓存路径和 profile 分离。
