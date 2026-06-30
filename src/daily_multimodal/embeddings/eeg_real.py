@@ -8,6 +8,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
+from daily_multimodal.alignment.eeg_coverage import classify_eeg_window_coverage, eeg_duration_seconds
 from daily_multimodal.alignment.time_utils import parse_absolute_time
 from daily_multimodal.embeddings.contracts import EMBEDDING_DIM, validate_embedding_shape
 from daily_multimodal.embeddings.failures import EmbeddingFailure, write_failure_list
@@ -289,6 +290,8 @@ def extract_eeg_real_embeddings(
 
     for window, cache in cached:
         source_path = Path(str(cache["source_path"]))
+        start_offset: float | None = None
+        end_offset: float | None = None
         try:
             start_offset, end_offset = _window_offsets(window, cache)
             eeg_window = reader.read_window(  # type: ignore[union-attr]
@@ -307,12 +310,13 @@ def extract_eeg_real_embeddings(
             embedding = _project_to_256(features, seed=projection_seed, salt=encoder_profile)
             embedding = validate_embedding_shape("eeg_emb", embedding)
         except ValueError as exc:
+            error_type = _value_error_type(exc, window=window, cache=cache, start_offset=start_offset, end_offset=end_offset)
             failures.append(
                 _failure(
                     window,
                     encoder_profile,
                     stage="encode_eeg",
-                    error_type="shape_mismatch",
+                    error_type=error_type,
                     error=str(exc),
                     source_path=str(source_path),
                 )
@@ -627,6 +631,37 @@ def _runtime_error_type(exc: Exception) -> str:
     if "timed out" in message or "timeout" in message:
         return "timeout"
     return "decode_failed"
+
+
+def _value_error_type(
+    exc: ValueError,
+    *,
+    window: dict[str, Any],
+    cache: dict[str, Any],
+    start_offset: float | None,
+    end_offset: float | None,
+) -> str:
+    message = str(exc)
+    if "expected EEG window samples" not in message:
+        return "shape_mismatch"
+    if start_offset is None or end_offset is None:
+        return "eeg_window_shape_mismatch"
+    duration = eeg_duration_seconds({**window, **cache})
+    if duration is None:
+        return "eeg_window_shape_mismatch"
+    coverage = classify_eeg_window_coverage(
+        start_offset_seconds=start_offset,
+        end_offset_seconds=end_offset,
+        bdf_duration_seconds=duration,
+    )
+    classification = coverage["classification"]
+    if classification == "negative_offset":
+        return "eeg_window_before_recording"
+    if classification == "after_recording_end":
+        return "eeg_window_after_recording"
+    if classification == "partial_overlap":
+        return "eeg_window_partial_overlap"
+    return "eeg_window_shape_mismatch"
 
 
 def _failure(

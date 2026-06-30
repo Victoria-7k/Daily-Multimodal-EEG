@@ -82,7 +82,7 @@ class EEGRealEmbeddingTests(unittest.TestCase):
         self.assertEqual(failures[0]["modality"], "eeg")
         self.assertEqual(failures[0]["stage"], "read_eeg_cache")
 
-    def test_wrong_eeg_window_shape_records_shape_mismatch(self):
+    def test_wrong_eeg_window_shape_records_eeg_window_shape_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             cache_root = root / "cache"
@@ -113,9 +113,45 @@ class EEGRealEmbeddingTests(unittest.TestCase):
 
         self.assertEqual(summary["success_count"], 0)
         self.assertEqual(summary["failure_count"], 1)
-        self.assertEqual(failures[0]["error_type"], "shape_mismatch")
+        self.assertEqual(failures[0]["error_type"], "eeg_window_shape_mismatch")
         self.assertEqual(failures[0]["stage"], "encode_eeg")
         self.assertEqual(eeg_emb.shape, (0, 256))
+
+    def test_partial_overlap_shape_failure_records_specific_coverage_type(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_root = root / "cache"
+            _write_eeg_cache(
+                cache_root,
+                sample_id="sample-1",
+                window_start_offset_seconds=25.0,
+                window_end_offset_seconds=35.0,
+                eeg_recording_duration_seconds=30.0,
+            )
+            reader = ArrayEEGReader(
+                EEGWindowData(
+                    data=np.ones((2, 1250), dtype=np.float32),
+                    sfreq=250.0,
+                    channel_names=["Fz", "Cz"],
+                    source_window_samples=2500,
+                    original_sfreq=500.0,
+                    start_offset_seconds=25.0,
+                    end_offset_seconds=30.0,
+                )
+            )
+
+            summary = extract_eeg_real_embeddings(
+                [_window("sample-1")],
+                cache_root=cache_root,
+                output_npz=root / "eeg_real_embeddings.npz",
+                failures_out=root / "failures.json",
+                encoder_profile="eeg_bandpower_v1",
+                reader=reader,
+            )
+            failures = json.loads((root / "failures.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(summary["success_count"], 0)
+        self.assertEqual(failures[0]["error_type"], "eeg_window_partial_overlap")
 
     def test_extract_eeg_deep_checkpoint_uses_deep_backend_features(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -336,28 +372,36 @@ def _write_eeg_cache(
     *,
     sample_id: str,
     encoder_profile: str = "eeg_bandpower_v1",
+    window_start_offset_seconds: float | None = None,
+    window_end_offset_seconds: float | None = None,
+    eeg_recording_duration_seconds: float | None = None,
 ) -> Path:
     cache_dir = cache_root / "eeg_windows" / sample_id / encoder_profile
     cache_dir.mkdir(parents=True, exist_ok=True)
     bdf_path = cache_dir / "sample.bdf"
     bdf_path.write_text("fake-bdf", encoding="utf-8")
+    payload = {
+        "sample_id": sample_id,
+        "event_id": sample_id.replace("sample", "event"),
+        "subject_id": "sub-02",
+        "modality": "eeg",
+        "encoder_profile": encoder_profile,
+        "cache_key": f"{sample_id}/eeg/{encoder_profile}",
+        "source_path": str(bdf_path),
+        "window_start_time": "2025-02-28 14:14:50",
+        "window_end_time": "2025-02-28 14:15:00",
+        "source_sampling_frequency_hz": 500.0,
+        "target_resample_hz": 250,
+        "target_window_samples": 2500,
+    }
+    if window_start_offset_seconds is not None:
+        payload["window_start_offset_seconds"] = window_start_offset_seconds
+    if window_end_offset_seconds is not None:
+        payload["window_end_offset_seconds"] = window_end_offset_seconds
+    if eeg_recording_duration_seconds is not None:
+        payload["eeg_recording_duration_seconds"] = eeg_recording_duration_seconds
     (cache_dir / "window.json").write_text(
-        json.dumps(
-            {
-                "sample_id": sample_id,
-                "event_id": sample_id.replace("sample", "event"),
-                "subject_id": "sub-02",
-                "modality": "eeg",
-                "encoder_profile": encoder_profile,
-                "cache_key": f"{sample_id}/eeg/{encoder_profile}",
-                "source_path": str(bdf_path),
-                "window_start_time": "2025-02-28 14:14:50",
-                "window_end_time": "2025-02-28 14:15:00",
-                "source_sampling_frequency_hz": 500.0,
-                "target_resample_hz": 250,
-                "target_window_samples": 2500,
-            }
-        ),
+        json.dumps(payload),
         encoding="utf-8",
     )
     return bdf_path

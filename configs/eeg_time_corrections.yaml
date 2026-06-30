@@ -1,0 +1,4 @@
+# Explicit EEG time corrections.
+# Keys are "<subject_id>/<session_id>".
+# Do not add a correction unless eeg_coverage_audit shows that it brings the full window inside the BDF duration.
+corrections: {}
