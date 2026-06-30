@@ -96,3 +96,19 @@ wear_real_profiles:
       gsr: 32
       acc: 32
     checkpoint_required: true
+
+fair_embedding_ablation:
+  aligned_variants:
+    basic_aligned:
+      source: basic_embeddings
+      note: Same sample rows as the real pack.
+    basic_no_path:
+      source: basic_embeddings
+      path_neutral_modalities: [eeg, face, audio]
+      preserved_modalities: [wear]
+    path_only:
+      source: sample_id_subject_session_source_paths
+      signal_arrays: false
+    real:
+      source: real_embeddings
+  decision_rule: "A real branch must beat basic_no_path and remain competitive with basic_aligned on identical sample_id rows."
