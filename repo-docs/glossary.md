@@ -13,3 +13,7 @@
 | `modality_mask` | 表示四个模态是否可用的数组，顺序是 `[eeg, wear, face, audio]` | [统一 embedding 契约](modules/embedding-contract.md) |
 | `EmbeddingSample` | 单个窗口 embedding 的内存表示；保存前会被批处理堆叠成 `.npz` 数组和 JSON 报告 | [统一 embedding 契约](modules/embedding-contract.md) |
 | `basic` profile | 当前唯一可选 encoder profile，用于阶段 5-7 的基础闭环 | [运行命令和产物](references/commands-and-artifacts.md) |
+| all-real embedding | 把 EEG、Wear、Face、Audio 四个单模态真实 `.npz` 按 `sample_id` 合并后的训练入口兼容产物 | [统一 embedding 契约](modules/embedding-contract.md) |
+| real embedding ablation | 阶段 18 对 basic、stage10、单模态 real 替换和 all-real 组合的同 split 对照 | [运行命令和产物](references/commands-and-artifacts.md) |
+| fair embedding ablation | 检查 real embedding 提升是否可能来自路径、session、source path 或 sample 元数据泄漏的公平对照 | [字段契约](references/data-contracts.md) |
+| EEG coverage audit | 检查 EEG 窗口 offset 是否落在 BDF 记录范围内的审计，用于区分负 offset、记录尾部之后、部分重叠和整天偏移候选 | [字段契约](references/data-contracts.md) |

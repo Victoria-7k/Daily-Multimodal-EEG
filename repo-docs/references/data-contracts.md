@@ -58,3 +58,38 @@
 | `source_paths` | 每个样本使用的源路径 JSON 字符串 | [批处理保存器](../../src/daily_multimodal/embeddings/pipeline.py)、[真实打包器](../../src/daily_multimodal/embeddings/real_pipeline.py) |
 | `quality_flags` | 质量信息；basic 路径写在 JSON 报告中，真实 all-real `.npz` 也会按样本写入 JSON 字符串数组 | [批处理保存器](../../src/daily_multimodal/embeddings/pipeline.py)、[真实打包器](../../src/daily_multimodal/embeddings/real_pipeline.py) |
 | `encoder_versions` | 真实 all-real `.npz` 中每个样本的四模态 encoder profile JSON 字符串 | [真实打包器](../../src/daily_multimodal/embeddings/real_pipeline.py) |
+
+## fair embedding ablation 输出字段
+
+| 字段 | 含义 | 来源 |
+| --- | --- | --- |
+| `row_count` | basic 与 real 对齐后参与公平对照的行数 | [Fair ablation 模块](../../src/daily_multimodal/training/fair_embedding_ablation.py) |
+| `sample_id_aligned` | basic 和 real `.npz` 的 `sample_id` 是否完全同序 | [Fair ablation 模块](../../src/daily_multimodal/training/fair_embedding_ablation.py) |
+| `basic_aligned` | 原始 basic embedding 在 real 对齐样本上的参考实验 | [Fair ablation 模块](../../src/daily_multimodal/training/fair_embedding_ablation.py) |
+| `basic_no_path` | 把 EEG/Face/Audio 中路径派生信号置为常量后的 basic 对照 | [Fair ablation 模块](../../src/daily_multimodal/training/fair_embedding_ablation.py) |
+| `path_only` | 只用 `sample_id`、`event_id`、`subject_id`、`session_id`、`source_paths` 派生向量的泄漏控制 | [Fair ablation 模块](../../src/daily_multimodal/training/fair_embedding_ablation.py) |
+| `real` | 去掉元数据字段后的 real embedding 对照 | [Fair ablation 模块](../../src/daily_multimodal/training/fair_embedding_ablation.py) |
+| `failure_count`、`failures` | 对齐失败或行数不一致时的失败记录 | [Fair ablation 模块](../../src/daily_multimodal/training/fair_embedding_ablation.py) |
+
+## EEG coverage audit 字段
+
+| 字段 | 含义 | 来源 |
+| --- | --- | --- |
+| `classification` | EEG 窗口相对 BDF 记录范围的分类：`in_range`、`negative_offset`、`after_recording_end`、`partial_overlap`、`whole_day_shift_candidate` 或 `out_of_range` | [EEG coverage 模块](../../src/daily_multimodal/alignment/eeg_coverage.py) |
+| `start_offset_seconds`、`end_offset_seconds` | EEG 窗口相对 BDF 起点的秒级范围 | [EEG coverage 模块](../../src/daily_multimodal/alignment/eeg_coverage.py) |
+| `bdf_duration_seconds` | BDF 记录时长，来自窗口字段、cache 字段或 EEG sidecar | [EEG coverage 模块](../../src/daily_multimodal/alignment/eeg_coverage.py) |
+| `overlap_seconds` | 窗口与 BDF 记录范围的重叠秒数 | [EEG coverage 模块](../../src/daily_multimodal/alignment/eeg_coverage.py) |
+| `whole_day_shift_candidate`、`suggested_shift_seconds` | 是否疑似整天偏移，以及建议尝试的 `-86400` 或 `86400` 秒平移 | [EEG coverage 模块](../../src/daily_multimodal/alignment/eeg_coverage.py) |
+| `affected_subject_sessions` | 非 `in_range` 窗口涉及的 `subject/session` 列表 | [EEG coverage audit 入口](../../scripts/19_audit_eeg_coverage.py) |
+| `eeg_window_before_recording`、`eeg_window_after_recording`、`eeg_window_partial_overlap` | EEG real embedding 中由 coverage 分类派生的失败类型 | [EEG 真实模块](../../src/daily_multimodal/embeddings/eeg_real.py) |
+
+## v2 profile 与 subject CV 字段
+
+| 字段 | 含义 | 来源 |
+| --- | --- | --- |
+| `pooling`、`pooled_feature_dim` | Audio v2 profile 使用的池化方式；`audio_emotion2vec_plus_v1` 使用 `mean_std_max`，`audio_opensmile_egemaps_v1` 使用 `functionals` | [Audio 真实模块](../../src/daily_multimodal/embeddings/audio_real.py) |
+| `heart_rate`、`ibi_mean`、`ibi_std`、`rmssd`、`peak_count`、`ppg_peak_insufficient` | Wear v2 从 PPG 估计的心率、IBI/HRV 和峰值质量字段 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
+| `tonic_mean`、`phasic_std`、`scr_count`、`gsr_slope` | Wear v2 从 GSR 估计的 tonic/phasic、SCR 和趋势字段 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
+| `motion_intensity`、`stationary_ratio`、`axis_std`、`spectral_energy` | Wear v2 从 ACC 估计的运动强度、静止比例和频域能量字段 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
+| `physio_feature_names`、`physio_feature_values` | Wear v2 写入 `quality_flags` 的原始可解释特征名和值，便于后续分析哪些生理信号起作用 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
+| `fold_count`、`subject_leakage`、`rmse_mean`、`rmse_std`、`folds` | Subject-level CV 输出字段；每个 fold 保留 train/val/test subjects 和回归指标 | [Subject CV 模块](../../src/daily_multimodal/training/subject_cv.py) |

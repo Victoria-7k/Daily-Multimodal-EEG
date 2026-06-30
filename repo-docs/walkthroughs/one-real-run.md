@@ -62,6 +62,38 @@
 
 这一阶段不允许静默 fallback。checkpoint 路径不存在时写 `checkpoint_missing`；服务器缺 `torch`、`torchaudio` 或 `transformers` 时写 `dependency_missing`；cache 或 wav 缺失时写 `source_missing`。2026-06-29 的服务器验证使用 `lzs` 环境和 `facebook/wav2vec2-base-960h` safetensors fallback 跑通了 10 窗口和 `sub-12` 单被试；全量与 ablation 留到后续统一执行。
 
+## Step 11: Face、EEG、Wear 各自接入真实窗口信号
+
+Face、EEG 和 Wear 沿用阶段 11 的失败清单和阶段 12 的缓存边界，但每个模态的“真实”含义不同。`scripts/13_extract_face_embeddings.py` 读取 OpenFace-compatible CSV；服务器没有 OpenFace 可执行文件时，只有显式传入 `--allow-opencv-fallback` 才会走 OpenCV Haar dirty fallback。低质量 face 窗口不会被丢弃，而是保留样本行并把 face mask 置 0，让后续 all-real 打包仍能按 `sample_id` 对齐。
+
+`scripts/14_extract_eeg_embeddings.py` 读取 EEG cache，先用 MNE 裁剪窗口、notch、bandpass 和重采样，再由 `eeg_bandpower_v1` 或 `eeg_deep_frozen_v1` 生成 256 维 embedding。服务器验证中 EEGPT deep 路径使用 CPU 完成；CUDA OOM 会写成失败清单，而不是静默降级。`scripts/15_extract_wear_embeddings.py` 则把 PPG/GSR/ACC 切成真实窗口序列，PPG 目标 64 Hz，GSR/ACC 目标 32 Hz，再写 `wear_sequence_v1` embedding 和 raw sequence cache。
+
+这三个入口的共同点是：成功输出保持单模态 `.npz` 契约，失败输出写 JSON 清单，质量问题通过 `quality_flags` 和 `modality_mask` 暴露给后续打包层。
+
+## Step 12: All-real 打包形成训练入口兼容产物
+
+`scripts/16_extract_all_real_embeddings.py` 是阶段 17 的合并入口。它以 window index 为主表，按 `sample_id` 合并 EEG、Wear、Face、Audio 四个单模态真实 `.npz`。某个模态缺行或质量 mask 为 0 时，该模态写零向量并保持 `modality_mask=0`；其它模态仍可进入训练。
+
+服务器全量 all-real 打包已经生成名为 `all_complete_real_embeddings.npz` 的产物，共 `781` 行。四个 embedding 均为 `(781, 256)`，NaN 数为 0；mask sum 为 `[738, 781, 657, 781]`，对应 EEG 738、Wear 781、Face 657、Audio 781 个有效窗口。本地同步副本里的 [真实 embedding 质量总汇](../../outputs/reports/real_embedding_quality_summary.json) 汇总了单模态质量、all-real mask/NaN 和阶段 18 ablation 结论。
+
+## Step 13: Real ablation 和公平对照给出当前结论
+
+`scripts/17_run_real_embedding_ablation.py` 负责阶段 18。它把 all-real 产物和按 real `sample_id` 对齐后的 basic 产物放在同一 subject split 下比较，输出 baseline reference、stage10 reference、单模态替换、all-real concat、all-real modality-token、without-face 和 face raw/preprocessed 等实验。当前服务器全量结果为 `13` 个实验、`0` 个失败：`stage10_modality_token_attention` 和 `face_real_only_replaced` 为 `accepted`，其它 real-only/all-real 组合按当前 baseline 口径 `rollback`。
+
+`scripts/18_run_fair_embedding_ablation.py` 是后续加入的公平对照入口。它要求 basic 和 real `.npz` 的 `sample_id` 完全同序；不对齐时写 `sample_id_mismatch`。对齐后，它比较 `basic_aligned`、`basic_no_path`、`path_only` 和 `real` 四组实验，用来判断提升是否可能来自路径、session、source path 或 sample 元数据泄漏，而不是来自真实信号本身。这个入口不替代阶段 18 结论，它是阶段 18 之后的审计层。
+
+## Step 14: EEG coverage audit 把 shape mismatch 变成可定位时间问题
+
+真实 EEG 入口最容易混淆的失败是“窗口样本数不对”。当前工作区新增的 [EEG coverage 模块](../../src/daily_multimodal/alignment/eeg_coverage.py) 会把窗口 offset 和 BDF 记录时长放在一起分类：窗口完全在记录内是 `in_range`，落在记录前是 `negative_offset`，落在记录尾部之后是 `after_recording_end`，跨边界是 `partial_overlap`，相差整天但平移 `86400` 秒后可落入记录内的是 `whole_day_shift_candidate`。
+
+`scripts/19_audit_eeg_coverage.py` 读取 window index，输出 JSON 和 Markdown 表格，列出每类窗口数量和受影响的 `subject/session`。`eeg_real.py` 也会在 EEG shape mismatch 时调用同一套分类，把失败类型细化为 `eeg_window_before_recording`、`eeg_window_after_recording`、`eeg_window_partial_overlap` 或 `eeg_window_shape_mismatch`。`configs/eeg_time_corrections.yaml` 目前为空，文件注释要求只有在 coverage audit 证明修正能把完整窗口带回 BDF 范围内时，才添加显式修正。
+
+## Step 15: v2 profile、fair audit 和 subject CV
+
+v2 工作线新增了三类审计或增强入口。`scripts/18_run_fair_embedding_ablation.py` 在同一批 `sample_id` 上比较 `basic_aligned`、`basic_no_path`、`path_only` 和 `real`，避免把路径、session 或 source path 元数据捷径误判成真实信号。`scripts/12_extract_audio_embeddings.py` 现在支持 `audio_opensmile_egemaps_v1` 和 `audio_emotion2vec_plus_v1`；前者依赖 Python `opensmile`，后者依赖 emotion2vec checkpoint 和后端库。`scripts/15_extract_wear_embeddings.py --encoder-profile wear_physio_features_v2` 会把 PPG、GSR 和 ACC 的可解释生理特征写入 `quality_flags`，再保持 `wear_emb (N, 256)` 输出。
+
+`scripts/20_run_subject_cv.py` 是最终候选的 subject-level 稳健性检查，支持 leave-one-subject-out 和 grouped k-fold，并在输出里显式写 `subject_leakage=False/True`。2026-06-30 的服务器同步验证中，fair audit 在 781 行上通过，EEG coverage audit 将 43 个 EEG 缺口解释为 29 个负 offset、4 个录制后窗口和 10 个整天偏移候选；Wear v2 10-window 成功。完整 all-real v2 尚未形成，因为 OpenFace Apptainer 镜像拉取被 Docker Hub 超时阻断，服务器还缺 openSMILE、modelscope 和默认 Python 下的 torch。
+
 ## 验证
 
 本地最小验证命令是：
@@ -70,6 +102,6 @@
 python -m pytest tests -q
 ```
 
-理解主线后，可以按 [运行命令和产物](../references/commands-and-artifacts.md) 在服务器或同步副本上复现阶段命令。没有真实数据路径时，单元测试仍能确认 manifest 匹配、窗口切分、视频音频对齐、embedding 输出、subject 选择、完整候选集提取、baseline subject split、升级对照判定、真实 embedding 契约、阶段 12 缓存失败语义和阶段 13 audio real 输出契约这些核心行为。
+理解主线后，可以按 [运行命令和产物](../references/commands-and-artifacts.md) 在服务器或同步副本上复现阶段命令。没有真实数据路径时，单元测试仍能确认 manifest 匹配、窗口切分、视频音频对齐、embedding 输出、subject 选择、完整候选集提取、baseline subject split、升级对照判定、真实 embedding 契约、阶段 12 缓存失败语义、四模态真实输出契约、all-real 打包、real ablation、fair leakage controls 和 EEG coverage 分类这些核心行为。
 
 证据状态：除特别标注外，本页基于当前源码、测试、配置、本地输出副本和阶段验证记录已确认。

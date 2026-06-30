@@ -29,7 +29,11 @@ labels, source_paths -> JSON strings
 
 [Audio 真实模块](../../src/daily_multimodal/embeddings/audio_real.py) 是第一个消费真实缓存的 encoder 接入点。它从 `audio_clips/<sample_id>/<encoder_profile>/audio.json` 读取 wav 路径，要求 frozen backend 返回 `[frames, hidden_dim]`，再 mean pooling 并投影到 256 维。后续的 EEG、face、wear 真实模块也沿用同一单模态 `.npz` 形状：只写本模态 embedding，并用 `modality_mask` 标记该模态是否可用。
 
+v2 profile 仍遵守同一 `(N, 256)` 契约，但在 `quality_flags` 中暴露更多可审计信息。`audio_opensmile_egemaps_v1` 把 openSMILE eGeMAPS Functionals 当作单帧功能特征投影；`audio_emotion2vec_plus_v1` 对 frame 特征做 `mean_std_max` pooling 后投影；`wear_physio_features_v2` 用 PPG HR/HRV、GSR slope/SCR 和 ACC motion/stationary 特征投影，并把 `physio_feature_names`/`physio_feature_values` 写入每个样本的质量字段。缺依赖或缺 checkpoint 时，这些 profile 写结构化 failure，不静默退回旧 encoder。
+
 [真实多模态打包器](../../src/daily_multimodal/embeddings/real_pipeline.py) 是阶段 17 的合并入口。它以 window index 为主表保留样本顺序、标签和 source paths，再按 `sample_id` 合并 EEG/Wear/Face/Audio 单模态真实 `.npz`。缺失或质量 mask 为 0 的模态会写零向量并保持 `modality_mask=0`；成功模态保留 `(N, 256)` embedding。输出仍兼容阶段 9/10 训练入口，同时额外写入每个样本的 `quality_flags` 和 `encoder_versions` JSON 字符串，便于定位真实 encoder 的质量和版本。
+
+当前全量 all-real 产物保持同一契约，但可用性不再要求四模态全为 1。服务器全量打包的 `modality_mask` sum 是 `[738, 781, 657, 781]`，说明 EEG 有 43 行缺失、Face 有 124 行被质量 mask 屏蔽，Wear 和 Audio 全部可用。这个设计让阶段 18 可以比较 all-real、without-face、single real replacement 等实验，而不是因为某个模态缺失就丢掉整行样本。
 
 ## 接下去阅读
 
