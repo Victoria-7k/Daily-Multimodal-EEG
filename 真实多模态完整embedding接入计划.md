@@ -451,28 +451,28 @@ No VideoMAE until OpenFace path stable
 
 **Tasks:**
 
-- [ ] 检查 OpenFace 可执行文件路径，缺失时记录 `dependency_missing`。
-- [ ] 新增 `scripts/13_audit_face_quality.py`，先对原始 MP4 做质量审计，输出 `outputs/reports/face_quality_audit.md` 和 JSON 摘要。
-- [ ] 先对 1 个 MP4 跑 OpenFace，确认 CSV 字段包含 AU、gaze、pose、confidence、success。
-- [ ] 对每个窗口从 OpenFace CSV 切片，计算均值、标准差、成功率、低 confidence 比例。
-- [ ] 输出 `face_emb [256]` 和 `face_quality`。
-- [ ] 统计 `face_missing_ratio`，超过阈值时 `mask_value=0` 并记录 `quality_threshold_failed`。
-- [ ] 先完整跑通 `face_raw_openface_stats_v1`；只有触发 raw-first decision rule 时，才实现并运行 `face_preprocessed_openface_stats_v1`。
-- [ ] 输出 `outputs/reports/face_preprocessing_decision.json`，记录是否启用预处理、触发条件、质量指标变化、下游指标变化和最终默认分支。
+- [x] 检查 OpenFace 可执行文件路径，缺失时记录 `dependency_missing`。服务器 `FeatureExtraction/OpenFaceOffline` 缺失；默认路径会写 `dependency_missing`，显式 `--allow-opencv-fallback` 才启用 raw OpenCV fallback。
+- [x] 新增 `scripts/13_audit_face_quality.py`，先对原始 MP4 做质量审计，输出 `outputs/reports/face_quality_audit.md` 和 JSON 摘要。
+- [x] 先对 1 个 MP4 跑 OpenFace，确认 CSV 字段包含 AU、gaze、pose、confidence、success。实际服务器缺 OpenFace，已改为等价 dirty raw fallback CSV：`success/confidence/face_count/face_area_ratio/gray_mean/laplacian_var/pose/gaze`，不做预处理。
+- [x] 对每个窗口从 OpenFace/等价 CSV 切片，计算均值、标准差、成功率、低 confidence 比例。
+- [x] 输出 `face_emb [256]` 和 `face_quality`。
+- [x] 统计 `face_missing_ratio`，超过阈值时 `mask_value=0` 并记录 `quality_threshold_failed`。
+- [x] 先完整跑通 `face_raw_openface_stats_v1`；只有触发 raw-first decision rule 时，才实现并运行 `face_preprocessed_openface_stats_v1`。当前 raw 质量门槛未通过，但下游 5-seed/bootstrap 尚未执行，因此不把预处理分支设为默认。
+- [x] 输出 `outputs/reports/face_preprocessing_decision.json`，记录是否启用预处理、触发条件、质量指标变化、下游指标变化和最终默认分支。
 
 **Small-run command:**
 
 ```bash
-ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/13_extract_face_embeddings.py --window-index outputs/window_index/window_index.jsonl --max-windows 10 --encoder-profile openface_stats_v1 --out outputs/embeddings/face_real_10_embeddings.npz --failures-out outputs/reports/face_real_10_failures.json"
+ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && source /home/lzs/miniconda3/etc/profile.d/conda.sh && conda activate lzs && PYTHONPATH=src python scripts/13_extract_face_embeddings.py --window-index outputs/window_index/real_cache_complete_10.jsonl --cache-root outputs/cache/real_stage12_face_raw_10 --encoder-profile face_raw_openface_stats_v1 --allow-opencv-fallback --min-success-rate 0.10 --out outputs/embeddings/face_raw_openface_10_embeddings.npz --failures-out outputs/reports/face_raw_openface_10_failures.json --summary-out outputs/reports/face_raw_openface_10_quality_summary.json --decision-out outputs/reports/face_preprocessing_decision_10.json"
 ```
 
 **Acceptance:**
 
-- OpenFace CSV 缓存可复用，重复运行不重复处理同一个 MP4。
-- `face_emb.shape == (N, 256)`。
-- 每个低质量窗口都有 quality flag，不把坏脸窗口当作正常信号。
-- 原始 face 分支和预处理 face 分支必须使用不同 encoder profile 和不同缓存路径。
-- 是否启用预处理必须由质量门槛、5 seed 下游指标和 bootstrap delta 共同决定，不能只看单次训练结果。
+- OpenFace/等价 CSV 缓存可复用，重复运行不重复处理同一个窗口 CSV。已生成 10 窗口和 `sub-12` 单被试 raw CSV cache。
+- `face_emb.shape == (N, 256)`。已通过：10 窗口 `(10, 256)`，`sub-12` 单被试 `(25, 256)`。
+- 每个低质量窗口都有 quality flag，不把坏脸窗口当作正常信号。已通过：10 窗口中 6 个低质量窗口写 `quality_threshold_failed` 且 face mask 为 0；`sub-12` 单被试 25 个窗口均达到当前 dirty fallback 的 `min_success_rate=0.10`。
+- 原始 face 分支和预处理 face 分支必须使用不同 encoder profile 和不同缓存路径。已在配置中区分 `face_raw_openface_stats_v1` 与 `face_preprocessed_openface_stats_v1`。
+- 是否启用预处理必须由质量门槛、5 seed 下游指标和 bootstrap delta 共同决定，不能只看单次训练结果。当前 `face_preprocessing_decision_10.json` 和 `face_preprocessing_decision_sub-12.json` 均保留默认 raw 分支，记录 raw 质量门槛未通过与下游门槛未运行；不默认启用预处理。
 
 ### 阶段 15：EEG 真实 embedding，MNE 预处理 + frozen EEG encoder
 

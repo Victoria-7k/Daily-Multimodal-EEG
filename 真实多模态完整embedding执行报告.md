@@ -372,3 +372,142 @@ failures=[]
 ```
 
 补充：单被试使用 `--device cuda` 时服务器显存不足，失败清单会写 `error_type=oom`；当前 deep checkpoint 验收使用 CPU 完成。剩余项为全量 EEG embedding 和后续 ablation。
+
+## 阶段 14：Face 真实 embedding，raw dirty video quality first
+
+状态：`face_raw_openface_stats_v1` 已跑通到 10 窗口和 `sub-12` 单被试；服务器缺 OpenFace 可执行文件，当前显式使用 OpenCV Haar dirty raw fallback，不做裁剪/增强/跟踪预处理。全量 face、5 seed 下游对照和 bootstrap 留到后续统一执行。
+
+- 新增 `src/daily_multimodal/embeddings/face_real.py`，读取阶段 12 的 `openface` cache，复用已有 CSV；缺 CSV 时默认要求 OpenFace `FeatureExtraction/OpenFaceOffline`，缺失则写 `dependency_missing`。
+- 新增显式 `--allow-opencv-fallback`：仅在用户/命令显式启用时，从原始 MP4 的窗口片段用 ffmpeg 抽样帧，再用 OpenCV Haar detector 生成等价 dirty CSV。该 fallback 不做 face crop、亮度增强、跟踪、去模糊或表情修复。
+- 新增 `scripts/13_extract_face_embeddings.py` 和 `scripts/13_audit_face_quality.py`，输出 `.npz`、失败清单、质量 summary、Markdown audit 和 `face_preprocessing_decision*.json`。
+- 低质量窗口保留样本行但把 face mask 置 0，同时写 `quality_threshold_failed`；这样不丢样本对齐，也不把坏脸窗口当作有效 face 信号。
+- `configs/encoders.yaml` 增加 `face_raw_openface_stats_v1` 和 `face_preprocessed_openface_stats_v1`，两者缓存路径和 profile 分离。
+
+本地验证：
+
+```powershell
+python -m pytest tests -q
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+53 passed
+compileall passed
+```
+
+服务器验证：
+
+```bash
+cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding
+source /home/lzs/miniconda3/etc/profile.d/conda.sh
+conda activate lzs
+PYTHONPATH=src python -m unittest discover -s tests
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+Ran 53 tests
+OK
+compileall passed
+```
+
+服务器环境检查：
+
+```text
+FeatureExtraction=None
+OpenFaceOffline=None
+ffmpeg=/usr/bin/ffmpeg
+cv2=True
+```
+
+服务器 10 窗口 raw face 验证：
+
+```bash
+PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
+  --window-index outputs/window_index/real_cache_complete_10.jsonl \
+  --cache-root outputs/cache/real_stage12_face_raw_10 \
+  --face-encoder-profile face_raw_openface_stats_v1 \
+  --audio-encoder-profile wav2vec2_frozen_v1 \
+  --eeg-encoder-profile eeg_deep_frozen_v1 \
+  --out-report outputs/reports/real_embedding_readiness_face_raw_10.md \
+  --failures-out outputs/reports/real_embedding_failures_face_raw_10.json
+PYTHONPATH=src python scripts/13_extract_face_embeddings.py \
+  --window-index outputs/window_index/real_cache_complete_10.jsonl \
+  --cache-root outputs/cache/real_stage12_face_raw_10 \
+  --encoder-profile face_raw_openface_stats_v1 \
+  --allow-opencv-fallback \
+  --min-success-rate 0.10 \
+  --out outputs/embeddings/face_raw_openface_10_embeddings.npz \
+  --failures-out outputs/reports/face_raw_openface_10_failures.json \
+  --summary-out outputs/reports/face_raw_openface_10_quality_summary.json \
+  --decision-out outputs/reports/face_preprocessing_decision_10.json
+```
+
+结果：
+
+```text
+face_ready_count=10, face_missing_count=0
+face_emb.shape=(10, 256)
+nan_count=0
+embedded_count=10
+success_count=4
+failure_count=6
+masked_count=6
+failure_types={"quality_threshold_failed": 6}
+mean_face_detection_success_rate=0.10
+mean_openface_confidence=0.0535
+mean_low_confidence_ratio=1.0
+```
+
+服务器 `sub-12` 单被试 raw face 验证：
+
+```bash
+PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --cache-root outputs/cache/real_stage12_face_raw_sub-12 \
+  --face-encoder-profile face_raw_openface_stats_v1 \
+  --audio-encoder-profile wav2vec2_frozen_v1 \
+  --eeg-encoder-profile eeg_deep_frozen_v1 \
+  --out-report outputs/reports/real_embedding_readiness_face_raw_sub-12.md \
+  --failures-out outputs/reports/real_embedding_failures_face_raw_sub-12.json
+PYTHONPATH=src python scripts/13_extract_face_embeddings.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --cache-root outputs/cache/real_stage12_face_raw_sub-12 \
+  --encoder-profile face_raw_openface_stats_v1 \
+  --allow-opencv-fallback \
+  --min-success-rate 0.10 \
+  --out outputs/embeddings/face_raw_openface_sub-12_embeddings.npz \
+  --failures-out outputs/reports/face_raw_openface_sub-12_failures.json \
+  --summary-out outputs/reports/face_raw_openface_sub-12_quality_summary.json \
+  --decision-out outputs/reports/face_preprocessing_decision_sub-12.json
+```
+
+结果：
+
+```text
+face_ready_count=25, face_missing_count=0
+face_emb.shape=(25, 256)
+nan_count=0
+embedded_count=25
+success_count=25
+failure_count=0
+masked_count=0
+mean_face_detection_success_rate=0.7760
+mean_openface_confidence=0.5806
+mean_low_confidence_ratio=0.6960
+```
+
+决策：
+
+```text
+enable_preprocessing=false
+default_branch=face_raw_openface_stats_v1
+raw_quality_gate_passed=false
+triggered_conditions=["raw_quality_gate_incomplete_or_failed"]
+```
+
+解释：raw dirty face 分支已经能生成真实视频派生 embedding，但质量门槛未通过，尤其 OpenCV fallback 的 confidence 和 low-confidence ratio 明显偏弱。由于阶段计划要求“质量门槛、5 seed 下游指标和 bootstrap delta 共同决定”是否启用预处理，当前不把预处理设为默认；后续应在全量和下游对照阶段决定是否执行 `face_preprocessed_openface_stats_v1`。

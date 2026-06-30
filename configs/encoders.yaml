@@ -59,3 +59,20 @@ eeg_real_profiles:
     target_window_samples: 2500
     frozen_feature_dim: 2048
     checkpoint_required: true
+
+face_real_profiles:
+  face_raw_openface_stats_v1:
+    output_dim: 256
+    source: raw_video
+    extractor: openface
+    low_confidence_threshold: 0.80
+    min_success_rate: 0.50
+    preprocessing_enabled: false
+  face_preprocessed_openface_stats_v1:
+    output_dim: 256
+    source: preprocessed_face_crop
+    extractor: openface
+    low_confidence_threshold: 0.80
+    min_success_rate: 0.50
+    preprocessing_enabled: true
+    activation_rule: face_preprocessing_decision
