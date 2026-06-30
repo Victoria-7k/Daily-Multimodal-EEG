@@ -591,7 +591,7 @@ Primary: resampled raw sequence + TCN/PatchTST/TS2Vec style frozen or lightweigh
 **Files:**
 
 - Create: `scripts/17_run_real_embedding_ablation.py`
-- Modify: `src/daily_multimodal/training/upgrade_ablation.py`
+- Create: `src/daily_multimodal/training/real_embedding_ablation.py`
 - Create: `tests/test_real_embedding_ablation.py`
 
 **Comparisons:**
@@ -626,6 +626,15 @@ ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && pyth
 - 对 Face 对照输出 subject-stratified paired bootstrap 95% CI，重采样次数为 1000。
 - 每个实验输出 `accepted` 或 `rollback`。
 - 若 all-real 不提升，需要能从单模态 ablation 看出问题模态。
+
+**当前进展：**
+
+- [x] 新增阶段 18 ablation 入口，支持 baseline reference、stage10 reference、单模态 real-only replaced、all-real concat、all-real modality-token attention、without-face 和 face raw/preprocessed 名义对照。
+- [x] 输出 Markdown table、metrics JSON 和 failures JSON。
+- [x] 本地单元测试覆盖完整 split 成功路径、单被试 split 不完整失败路径和 CLI 入口。
+- [x] 服务器 `sub-12` smoke ablation 已验证：脚本能读取 basic/real 对齐产物并写出 `subject_split_incomplete` failures；由于只有 `sub-12`，按阶段 18 规则缺 train/test split，不产生训练指标。
+- [ ] 全量 all-real 打包后运行完整 subject split ablation。
+- [ ] 在全量数据上运行 Face raw/preprocessed 5 seed 和 bootstrap CI，并据此给出最终 accepted/rollback 结论。
 
 ---
 

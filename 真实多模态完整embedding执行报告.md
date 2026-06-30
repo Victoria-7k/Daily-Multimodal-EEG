@@ -198,6 +198,81 @@ encoder_versions={"eeg": "eeg_deep_frozen_v1", "wear": "wear_sequence_v1", "face
 
 剩余项：阶段17的全量 995 窗口打包尚未执行；阶段18 需要基于全量 all-real 产物运行 baseline/stage10/real-only/all-real ablation。
 
+## 阶段 18：真实 embedding 训练和 ablation 对照入口
+
+状态：阶段18 ablation 入口已实现并完成本地测试；服务器已用 `sub-12` 对齐的 basic/real 产物做 smoke 验证。由于 `sub-12` 只有验证集被试，缺 train/test subject split，服务器 smoke 的正确结果是写出 `subject_split_incomplete` failures，不产生训练指标。全量 all-real 打包与最终 ablation 结论仍待后续执行。
+
+- 新增 `src/daily_multimodal/training/real_embedding_ablation.py`，复用阶段9/10的 MLP、subject split、MAE/RMSE/Pearson 指标口径。
+- 新增 `scripts/17_run_real_embedding_ablation.py`，读取 `--basic-embeddings`、`--real-embeddings`、baseline reference 和可选 stage10 metrics。
+- 支持实验项：baseline reference、stage10 modality-token reference、`audio_real_only_replaced`、`face_real_only_replaced`、`eeg_real_only_replaced`、`wear_real_only_replaced`、`all_real_concat_mlp`、`all_real_modality_token_attention`、`all_real_without_face`、`all_real_with_raw_face`、`all_real_with_preprocessed_face`。
+- 输出 `real_embedding_ablation_table.md`、`real_embedding_ablation_metrics.json` 和 `real_embedding_ablation_failures.json`。
+- Face seed summary 输出 seed count、median、mean、std、best、worst 和 `bootstrap_ci95_delta_rmse` 字段；全量阶段需要使用 5 seeds 和 1000 bootstrap iterations 生成最终结论。
+
+本地验证：
+
+```powershell
+python -m pytest tests/test_real_embedding_ablation.py -q
+python -m pytest tests -q
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+3 passed
+63 passed
+compileall passed
+```
+
+服务器验证：
+
+```bash
+cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding
+source /home/lzs/miniconda3/etc/profile.d/conda.sh
+conda activate lzs
+PYTHONPATH=src python -m unittest discover -s tests
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+Ran 63 tests
+OK
+compileall passed
+```
+
+服务器 `sub-12` smoke ablation：
+
+```bash
+PYTHONPATH=src python scripts/17_run_real_embedding_ablation.py \
+  --basic-embeddings outputs/embeddings/all_complete_basic_sub-12_aligned_embeddings.npz \
+  --real-embeddings outputs/embeddings/all_complete_real_sub-12_embeddings.npz \
+  --baseline outputs/reports/baseline_reference_metrics.json \
+  --stage10-metrics outputs/reports/modality_token_fusion_metrics.json \
+  --target-label alert \
+  --out-table outputs/reports/real_embedding_ablation_sub-12_table.md \
+  --metrics-out outputs/reports/real_embedding_ablation_sub-12_metrics.json \
+  --failures-out outputs/reports/real_embedding_ablation_sub-12_failures.json \
+  --epochs 20 \
+  --overfit-limit 4 \
+  --seeds 5 \
+  --bootstrap-iterations 10
+```
+
+结果：
+
+```text
+experiment_count=0
+failure_count=2
+failures=[
+  {"source": "basic_embeddings", "error_type": "subject_split_incomplete", "missing_splits": ["train", "test"]},
+  {"source": "real_embeddings", "error_type": "subject_split_incomplete", "missing_splits": ["train", "test"]}
+]
+```
+
+解释：这说明阶段18入口和失败语义可用，但单被试不能证明训练效果。下一步需要全量四模态真实 embedding，再按阶段18计划跑完整 subject split、5 seed face 对照和 bootstrap CI。
+
 服务器单被试验证：
 
 ```bash
