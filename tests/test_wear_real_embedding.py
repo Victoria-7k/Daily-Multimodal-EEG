@@ -193,6 +193,72 @@ class WearRealEmbeddingTests(unittest.TestCase):
         self.assertEqual(summary["success_count"], 2)
         self.assertLessEqual(reader_calls, 3)
 
+    def test_wear_physio_features_v2_reports_hrv_gsr_and_static_acc_features(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_root = root / "cache"
+            cache_dir = _write_wear_cache(
+                cache_root,
+                sample_id="sample-1",
+                encoder_profile="wear_physio_features_v2",
+            )
+            _write_physio_v2_csvs(cache_dir, flat_ppg=False, moving_acc=False)
+
+            summary = extract_wear_real_embeddings(
+                [_window("sample-1")],
+                cache_root=cache_root,
+                output_npz=root / "wear_real_embeddings.npz",
+                failures_out=root / "failures.json",
+                encoder_profile="wear_physio_features_v2",
+            )
+            with np.load(root / "wear_real_embeddings.npz", allow_pickle=True) as loaded:
+                wear_emb = loaded["wear_emb"]
+                quality_flags = [json.loads(value) for value in loaded["quality_flags"].tolist()]
+
+        flags = quality_flags[0]
+        self.assertEqual(summary["success_count"], 1)
+        self.assertEqual(wear_emb.shape, (1, 256))
+        self.assertGreater(flags["heart_rate"], 50.0)
+        self.assertLess(flags["rmssd"], 0.05)
+        self.assertGreater(flags["peak_count"], 5)
+        self.assertGreater(flags["gsr_slope"], 0.0)
+        self.assertGreater(flags["stationary_ratio"], 0.90)
+        self.assertIn("heart_rate", flags["physio_feature_names"])
+
+    def test_wear_physio_features_v2_flags_flat_ppg_and_moving_acc(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_root = root / "cache"
+            static_cache = _write_wear_cache(
+                cache_root,
+                sample_id="sample-static",
+                encoder_profile="wear_physio_features_v2",
+            )
+            moving_cache = _write_wear_cache(
+                cache_root,
+                sample_id="sample-moving",
+                encoder_profile="wear_physio_features_v2",
+            )
+            _write_physio_v2_csvs(static_cache, flat_ppg=True, moving_acc=False)
+            _write_physio_v2_csvs(moving_cache, flat_ppg=True, moving_acc=True)
+
+            summary = extract_wear_real_embeddings(
+                [_window("sample-static"), _window("sample-moving")],
+                cache_root=cache_root,
+                output_npz=root / "wear_real_embeddings.npz",
+                failures_out=root / "failures.json",
+                encoder_profile="wear_physio_features_v2",
+            )
+            with np.load(root / "wear_real_embeddings.npz", allow_pickle=True) as loaded:
+                quality_flags = [json.loads(value) for value in loaded["quality_flags"].tolist()]
+
+        static_flags, moving_flags = quality_flags
+        self.assertEqual(summary["success_count"], 2)
+        self.assertEqual(static_flags["peak_count"], 0)
+        self.assertTrue(static_flags["ppg_peak_insufficient"])
+        self.assertGreater(moving_flags["motion_intensity"], static_flags["motion_intensity"])
+        self.assertLess(moving_flags["stationary_ratio"], static_flags["stationary_ratio"])
+
 
 def _window(sample_id: str) -> dict:
     return {
@@ -275,6 +341,38 @@ def _write_csv(path: Path, columns: list[str], rows: list[list]) -> None:
                 values.append(str(value))
         lines.append(",".join(values))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_physio_v2_csvs(cache_dir: Path, *, flat_ppg: bool, moving_acc: bool) -> None:
+    start = datetime.fromisoformat("2025-02-28 14:13:00")
+    ppg_rows = []
+    gsr_rows = []
+    acc_rows = []
+    for index in range(640):
+        t = start + timedelta(seconds=index / 64.0)
+        phase = index % 64
+        pulse = 1.0 if phase == 8 else 0.0
+        ppg_value = 0.5 if flat_ppg else 0.2 + pulse
+        ppg_rows.append([ppg_value, t])
+    for index in range(320):
+        t = start + timedelta(seconds=index / 32.0)
+        gsr_rows.append([0.2 + index * 0.001, t])
+        if moving_acc:
+            acc_rows.append([
+                np.sin(index / 5.0),
+                np.cos(index / 7.0),
+                np.sin(index / 3.0),
+                t,
+            ])
+        else:
+            acc_rows.append([0.0, 0.0, 1.0, t])
+    _write_csv(cache_dir / "ppg.csv", ["PPG", "csv_time_PPG"], ppg_rows)
+    _write_csv(cache_dir / "gsr.csv", ["GSR", "csv_time_GSR"], gsr_rows)
+    _write_csv(
+        cache_dir / "acc.csv",
+        ["Motion_dataX", "Motion_dataY", "Motion_dataZ", "csv_time_motion"],
+        acc_rows,
+    )
 
 
 if __name__ == "__main__":

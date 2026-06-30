@@ -108,6 +108,12 @@ wear_real_profiles:
       gsr: 32
       acc: 32
     checkpoint_required: true
+  wear_physio_features_v2:
+    output_dim: 256
+    encoder: deterministic_physio_feature_projection
+    ppg_features: [heart_rate, ibi_mean, ibi_std, rmssd, peak_count, missing_ratio]
+    gsr_features: [tonic_mean, phasic_std, scr_count, slope, missing_ratio]
+    acc_features: [motion_intensity, stationary_ratio, axis_std, spectral_energy]
 
 fair_embedding_ablation:
   aligned_variants:

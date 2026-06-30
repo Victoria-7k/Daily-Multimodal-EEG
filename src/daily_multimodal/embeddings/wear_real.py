@@ -87,6 +87,7 @@ def extract_wear_real_embeddings(
                 stats_features.extend(_sequence_stats(sequence))
 
             usable = any(qualities[f"{modality}_rows_in_window"] > 0 for modality in ("ppg", "gsr", "acc"))
+            feature_names: list[str] | None = None
             if not usable:
                 embedding = np.zeros(EMBEDDING_DIM, dtype=np.float32)
                 failures.append(
@@ -100,7 +101,17 @@ def extract_wear_real_embeddings(
                     )
                 )
             else:
-                sequence_features = _sequence_encoder_features(sequences)
+                if encoder_profile == "wear_physio_features_v2":
+                    feature_names, feature_values, physio_flags = _physio_features_v2(
+                        sequences,
+                        qualities,
+                    )
+                    qualities.update(physio_flags)
+                    stats_features = feature_values.astype(np.float32).tolist()
+                    sequence_features = feature_values
+                else:
+                    feature_names = None
+                    sequence_features = _sequence_encoder_features(sequences)
                 embedding = _project_to_256(
                     np.concatenate([np.asarray(stats_features, dtype=np.float32), sequence_features]),
                     seed=projection_seed,
@@ -116,10 +127,13 @@ def extract_wear_real_embeddings(
                     modality: int(cache.get("target_sample_rates_hz", {}).get(modality) or TARGET_SAMPLE_RATES_HZ[modality])
                     for modality in ("ppg", "gsr", "acc")
                 },
-                "motion_intensity": _motion_intensity(sequences["acc"]),
-                "stationary_ratio": _stationary_ratio(sequences["acc"]),
+                "motion_intensity": qualities.get("motion_intensity", _motion_intensity(sequences["acc"])),
+                "stationary_ratio": qualities.get("stationary_ratio", _stationary_ratio(sequences["acc"])),
                 "masked": not usable,
             }
+            if encoder_profile == "wear_physio_features_v2":
+                quality_flags["physio_feature_names"] = feature_names or []
+                quality_flags["physio_feature_values"] = [float(value) for value in stats_features]
             _write_sequence_cache(cache_dir, sequences, quality_flags, stats_features)
         except ValueError as exc:
             failures.append(
@@ -410,6 +424,143 @@ def _sequence_encoder_features(sequences: dict[str, np.ndarray]) -> np.ndarray:
                 features.extend(split.mean(axis=0).astype(np.float32).tolist())
                 features.extend(split.std(axis=0).astype(np.float32).tolist())
     return np.asarray(features, dtype=np.float32)
+
+
+def _physio_features_v2(
+    sequences: dict[str, np.ndarray],
+    qualities: dict[str, Any],
+) -> tuple[list[str], np.ndarray, dict[str, Any]]:
+    ppg = sequences["ppg"][:, 0] if sequences["ppg"].size else np.zeros((0,), dtype=np.float32)
+    gsr = sequences["gsr"][:, 0] if sequences["gsr"].size else np.zeros((0,), dtype=np.float32)
+    acc = sequences["acc"] if sequences["acc"].size else np.zeros((0, 3), dtype=np.float32)
+    ppg_features, ppg_flags = _ppg_physio_features(
+        ppg,
+        sample_rate_hz=TARGET_SAMPLE_RATES_HZ["ppg"],
+        missing_ratio=float(qualities.get("ppg_missing_ratio", 1.0)),
+    )
+    gsr_features, gsr_flags = _gsr_physio_features(
+        gsr,
+        sample_rate_hz=TARGET_SAMPLE_RATES_HZ["gsr"],
+        missing_ratio=float(qualities.get("gsr_missing_ratio", 1.0)),
+    )
+    acc_features, acc_flags = _acc_physio_features(acc)
+    feature_values = {**ppg_features, **gsr_features, **acc_features}
+    feature_names = list(feature_values)
+    flags = {**feature_values, **ppg_flags, **gsr_flags, **acc_flags}
+    return feature_names, np.asarray([feature_values[name] for name in feature_names], dtype=np.float32), flags
+
+
+def _ppg_physio_features(
+    values: np.ndarray,
+    *,
+    sample_rate_hz: int,
+    missing_ratio: float,
+) -> tuple[dict[str, float], dict[str, Any]]:
+    if values.size == 0:
+        peaks = np.zeros((0,), dtype=np.int64)
+    else:
+        centered = values - float(np.mean(values))
+        threshold = float(np.mean(values) + 0.5 * np.std(values))
+        candidates = np.flatnonzero(
+            (values[1:-1] > values[:-2])
+            & (values[1:-1] >= values[2:])
+            & (values[1:-1] > threshold)
+        ) + 1
+        peaks = _enforce_min_peak_distance(candidates, values, min_distance=max(1, int(0.35 * sample_rate_hz)))
+        if float(np.std(centered)) < 1e-6:
+            peaks = np.zeros((0,), dtype=np.int64)
+    peak_count = int(len(peaks))
+    if peak_count >= 2:
+        ibis = np.diff(peaks).astype(np.float32) / float(sample_rate_hz)
+        heart_rate = float(60.0 / np.mean(ibis)) if float(np.mean(ibis)) > 0 else 0.0
+        ibi_mean = float(np.mean(ibis))
+        ibi_std = float(np.std(ibis))
+        rmssd = float(np.sqrt(np.mean(np.square(np.diff(ibis))))) if len(ibis) > 1 else 0.0
+    else:
+        heart_rate = 0.0
+        ibi_mean = 0.0
+        ibi_std = 0.0
+        rmssd = 0.0
+    return (
+        {
+            "heart_rate": heart_rate,
+            "ibi_mean": ibi_mean,
+            "ibi_std": ibi_std,
+            "rmssd": rmssd,
+            "peak_count": float(peak_count),
+            "ppg_missing_ratio": float(missing_ratio),
+        },
+        {"ppg_peak_insufficient": peak_count < 2},
+    )
+
+
+def _enforce_min_peak_distance(
+    candidates: np.ndarray,
+    values: np.ndarray,
+    *,
+    min_distance: int,
+) -> np.ndarray:
+    if candidates.size == 0:
+        return candidates.astype(np.int64)
+    selected: list[int] = []
+    for candidate in candidates[np.argsort(values[candidates])[::-1]]:
+        if all(abs(int(candidate) - existing) >= min_distance for existing in selected):
+            selected.append(int(candidate))
+    return np.asarray(sorted(selected), dtype=np.int64)
+
+
+def _gsr_physio_features(
+    values: np.ndarray,
+    *,
+    sample_rate_hz: int,
+    missing_ratio: float,
+) -> tuple[dict[str, float], dict[str, Any]]:
+    if values.size == 0:
+        tonic_mean = phasic_std = slope = 0.0
+        scr_count = 0
+    else:
+        seconds = np.arange(values.shape[0], dtype=np.float32) / float(sample_rate_hz)
+        slope = float(np.polyfit(seconds, values.astype(np.float32), deg=1)[0]) if values.shape[0] > 1 else 0.0
+        tonic_mean = float(np.mean(values))
+        trend = tonic_mean + slope * (seconds - float(seconds.mean())) if seconds.size else values
+        phasic = values - trend
+        phasic_std = float(np.std(phasic))
+        diff = np.diff(values)
+        threshold = float(np.mean(diff) + np.std(diff)) if diff.size else math.inf
+        scr_count = int(np.sum(diff > threshold)) if diff.size else 0
+    return (
+        {
+            "tonic_mean": tonic_mean,
+            "phasic_std": phasic_std,
+            "scr_count": float(scr_count),
+            "gsr_slope": slope,
+            "gsr_missing_ratio": float(missing_ratio),
+        },
+        {},
+    )
+
+
+def _acc_physio_features(acc_sequence: np.ndarray) -> tuple[dict[str, float], dict[str, Any]]:
+    if acc_sequence.size == 0:
+        motion_intensity = stationary_ratio = axis_std = spectral_energy = 0.0
+    else:
+        delta = np.diff(acc_sequence, axis=0)
+        delta_norm = np.linalg.norm(delta, axis=1) if delta.size else np.zeros((0,), dtype=np.float32)
+        motion_intensity = float(np.mean(delta_norm)) if delta_norm.size else 0.0
+        stationary_ratio = float(np.mean(delta_norm < 0.05)) if delta_norm.size else 1.0
+        axis_std = float(np.mean(np.std(acc_sequence, axis=0)))
+        centered_norm = np.linalg.norm(acc_sequence - np.mean(acc_sequence, axis=0, keepdims=True), axis=1)
+        spectrum = np.abs(np.fft.rfft(centered_norm)) if centered_norm.size else np.zeros((0,), dtype=np.float32)
+        spectral_energy = float(np.mean(np.square(spectrum))) if spectrum.size else 0.0
+    return (
+        {
+            "motion_intensity": motion_intensity,
+            "stationary_ratio": stationary_ratio,
+            "axis_std": axis_std,
+            "spectral_energy": spectral_energy,
+        },
+        {},
+    )
 
 
 def _motion_intensity(acc_sequence: np.ndarray) -> float:
