@@ -4,7 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 import numpy as np
 
@@ -15,6 +15,9 @@ from daily_multimodal.embeddings.failures import EmbeddingFailure, write_failure
 class AudioBackend(Protocol):
     def embed_frames(self, wav_path: Path) -> np.ndarray:
         """Return frame-level frozen model embeddings shaped `[frames, hidden_dim]`."""
+
+
+AudioBackendFactory = Callable[[Path | None, str], AudioBackend]
 
 
 @dataclass
@@ -63,6 +66,51 @@ class TransformersAudioBackend:
         return outputs.last_hidden_state.squeeze(0).detach().cpu().numpy().astype(np.float32)
 
 
+class OpenSmileEgemapsBackend:
+    def __init__(self) -> None:
+        try:
+            import opensmile
+        except ImportError as exc:  # pragma: no cover - depends on server runtime
+            raise RuntimeError(f"missing audio openSMILE dependency: {exc.name}") from exc
+        self._smile = opensmile.Smile(
+            feature_set=opensmile.FeatureSet.eGeMAPSv02,
+            feature_level=opensmile.FeatureLevel.Functionals,
+        )
+
+    def embed_frames(self, wav_path: Path) -> np.ndarray:  # pragma: no cover - requires opensmile
+        values = self._smile.process_file(str(wav_path)).to_numpy().reshape(-1)
+        return values.astype(np.float32).reshape(1, -1)
+
+
+class Emotion2VecBackend:
+    def __init__(self, checkpoint_path: Path, *, device: str = "cpu") -> None:
+        try:
+            from modelscope.pipelines import pipeline
+            from modelscope.utils.constant import Tasks
+        except ImportError as exc:  # pragma: no cover - depends on server runtime
+            raise RuntimeError(f"missing audio emotion dependency: {exc.name}") from exc
+        kwargs: dict[str, Any] = {"model": str(checkpoint_path)}
+        if device:
+            kwargs["device"] = device
+        self._pipeline = pipeline(Tasks.emotion_recognition, **kwargs)
+
+    def embed_frames(self, wav_path: Path) -> np.ndarray:  # pragma: no cover - requires emotion2vec runtime
+        result = self._pipeline(str(wav_path), granularity="utterance", extract_embedding=True)
+        embedding = None
+        if isinstance(result, dict):
+            embedding = result.get("embedding") or result.get("feats") or result.get("hidden_states")
+        elif isinstance(result, list) and result:
+            first = result[0]
+            if isinstance(first, dict):
+                embedding = first.get("embedding") or first.get("feats") or first.get("hidden_states")
+        if embedding is None:
+            raise RuntimeError("emotion2vec did not return an embedding")
+        values = np.asarray(embedding, dtype=np.float32)
+        if values.ndim == 1:
+            values = values.reshape(1, -1)
+        return values.astype(np.float32, copy=False)
+
+
 def extract_audio_real_embeddings(
     windows: list[dict[str, Any]],
     *,
@@ -72,6 +120,7 @@ def extract_audio_real_embeddings(
     encoder_profile: str,
     checkpoint_path: Path | str | None = None,
     backend: AudioBackend | None = None,
+    backend_factory: AudioBackendFactory | None = None,
     device: str = "cpu",
     projection_seed: int = 13013,
 ) -> dict[str, Any]:
@@ -80,7 +129,8 @@ def extract_audio_real_embeddings(
     samples: list[dict[str, Any]] = []
 
     if backend is None:
-        if checkpoint is None or not checkpoint.exists():
+        profile = _profile_settings(encoder_profile)
+        if profile["checkpoint_required"] and (checkpoint is None or not checkpoint.exists()):
             for window in windows:
                 failures.append(
                     _failure(
@@ -96,7 +146,11 @@ def extract_audio_real_embeddings(
             write_failure_list(failures, failures_out)
             return _summary(samples, failures, encoder_profile)
         try:
-            backend = TransformersAudioBackend(checkpoint, device=device)
+            backend = (
+                backend_factory(checkpoint, device)
+                if backend_factory is not None
+                else _build_backend_for_profile(encoder_profile, checkpoint, device=device)
+            )
         except RuntimeError as exc:
             for window in windows:
                 failures.append(
@@ -106,7 +160,7 @@ def extract_audio_real_embeddings(
                         stage="load_audio_encoder",
                         error_type="dependency_missing",
                         error=str(exc),
-                        source_path=str(checkpoint),
+                        source_path=str(checkpoint or "<no-checkpoint-required>"),
                     )
                 )
             _write_audio_npz([], output_npz)
@@ -132,7 +186,8 @@ def extract_audio_real_embeddings(
             frames = np.asarray(backend.embed_frames(wav_path), dtype=np.float32)
             if frames.ndim != 2 or frames.shape[0] == 0:
                 raise ValueError(f"expected frame embedding shape [frames, hidden_dim], got {frames.shape}")
-            pooled = frames.mean(axis=0)
+            pooling = _profile_settings(encoder_profile)["pooling"]
+            pooled = _pool_frames(frames, pooling=pooling)
             embedding = _project_to_256(pooled, seed=projection_seed, salt=encoder_profile)
             embedding = validate_embedding_shape("audio_emb", embedding)
         except ValueError as exc:
@@ -153,7 +208,7 @@ def extract_audio_real_embeddings(
                     window,
                     encoder_profile,
                     stage="encode_audio",
-                    error_type="decode_failed",
+                    error_type="extraction_failed",
                     error=str(exc),
                     source_path=str(wav_path),
                 )
@@ -173,6 +228,8 @@ def extract_audio_real_embeddings(
                     "duration_seconds": _duration_seconds(cache),
                     "frame_count": int(frames.shape[0]),
                     "hidden_dim": int(frames.shape[1]),
+                    "pooling": pooling,
+                    "pooled_feature_dim": int(np.asarray(pooled).reshape(-1).shape[0]),
                     "target_sample_rate_hz": cache.get("target_sample_rate_hz", 16000),
                 },
                 "encoder_version": encoder_profile,
@@ -182,6 +239,59 @@ def extract_audio_real_embeddings(
     _write_audio_npz(samples, output_npz)
     write_failure_list(failures, failures_out)
     return _summary(samples, failures, encoder_profile)
+
+
+def _profile_settings(encoder_profile: str) -> dict[str, Any]:
+    if encoder_profile == "audio_opensmile_egemaps_v1":
+        return {
+            "backend": "opensmile_egemaps",
+            "checkpoint_required": False,
+            "pooling": "functionals",
+        }
+    if encoder_profile == "audio_emotion2vec_plus_v1":
+        return {
+            "backend": "emotion2vec",
+            "checkpoint_required": True,
+            "pooling": "mean_std_max",
+        }
+    return {
+        "backend": "transformers",
+        "checkpoint_required": True,
+        "pooling": "mean",
+    }
+
+
+def _build_backend_for_profile(
+    encoder_profile: str,
+    checkpoint: Path | None,
+    *,
+    device: str,
+) -> AudioBackend:
+    settings = _profile_settings(encoder_profile)
+    if settings["backend"] == "opensmile_egemaps":
+        return OpenSmileEgemapsBackend()
+    if settings["backend"] == "emotion2vec":
+        if checkpoint is None:
+            raise RuntimeError("emotion2vec checkpoint path is required")
+        return Emotion2VecBackend(checkpoint, device=device)
+    if checkpoint is None:
+        raise RuntimeError("audio checkpoint path is required")
+    return TransformersAudioBackend(checkpoint, device=device)
+
+
+def _pool_frames(frames: np.ndarray, *, pooling: str) -> np.ndarray:
+    values = np.asarray(frames, dtype=np.float32)
+    if pooling == "functionals":
+        return values.reshape(-1)
+    if pooling == "mean_std_max":
+        return np.concatenate(
+            [
+                values.mean(axis=0),
+                values.std(axis=0),
+                values.max(axis=0),
+            ]
+        ).astype(np.float32)
+    return values.mean(axis=0)
 
 
 def write_audio_quality_summary(summary: dict[str, Any], path: Path | str) -> Path:

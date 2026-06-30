@@ -41,6 +41,18 @@ audio_real_profiles:
     target_sample_rate_hz: 16000
     pooling: mean
     checkpoint_required: true
+  audio_opensmile_egemaps_v1:
+    backend: opensmile_egemaps
+    feature_set: eGeMAPSv02
+    feature_level: Functionals
+    output_dim: 256
+    checkpoint_required: false
+  audio_emotion2vec_plus_v1:
+    backend: emotion2vec
+    checkpoint_required: true
+    output_dim: 256
+    pooling: mean_std_max
+    checkpoint_path: outputs/checkpoints/emotion2vec_plus_large
 
 eeg_real_profiles:
   eeg_bandpower_v1:
