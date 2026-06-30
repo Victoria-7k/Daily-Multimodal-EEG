@@ -5,9 +5,11 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
+from daily_multimodal.embeddings import wear_real
 from daily_multimodal.embeddings.wear_real import extract_wear_real_embeddings
 
 
@@ -156,6 +158,40 @@ class WearRealEmbeddingTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 1)
         self.assertEqual(failures[0]["error_type"], "source_missing")
         self.assertEqual(summary["failure_types"], {"source_missing": 1})
+
+    def test_wear_csv_sources_are_reused_across_windows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_root = root / "cache"
+            first_cache = _write_wear_cache(cache_root, sample_id="sample-1")
+            _write_wear_csvs(first_cache)
+            second_cache = _write_wear_cache(cache_root, sample_id="sample-2")
+            metadata = json.loads((second_cache / "window.json").read_text(encoding="utf-8"))
+            metadata["source_paths"] = {
+                "ppg": str(first_cache / "ppg.csv"),
+                "gsr": str(first_cache / "gsr.csv"),
+                "acc": str(first_cache / "acc.csv"),
+            }
+            (second_cache / "window.json").write_text(json.dumps(metadata), encoding="utf-8")
+            original_reader = wear_real.csv.DictReader
+            reader_calls = 0
+
+            def counting_reader(*args, **kwargs):
+                nonlocal reader_calls
+                reader_calls += 1
+                return original_reader(*args, **kwargs)
+
+            with patch.object(wear_real.csv, "DictReader", side_effect=counting_reader):
+                summary = extract_wear_real_embeddings(
+                    [_window("sample-1"), _window("sample-2")],
+                    cache_root=cache_root,
+                    output_npz=root / "wear_real_embeddings.npz",
+                    failures_out=root / "failures.json",
+                    encoder_profile="wear_sequence_v1",
+                )
+
+        self.assertEqual(summary["success_count"], 2)
+        self.assertLessEqual(reader_calls, 3)
 
 
 def _window(sample_id: str) -> dict:

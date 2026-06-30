@@ -5,6 +5,8 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass
+from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -200,17 +202,93 @@ def _read_wear_series(
     window_start,
     window_end,
 ) -> WearSeries:
+    table = _load_wear_source_table(str(path), modality)
+    start_ts = _naive_epoch_seconds(window_start)
+    end_ts = _naive_epoch_seconds(window_end)
+    in_window = (table["timestamps"] >= start_ts) & (table["timestamps"] < end_ts)
+    selected_timestamps = table["timestamps"][in_window]
+    selected_values = table["values"][in_window]
+    seconds = (selected_timestamps - start_ts).astype(np.float32)
+    duplicate = bool(np.unique(seconds).shape[0] != seconds.shape[0])
+
+    if selected_values.size:
+        order = np.argsort(seconds.astype(np.float64), kind="stable")
+        sorted_seconds = seconds[order]
+        sorted_values = selected_values[order]
+        unique_seconds, unique_indices = np.unique(sorted_seconds, return_index=True)
+        sorted_values = sorted_values[unique_indices]
+    else:
+        unique_seconds = np.zeros((0,), dtype=np.float32)
+        sorted_values = np.zeros((0, len(TARGET_COLUMNS[modality][1])), dtype=np.float32)
+    return WearSeries(
+        timestamps_seconds=unique_seconds.astype(np.float32),
+        values=sorted_values.astype(np.float32),
+        duplicate_timestamps=duplicate,
+        nonmonotonic_timestamps=bool(table["nonmonotonic"]),
+        invalid_rows=int(table["invalid_rows"]),
+        source_rows=int(table["source_rows"]),
+    )
+
+
+@lru_cache(maxsize=32)
+def _load_wear_source_table(path: str, modality: str) -> dict[str, Any]:
+    try:
+        return _load_wear_source_table_pandas(path, modality)
+    except ImportError:  # pragma: no cover - pandas is available in supported envs
+        return _load_wear_source_table_csv(path, modality)
+
+
+def _load_wear_source_table_pandas(path: str, modality: str) -> dict[str, Any]:
+    import pandas as pd
+
     time_column, value_columns = TARGET_COLUMNS[modality]
-    seconds: list[float] = []
+    columns = [time_column, *value_columns]
+    frame = pd.read_csv(path, usecols=lambda column: column in set(columns))
+    source_rows = int(len(frame))
+    if time_column not in frame.columns or any(column not in frame.columns for column in value_columns):
+        return {
+            "timestamps": np.zeros((0,), dtype=np.float64),
+            "values": np.zeros((0, len(value_columns)), dtype=np.float32),
+            "invalid_rows": source_rows,
+            "source_rows": source_rows,
+            "nonmonotonic": False,
+        }
+
+    try:
+        parsed_time = pd.to_datetime(frame[time_column], errors="coerce", format="mixed")
+    except TypeError:  # pragma: no cover - older pandas fallback
+        parsed_time = pd.to_datetime(frame[time_column], errors="coerce")
+    numeric_values = frame.loc[:, list(value_columns)].apply(pd.to_numeric, errors="coerce")
+    valid_mask = parsed_time.notna() & numeric_values.notna().all(axis=1)
+    invalid_rows = int((~valid_mask).sum())
+    valid_times = parsed_time[valid_mask]
+    values = numeric_values[valid_mask].to_numpy(dtype=np.float32, copy=True)
+    if valid_times.empty:
+        timestamps = np.zeros((0,), dtype=np.float64)
+        nonmonotonic = False
+    else:
+        epoch = pd.Timestamp("1970-01-01")
+        timestamps = (valid_times - epoch).dt.total_seconds().to_numpy(dtype=np.float64)
+        nonmonotonic = bool(np.any(np.diff(timestamps) < 0.0))
+    return {
+        "timestamps": timestamps,
+        "values": values if values.size else np.zeros((0, len(value_columns)), dtype=np.float32),
+        "invalid_rows": invalid_rows,
+        "source_rows": source_rows,
+        "nonmonotonic": nonmonotonic,
+    }
+
+
+def _load_wear_source_table_csv(path: str, modality: str) -> dict[str, Any]:
+    time_column, value_columns = TARGET_COLUMNS[modality]
+    timestamps: list[float] = []
     values: list[list[float]] = []
     invalid_rows = 0
     source_rows = 0
     previous_absolute = None
     nonmonotonic = False
-    seen_offsets: set[float] = set()
-    duplicate = False
 
-    with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+    with Path(path).open("r", encoding="utf-8", errors="replace", newline="") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
             source_rows += 1
@@ -226,12 +304,6 @@ def _read_wear_series(
             if previous_absolute is not None and timestamp < previous_absolute:
                 nonmonotonic = True
             previous_absolute = timestamp
-            if timestamp < window_start or timestamp >= window_end:
-                continue
-            offset = (timestamp - window_start).total_seconds()
-            if offset in seen_offsets:
-                duplicate = True
-            seen_offsets.add(offset)
             row_values: list[float] = []
             ok = True
             for column in value_columns:
@@ -244,26 +316,23 @@ def _read_wear_series(
             if not ok or not all(math.isfinite(value) for value in row_values):
                 invalid_rows += 1
                 continue
-            seconds.append(float(offset))
+            timestamps.append(_naive_epoch_seconds(timestamp))
             values.append(row_values)
 
-    if values:
-        order = np.argsort(np.asarray(seconds, dtype=np.float64), kind="stable")
-        sorted_seconds = np.asarray(seconds, dtype=np.float32)[order]
-        sorted_values = np.asarray(values, dtype=np.float32)[order]
-        unique_seconds, unique_indices = np.unique(sorted_seconds, return_index=True)
-        sorted_values = sorted_values[unique_indices]
-    else:
-        unique_seconds = np.zeros((0,), dtype=np.float32)
-        sorted_values = np.zeros((0, len(value_columns)), dtype=np.float32)
-    return WearSeries(
-        timestamps_seconds=unique_seconds.astype(np.float32),
-        values=sorted_values.astype(np.float32),
-        duplicate_timestamps=duplicate,
-        nonmonotonic_timestamps=nonmonotonic,
-        invalid_rows=invalid_rows,
-        source_rows=source_rows,
-    )
+    value_dim = len(value_columns)
+    return {
+        "timestamps": np.asarray(timestamps, dtype=np.float64),
+        "values": np.asarray(values, dtype=np.float32)
+        if values
+        else np.zeros((0, value_dim), dtype=np.float32),
+        "invalid_rows": int(invalid_rows),
+        "source_rows": int(source_rows),
+        "nonmonotonic": bool(nonmonotonic),
+    }
+
+
+def _naive_epoch_seconds(value: datetime) -> float:
+    return (value - datetime(1970, 1, 1)).total_seconds()
 
 
 def _resample_series(
