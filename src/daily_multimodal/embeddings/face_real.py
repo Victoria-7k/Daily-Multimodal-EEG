@@ -19,6 +19,8 @@ from daily_multimodal.embeddings.failures import EmbeddingFailure, write_failure
 LOW_CONFIDENCE_THRESHOLD = 0.80
 DEFAULT_MIN_SUCCESS_RATE = 0.50
 FaceCsvGenerator = Callable[[Path, Path], None]
+VideoClipExtractor = Callable[[Path, float, float, Path], None]
+OpenFaceRunner = Callable[[Path, Path, Path], None]
 
 
 def extract_face_real_embeddings(
@@ -30,6 +32,8 @@ def extract_face_real_embeddings(
     encoder_profile: str,
     openface_executable: Path | str | None = None,
     csv_generator: FaceCsvGenerator | None = None,
+    clip_extractor: VideoClipExtractor | None = None,
+    openface_runner: OpenFaceRunner | None = None,
     allow_opencv_fallback: bool = False,
     min_success_rate: float = DEFAULT_MIN_SUCCESS_RATE,
     projection_seed: int = 14014,
@@ -55,8 +59,21 @@ def extract_face_real_embeddings(
         source_path = Path(str(cache["source_path"]))
         csv_path = Path(str(cache["target_csv_path"]))
         if not csv_path.is_file():
+            explicit_openface = openface_executable is not None
             executable = _resolve_openface_executable(openface_executable)
             if executable is None:
+                if explicit_openface:
+                    failures.append(
+                        _failure(
+                            window,
+                            encoder_profile,
+                            stage="run_openface",
+                            error_type="dependency_missing",
+                            error="OpenFace executable was provided but was not found",
+                            source_path=str(openface_executable),
+                        )
+                    )
+                    continue
                 generator = csv_generator or (_generate_opencv_face_csv if allow_opencv_fallback else None)
                 if generator is None:
                     failures.append(
@@ -95,7 +112,16 @@ def extract_face_real_embeddings(
                     continue
             else:
                 try:
-                    _run_openface(executable, source_path, csv_path)
+                    clip_path = csv_path.parent / "window.mp4"
+                    _ensure_window_clip(
+                        source_path,
+                        cache,
+                        clip_path,
+                        window=window,
+                        clip_extractor=clip_extractor,
+                    )
+                    runner = openface_runner or _run_openface
+                    runner(executable, clip_path, csv_path)
                 except Exception as exc:
                     failures.append(
                         _failure(
@@ -247,6 +273,67 @@ def _clip_bounds(window: dict[str, Any], cache: dict[str, Any]) -> tuple[float |
         if candidate.get("window_start_seconds") is not None and candidate.get("window_end_seconds") is not None:
             return float(candidate["window_start_seconds"]), float(candidate["window_end_seconds"])
     return None, None
+
+
+def _ensure_window_clip(
+    source_path: Path,
+    cache: dict[str, Any],
+    clip_path: Path,
+    *,
+    window: dict[str, Any],
+    clip_extractor: VideoClipExtractor | None = None,
+) -> Path:
+    if clip_path.is_file() and clip_path.stat().st_size > 0:
+        return clip_path
+    start_seconds, end_seconds = _clip_bounds(window, cache)
+    if start_seconds is None or end_seconds is None:
+        raise RuntimeError("missing clip_start_seconds/clip_end_seconds for OpenFace window clip")
+    if end_seconds <= start_seconds:
+        raise RuntimeError(f"invalid clip bounds: {start_seconds} >= {end_seconds}")
+    extractor = clip_extractor or _extract_video_clip_ffmpeg
+    clip_path.parent.mkdir(parents=True, exist_ok=True)
+    extractor(source_path, float(start_seconds), float(end_seconds), clip_path)
+    if not clip_path.is_file() or clip_path.stat().st_size == 0:
+        raise RuntimeError("window clip extractor did not create a non-empty MP4")
+    return clip_path
+
+
+def _extract_video_clip_ffmpeg(
+    source_path: Path,
+    start_seconds: float,
+    end_seconds: float,
+    output_clip: Path,
+) -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg executable was not found on PATH")
+    duration = max(0.001, float(end_seconds) - float(start_seconds))
+    output_clip.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-ss",
+        f"{float(start_seconds):.6f}",
+        "-i",
+        str(source_path),
+        "-t",
+        f"{duration:.6f}",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-pix_fmt",
+        "yuv420p",
+        str(output_clip),
+    ]
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    if completed.returncode != 0:
+        message = completed.stderr.strip() or completed.stdout.strip() or "ffmpeg clip extraction failed"
+        raise RuntimeError(message)
 
 
 def _resolve_openface_executable(openface_executable: Path | str | None) -> Path | None:

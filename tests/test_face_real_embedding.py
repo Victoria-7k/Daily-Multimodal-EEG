@@ -109,6 +109,46 @@ class FaceRealEmbeddingTests(unittest.TestCase):
         self.assertEqual(generated[0][1], csv_path)
         self.assertEqual(failures, [])
 
+    def test_openface_executable_uses_window_clip_not_full_source_video(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_root = root / "cache"
+            csv_path = _write_face_cache(
+                cache_root,
+                sample_id="sample-1",
+                clip_start_seconds=12.5,
+                clip_end_seconds=22.5,
+            )
+            executable = root / "FeatureExtraction"
+            executable.write_text("fake executable", encoding="utf-8")
+            clip_calls = []
+            openface_calls = []
+
+            def fake_clip_extractor(source_path, start_seconds, end_seconds, output_clip):
+                clip_calls.append((source_path, start_seconds, end_seconds, output_clip))
+                output_clip.write_bytes(b"window-mp4")
+
+            def fake_openface_runner(openface_executable, clip_path, output_csv):
+                openface_calls.append((openface_executable, clip_path, output_csv))
+                _write_openface_csv(output_csv)
+
+            summary = extract_face_real_embeddings(
+                [_window("sample-1")],
+                cache_root=cache_root,
+                output_npz=root / "face_real_embeddings.npz",
+                failures_out=root / "failures.json",
+                encoder_profile="face_raw_openface_stats_v1",
+                openface_executable=executable,
+                clip_extractor=fake_clip_extractor,
+                openface_runner=fake_openface_runner,
+            )
+
+        self.assertEqual(summary["success_count"], 1)
+        self.assertEqual(clip_calls[0][1:3], (12.5, 22.5))
+        self.assertEqual(openface_calls[0][1].name, "window.mp4")
+        self.assertEqual(openface_calls[0][1].parent, csv_path.parent)
+        self.assertNotEqual(openface_calls[0][1], clip_calls[0][0])
+
     def test_low_quality_window_is_masked_and_records_quality_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -193,26 +233,31 @@ def _write_face_cache(
     *,
     sample_id: str,
     encoder_profile: str = "face_raw_openface_stats_v1",
+    clip_start_seconds: float | None = None,
+    clip_end_seconds: float | None = None,
 ) -> Path:
     cache_dir = cache_root / "openface" / sample_id / encoder_profile
     cache_dir.mkdir(parents=True, exist_ok=True)
     mp4_path = cache_dir / "source.mp4"
     mp4_path.write_bytes(b"fake-mp4")
     csv_path = cache_dir / "openface.csv"
+    payload = {
+        "sample_id": sample_id,
+        "event_id": sample_id.replace("sample", "event"),
+        "subject_id": "sub-02",
+        "modality": "face",
+        "encoder_profile": encoder_profile,
+        "cache_key": f"{sample_id}/face/{encoder_profile}",
+        "source_path": str(mp4_path),
+        "target_csv_path": str(csv_path),
+        "openface_required": True,
+    }
+    if clip_start_seconds is not None:
+        payload["clip_start_seconds"] = clip_start_seconds
+    if clip_end_seconds is not None:
+        payload["clip_end_seconds"] = clip_end_seconds
     (cache_dir / "openface_target.json").write_text(
-        json.dumps(
-            {
-                "sample_id": sample_id,
-                "event_id": sample_id.replace("sample", "event"),
-                "subject_id": "sub-02",
-                "modality": "face",
-                "encoder_profile": encoder_profile,
-                "cache_key": f"{sample_id}/face/{encoder_profile}",
-                "source_path": str(mp4_path),
-                "target_csv_path": str(csv_path),
-                "openface_required": True,
-            }
-        ),
+        json.dumps(payload),
         encoding="utf-8",
     )
     return csv_path
