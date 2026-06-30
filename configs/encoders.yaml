@@ -76,3 +76,23 @@ face_real_profiles:
     min_success_rate: 0.50
     preprocessing_enabled: true
     activation_rule: face_preprocessing_decision
+
+wear_real_profiles:
+  wear_sequence_v1:
+    output_dim: 256
+    encoder: deterministic_sequence_projection
+    target_sample_rates_hz:
+      ppg: 64
+      gsr: 32
+      acc: 32
+    raw_sequence_cache: true
+    statistics_cache: true
+    checkpoint_required: false
+  wear_deep_sequence_v1:
+    output_dim: 256
+    encoder: patchtst_or_ts2vec_frozen
+    target_sample_rates_hz:
+      ppg: 64
+      gsr: 32
+      acc: 32
+    checkpoint_required: true

@@ -542,18 +542,19 @@ Primary: resampled raw sequence + TCN/PatchTST/TS2Vec style frozen or lightweigh
 
 **Tasks:**
 
-- [ ] 从 CSV 按绝对时间切 PPG/GSR/ACC。
-- [ ] PPG 目标采样率 64 Hz，GSR/ACC 目标采样率 32 Hz。
-- [ ] 对缺点、重复时间戳、非单调时间戳写 quality flags。
-- [ ] 输出 raw sequence cache 和统计特征 cache。
-- [ ] 训练或加载 lightweight sequence encoder，输出 256 维。
-- [ ] 和当前 `basic_wear_statistics_v1` 对照，若 sequence encoder 不提升则回退统计特征。
+- [x] 从 CSV 按绝对时间切 PPG/GSR/ACC。
+- [x] PPG 目标采样率 64 Hz，GSR/ACC 目标采样率 32 Hz。
+- [x] 对缺点、重复时间戳、非单调时间戳写 quality flags。
+- [x] 输出 raw sequence cache 和统计特征 cache。
+- [x] 加入 `wear_sequence_v1` lightweight deterministic sequence encoder，输出 256 维。
+- [ ] 和当前 `basic_wear_statistics_v1` 对照，若 sequence encoder 不提升则回退统计特征。该项留到阶段 18 统一 ablation。
 
 **Acceptance:**
 
 - raw sequence shape 稳定。
 - 统计特征和 sequence embedding 都可写入质量报告。
 - motion intensity、stationary ratio、有效采样率进入 `wear_quality`。
+- 已完成 10 窗口和 `sub-12` 单被试验收：10 窗口 `wear_emb.shape == (10, 256)`，单被试 `wear_emb.shape == (25, 256)`，失败清单均为 `[]`，NaN 数量 0；raw sequence cache shape 为 PPG `[640, 1]`、GSR `[320, 1]`、ACC `[320, 3]`。
 
 ### 阶段 17：全量真实多模态 embedding 打包
 

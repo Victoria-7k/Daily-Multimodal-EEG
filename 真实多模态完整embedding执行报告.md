@@ -511,3 +511,127 @@ triggered_conditions=["raw_quality_gate_incomplete_or_failed"]
 ```
 
 解释：raw dirty face 分支已经能生成真实视频派生 embedding，但质量门槛未通过，尤其 OpenCV fallback 的 confidence 和 low-confidence ratio 明显偏弱。由于阶段计划要求“质量门槛、5 seed 下游指标和 bootstrap delta 共同决定”是否启用预处理，当前不把预处理设为默认；后续应在全量和下游对照阶段决定是否执行 `face_preprocessed_openface_stats_v1`。
+
+## 阶段 16：Wear 真实 sequence embedding
+
+状态：`wear_sequence_v1` 已跑通到 10 窗口和 `sub-12` 单被试。当前版本不依赖外部 checkpoint，使用 PPG/GSR/ACC 真实窗口序列重采样、质量统计和固定投影生成 256 维 embedding；和 `basic_wear_statistics_v1` 的下游指标对照留到阶段 18 统一 ablation。
+
+- 新增 `src/daily_multimodal/embeddings/wear_real.py`，读取阶段 12 的 `wear_windows/<sample_id>/<encoder_profile>/window.json`，按绝对时间切 PPG/GSR/ACC CSV。
+- PPG 重采样到 64 Hz，10 秒窗口输出 `[640, 1]`；GSR/ACC 重采样到 32 Hz，分别输出 `[320, 1]` 和 `[320, 3]`。
+- 对缺行、重复时间戳、非单调时间戳、有效采样率、motion intensity、stationary ratio 写入 quality flags。
+- 每个窗口写 raw sequence cache `sequence.npz` 和统计质量 cache `stats.json`。
+- 新增 `scripts/15_extract_wear_embeddings.py`，输出 `wear_real_embeddings.npz`、失败清单和质量 summary。
+- `configs/encoders.yaml` 增加 `wear_sequence_v1` 与预留的 `wear_deep_sequence_v1` profile。
+
+本地验证：
+
+```powershell
+python -m pytest tests/test_wear_real_embedding.py -q
+python -m pytest tests -q
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+5 passed
+58 passed
+compileall passed
+```
+
+服务器验证：
+
+```bash
+cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding
+source /home/lzs/miniconda3/etc/profile.d/conda.sh
+conda activate lzs
+PYTHONPATH=src python -m unittest discover -s tests
+python -m compileall -q src scripts tests
+```
+
+结果：
+
+```text
+Ran 58 tests
+OK
+compileall passed
+```
+
+服务器 10 窗口 Wear sequence 验证：
+
+```bash
+PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
+  --window-index outputs/window_index/real_cache_complete_10.jsonl \
+  --cache-root outputs/cache/real_stage12_wear_sequence_10 \
+  --wear-encoder-profile wear_sequence_v1 \
+  --audio-encoder-profile wav2vec2_frozen_v1 \
+  --eeg-encoder-profile eeg_deep_frozen_v1 \
+  --face-encoder-profile face_raw_openface_stats_v1 \
+  --out-report outputs/reports/real_embedding_readiness_wear_sequence_10.md \
+  --failures-out outputs/reports/real_embedding_failures_wear_sequence_10.json
+PYTHONPATH=src python scripts/15_extract_wear_embeddings.py \
+  --window-index outputs/window_index/real_cache_complete_10.jsonl \
+  --cache-root outputs/cache/real_stage12_wear_sequence_10 \
+  --encoder-profile wear_sequence_v1 \
+  --out outputs/embeddings/wear_real_sequence_10_embeddings.npz \
+  --failures-out outputs/reports/wear_real_sequence_10_failures.json \
+  --summary-out outputs/reports/wear_real_sequence_10_quality_summary.json
+```
+
+结果：
+
+```text
+wear_ready_count=10, wear_missing_count=0
+wear_emb.shape=(10, 256)
+sample_count=10
+success_count=10
+failure_count=0
+masked_count=0
+nan_count=0
+mean_motion_intensity=9.840719890594482
+mean_stationary_ratio=0.6489028213166145
+mean_ppg_effective_sampling_rate_hz=1.0
+mean_gsr_effective_sampling_rate_hz=1.0
+mean_acc_effective_sampling_rate_hz=1.0
+failures=[]
+raw_sequence_shapes=PPG [640, 1], GSR [320, 1], ACC [320, 3]
+```
+
+服务器 `sub-12` 单被试 Wear sequence 验证：
+
+```bash
+PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --cache-root outputs/cache/real_stage12_wear_sequence_sub-12 \
+  --wear-encoder-profile wear_sequence_v1 \
+  --audio-encoder-profile wav2vec2_frozen_v1 \
+  --eeg-encoder-profile eeg_deep_frozen_v1 \
+  --face-encoder-profile face_raw_openface_stats_v1 \
+  --out-report outputs/reports/real_embedding_readiness_wear_sequence_sub-12.md \
+  --failures-out outputs/reports/real_embedding_failures_wear_sequence_sub-12.json
+PYTHONPATH=src python scripts/15_extract_wear_embeddings.py \
+  --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
+  --cache-root outputs/cache/real_stage12_wear_sequence_sub-12 \
+  --encoder-profile wear_sequence_v1 \
+  --out outputs/embeddings/wear_real_sequence_sub-12_embeddings.npz \
+  --failures-out outputs/reports/wear_real_sequence_sub-12_failures.json \
+  --summary-out outputs/reports/wear_real_sequence_sub-12_quality_summary.json
+```
+
+结果：
+
+```text
+wear_ready_count=25, wear_missing_count=0
+wear_emb.shape=(25, 256)
+sample_count=25
+success_count=25
+failure_count=0
+masked_count=0
+nan_count=0
+mean_motion_intensity=9.988039436340332
+mean_stationary_ratio=0.8234482758620689
+mean_ppg_effective_sampling_rate_hz=1.0
+mean_gsr_effective_sampling_rate_hz=1.0
+mean_acc_effective_sampling_rate_hz=1.0
+failures=[]
+```
