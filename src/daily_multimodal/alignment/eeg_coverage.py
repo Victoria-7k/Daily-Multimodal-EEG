@@ -92,6 +92,13 @@ def audit_eeg_window(window: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def eeg_window_offsets(row: dict[str, Any]) -> tuple[float, float] | None:
+    if (
+        row.get("eeg_onset_seconds") is not None
+        and row.get("window_start_offset_seconds") is not None
+        and row.get("window_end_offset_seconds") is not None
+    ):
+        onset = float(row["eeg_onset_seconds"])
+        return onset + float(row["window_start_offset_seconds"]), onset + float(row["window_end_offset_seconds"])
     if row.get("window_start_offset_seconds") is not None and row.get("window_end_offset_seconds") is not None:
         return float(row["window_start_offset_seconds"]), float(row["window_end_offset_seconds"])
     if row.get("eeg_onset_seconds") is not None:
