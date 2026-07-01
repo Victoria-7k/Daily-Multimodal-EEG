@@ -4,10 +4,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
 from daily_multimodal.embeddings.face_real import extract_face_real_embeddings
+from daily_multimodal.embeddings import face_real
 
 
 class FaceRealEmbeddingTests(unittest.TestCase):
@@ -162,6 +164,104 @@ class FaceRealEmbeddingTests(unittest.TestCase):
         self.assertEqual(openface_calls[0][1].name, "window.mp4")
         self.assertEqual(openface_calls[0][1].parent, csv_path.parent)
         self.assertNotEqual(openface_calls[0][1], clip_calls[0][0])
+
+    def test_openface_starting_tracking_no_csv_can_fallback_to_generator(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_root = root / "cache"
+            csv_path = _write_face_cache(
+                cache_root,
+                sample_id="sample-1",
+                clip_start_seconds=12.5,
+                clip_end_seconds=22.5,
+            )
+            executable = root / "FeatureExtraction"
+            executable.write_text("fake executable", encoding="utf-8")
+            fallback_calls = []
+
+            def fake_openface_runner(_openface_executable, _clip_path, _output_csv):
+                raise RuntimeError("Device or file opened\nStarting tracking")
+
+            def fake_clip_extractor(_source_path, _start_seconds, _end_seconds, output_clip):
+                output_clip.write_bytes(b"window-mp4")
+
+            def fake_generator(source_path, output_csv):
+                fallback_calls.append((source_path, output_csv))
+                _write_openface_csv(output_csv)
+
+            summary = extract_face_real_embeddings(
+                [_window("sample-1")],
+                cache_root=cache_root,
+                output_npz=root / "face_real_embeddings.npz",
+                failures_out=root / "failures.json",
+                encoder_profile="face_raw_openface_stats_v1",
+                openface_executable=executable,
+                openface_runner=fake_openface_runner,
+                clip_extractor=fake_clip_extractor,
+                csv_generator=fake_generator,
+            )
+            failures = json.loads((root / "failures.json").read_text(encoding="utf-8"))
+            with np.load(root / "face_real_embeddings.npz", allow_pickle=True) as loaded:
+                modality_mask = loaded["modality_mask"]
+                quality_flags = [json.loads(value) for value in loaded["quality_flags"].tolist()]
+
+        self.assertEqual(summary["success_count"], 1)
+        self.assertEqual(summary["failure_count"], 0)
+        self.assertEqual(fallback_calls[0][0], csv_path.parent / "window.mp4")
+        self.assertEqual(fallback_calls[0][1], csv_path)
+        self.assertEqual(failures, [])
+        self.assertEqual(modality_mask.tolist(), [[0, 0, 1, 0]])
+        self.assertTrue(quality_flags[0]["openface_fallback_used"])
+        self.assertEqual(quality_flags[0]["openface_fallback_stage"], "run_openface")
+
+    def test_openface_wrapper_uses_explicit_haar_detector_location(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            executable = root / "feature_extraction.sh"
+            executable.write_text("fake wrapper", encoding="utf-8")
+            source = root / "window.mp4"
+            source.write_bytes(b"window-mp4")
+            csv_path = root / "openface.csv"
+            calls = []
+
+            def fake_run(command, **_kwargs):
+                calls.append(command)
+                _write_openface_csv(csv_path)
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with mock.patch.object(face_real.subprocess, "run", side_effect=fake_run):
+                face_real._run_openface(executable, source, csv_path)
+
+        command = calls[0]
+        self.assertIn("-fdloc", command)
+        fdloc_index = command.index("-fdloc")
+        self.assertEqual(
+            command[fdloc_index + 1],
+            "/usr/local/share/OpenCV/haarcascades/haarcascade_frontalface_alt.xml",
+        )
+
+    def test_openface_nonzero_return_with_csv_is_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            executable = root / "FeatureExtraction"
+            executable.write_text("fake executable", encoding="utf-8")
+            source = root / "window.mp4"
+            source.write_bytes(b"window-mp4")
+            csv_path = root / "openface.csv"
+
+            def fake_run(command, **_kwargs):
+                _write_openface_csv(csv_path)
+                return subprocess.CompletedProcess(
+                    command,
+                    -11,
+                    "Warning: Could not open VideoWriter",
+                    "Could not open codec 'mpeg4': Unspecified error",
+                )
+
+            with mock.patch.object(face_real.subprocess, "run", side_effect=fake_run):
+                face_real._run_openface(executable, source, csv_path)
+
+            self.assertTrue(csv_path.is_file())
 
     def test_low_quality_window_is_masked_and_records_quality_failure(self):
         with tempfile.TemporaryDirectory() as tmp:

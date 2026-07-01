@@ -21,6 +21,7 @@ LOW_CONFIDENCE_THRESHOLD = 0.80
 DEFAULT_MIN_SUCCESS_RATE = 0.50
 OPENFACE_CLIP_FPS = 0.5
 OPENFACE_CLIP_WIDTH = 640
+OPENFACE_CONTAINER_HAAR_CASCADE = "/usr/local/share/OpenCV/haarcascades/haarcascade_frontalface_alt.xml"
 FaceCsvGenerator = Callable[[Path, Path], None]
 VideoClipExtractor = Callable[[Path, float, float, Path], None]
 OpenFaceRunner = Callable[[Path, Path, Path], None]
@@ -61,6 +62,7 @@ def extract_face_real_embeddings(
 
         source_path = Path(str(cache["source_path"]))
         csv_path = Path(str(cache["target_csv_path"]))
+        openface_fallback_quality: dict[str, Any] | None = None
         if not csv_path.is_file():
             explicit_openface = openface_executable is not None
             executable = _resolve_openface_executable(openface_executable)
@@ -126,21 +128,47 @@ def extract_face_real_embeddings(
                     runner = openface_runner or _run_openface
                     runner(executable, clip_path, csv_path)
                 except Exception as exc:
-                    failures.append(
-                        _failure(
-                            window,
-                            encoder_profile,
-                            stage="run_openface",
-                            error_type="extraction_failed",
-                            error=str(exc),
-                            source_path=str(source_path),
+                    generator = csv_generator or (_generate_opencv_face_csv if allow_opencv_fallback else None)
+                    if generator is None:
+                        failures.append(
+                            _failure(
+                                window,
+                                encoder_profile,
+                                stage="run_openface",
+                                error_type="extraction_failed",
+                                error=str(exc),
+                                source_path=str(source_path),
+                            )
                         )
-                    )
-                    continue
+                        continue
+                    try:
+                        if generator is csv_generator:
+                            generator(clip_path, csv_path)
+                        else:
+                            _generate_opencv_face_csv(clip_path, csv_path)
+                        openface_fallback_quality = {
+                            "openface_fallback_used": True,
+                            "openface_fallback_stage": "run_openface",
+                            "openface_fallback_reason": str(exc),
+                        }
+                    except Exception as fallback_exc:
+                        failures.append(
+                            _failure(
+                                window,
+                                encoder_profile,
+                                stage="run_openface_fallback",
+                                error_type="extraction_failed",
+                                error=f"{exc}; fallback failed: {fallback_exc}",
+                                source_path=str(source_path),
+                            )
+                        )
+                        continue
 
         try:
             rows = _read_openface_csv(csv_path)
             quality = _face_quality(rows, csv_path=csv_path, source_path=source_path)
+            if openface_fallback_quality is not None:
+                quality.update(openface_fallback_quality)
             features = _openface_stats(rows)
             masked = quality["face_detection_success_rate"] < float(min_success_rate)
             if masked:
@@ -385,25 +413,52 @@ def _run_openface(executable: Path, source_path: Path, csv_path: Path) -> None:
     csv_path = csv_path.resolve()
     out_dir = csv_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
+    command = _openface_command(executable, source_path, csv_path)
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    if completed.returncode != 0 and not _openface_csv_available(csv_path):
+        _adopt_generated_openface_csv(source_path, csv_path)
+    if completed.returncode != 0 and not _openface_csv_available(csv_path):
+        message = completed.stderr.strip() or completed.stdout.strip() or "OpenFace failed"
+        raise RuntimeError(message)
+    if not _openface_csv_available(csv_path):
+        _adopt_generated_openface_csv(source_path, csv_path)
+    if not _openface_csv_available(csv_path):
+        raise RuntimeError("OpenFace did not create expected CSV")
+
+
+def _openface_command(executable: Path, source_path: Path, csv_path: Path) -> list[str]:
     command = [
         str(executable),
         "-f",
         str(source_path),
         "-out_dir",
-        str(out_dir),
+        str(csv_path.parent),
         "-of",
         csv_path.stem,
     ]
-    completed = subprocess.run(command, capture_output=True, text=True, check=False)
-    if completed.returncode != 0:
-        message = completed.stderr.strip() or completed.stdout.strip() or "OpenFace failed"
-        raise RuntimeError(message)
-    if not csv_path.is_file():
-        generated = out_dir / f"{source_path.stem}.csv"
-        if generated.is_file():
-            generated.replace(csv_path)
-        else:
-            raise RuntimeError("OpenFace did not create expected CSV")
+    haar = _openface_haar_cascade(executable)
+    if haar:
+        command.extend(["-fdloc", haar])
+    return command
+
+
+def _openface_haar_cascade(executable: Path) -> str | None:
+    env_path = os.environ.get("OPENFACE_HAAR_CASCADE")
+    if env_path:
+        return env_path
+    if executable.name.lower() == "feature_extraction.sh":
+        return OPENFACE_CONTAINER_HAAR_CASCADE
+    return None
+
+
+def _adopt_generated_openface_csv(source_path: Path, csv_path: Path) -> None:
+    generated = csv_path.parent / f"{source_path.stem}.csv"
+    if generated.is_file() and generated.stat().st_size > 0:
+        generated.replace(csv_path)
+
+
+def _openface_csv_available(csv_path: Path) -> bool:
+    return csv_path.is_file() and csv_path.stat().st_size > 0
 
 
 def _generate_opencv_face_csv(

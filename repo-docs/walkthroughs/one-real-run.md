@@ -64,7 +64,7 @@
 
 ## Step 11: Face、EEG、Wear 各自接入真实窗口信号
 
-Face、EEG 和 Wear 沿用阶段 11 的失败清单和阶段 12 的缓存边界，但每个模态的“真实”含义不同。`scripts/13_extract_face_embeddings.py` 读取 OpenFace-compatible CSV；服务器没有 OpenFace 可执行文件时，只有显式传入 `--allow-opencv-fallback` 才会走 OpenCV Haar dirty fallback。低质量 face 窗口不会被丢弃，而是保留样本行并把 face mask 置 0，让后续 all-real 打包仍能按 `sample_id` 对齐。
+Face、EEG 和 Wear 沿用阶段 11 的失败清单和阶段 12 的缓存边界，但每个模态的“真实”含义不同。`scripts/13_extract_face_embeddings.py` 读取 OpenFace-compatible CSV；服务器没有 OpenFace 可执行文件时，只有显式传入 `--allow-opencv-fallback` 才会走 OpenCV Haar dirty fallback。显式启用 fallback 后，OpenFace 已经打开窗口 clip 并进入 `Starting tracking` 但没有产出非空 CSV 的窗口，也会对同一个 `window.mp4` 生成 OpenCV-compatible CSV，并在 `quality_flags` 记录 fallback 原因。低质量 face 窗口不会被丢弃，而是保留样本行并把 face mask 置 0，让后续 all-real 打包仍能按 `sample_id` 对齐。
 
 `scripts/14_extract_eeg_embeddings.py` 读取 EEG cache，先用 MNE 裁剪窗口、notch、bandpass 和重采样，再由 `eeg_bandpower_v1` 或 `eeg_deep_frozen_v1` 生成 256 维 embedding。服务器验证中 EEGPT deep 路径使用 CPU 完成；CUDA OOM 会写成失败清单，而不是静默降级。`scripts/15_extract_wear_embeddings.py` 则把 PPG/GSR/ACC 切成真实窗口序列，PPG 目标 64 Hz，GSR/ACC 目标 32 Hz，再写 `wear_sequence_v1` embedding 和 raw sequence cache。
 
@@ -92,7 +92,7 @@ Face、EEG 和 Wear 沿用阶段 11 的失败清单和阶段 12 的缓存边界�
 
 v2 工作线新增了三类审计或增强入口。`scripts/18_run_fair_embedding_ablation.py` 在同一批 `sample_id` 上比较 `basic_aligned`、`basic_no_path`、`path_only` 和 `real`，避免把路径、session 或 source path 元数据捷径误判成真实信号。`scripts/12_extract_audio_embeddings.py` 现在支持 `audio_opensmile_egemaps_v1` 和 `audio_emotion2vec_plus_v1`；前者依赖 Python `opensmile`，后者依赖 emotion2vec checkpoint 和后端库。`scripts/15_extract_wear_embeddings.py --encoder-profile wear_physio_features_v2` 会把 PPG、GSR 和 ACC 的可解释生理特征写入 `quality_flags`，再保持 `wear_emb (N, 256)` 输出。
 
-`scripts/20_run_subject_cv.py` 是最终候选的 subject-level 稳健性检查，支持 leave-one-subject-out 和 grouped k-fold，并在输出里显式写 `subject_leakage=False/True`。v2 入口现在还支持 `--modalities`，输出 `rmse_mean/rmse_std` 与 `pearson_r_mean/pearson_r_std`，每个 fold 表格列出 `test_r`。2026-07-01 的服务器同步验证中，OpenFace Apptainer wrapper 已通过 Huawei mirror 镜像接入，openSMILE、ModelScope 和默认 Python 依赖已补齐；`all_complete_real_v2_embeddings.npz` 形成 781 行、四模态 `(781, 256)`、NaN 为 0，mask sum 为 `[738, 781, 69, 781]`。真实 OpenFace 覆盖较稀疏：69 个窗口通过质量阈值，168 个窗口被质量 mask，544 个窗口 extraction failed；因此四模态 subject-CV 会因空 fold 失败。最终 fatigue 下游验证使用 EEG/Wear/Audio 子集：fair audit real RMSE `1.0160`、Pearson r `0.1205`，LOSO subject-CV RMSE mean `0.9697`、Pearson r mean `0.0636`，且 `subject_leakage=False`。
+`scripts/20_run_subject_cv.py` 是最终候选的 subject-level 稳健性检查，支持 leave-one-subject-out 和 grouped k-fold，并在输出里显式写 `subject_leakage=False/True`。v2 入口现在还支持 `--modalities`，输出 `rmse_mean/rmse_std` 与 `pearson_r_mean/pearson_r_std`，每个 fold 表格列出 `test_r`。2026-07-01 的服务器同步验证中，OpenFace Apptainer wrapper 已通过 Huawei mirror 镜像接入，openSMILE、ModelScope 和默认 Python 依赖已补齐；`all_complete_real_v2_embeddings.npz` 形成 781 行、四模态 `(781, 256)`、NaN 为 0。OpenFace 复查发现两类可修复问题：容器内 HAAR detector 未显式传入导致 FeatureExtraction 走 MTCNN/ONet 后 segfault，以及 `mpeg4` VideoWriter 报错时 CSV 已生成但被当作失败；修复后 Face 成功窗口从 69 提到 207，extraction failed 从 544 降到 73，v2 mask sum 为 `[738, 781, 207, 781]`。四模态 fatigue fair audit 可跑，real RMSE `1.3647`、Pearson r `-0.1437`，但四模态 LOSO 仍因 `sub-13` 无四模态完整样本导致空 fold。最终稳健验证继续使用 EEG/Wear/Audio 子集：fair audit real RMSE `1.0160`、Pearson r `0.1205`，LOSO subject-CV RMSE mean `0.9697`、Pearson r mean `0.0636`，且 `subject_leakage=False`。
 
 ## 验证
 

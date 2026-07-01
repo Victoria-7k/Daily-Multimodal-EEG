@@ -887,6 +887,6 @@ mean_acc_effective_sampling_rate_hz=1.0
 - EEG full v2：`outputs/embeddings/eeg_real_eegpt_full_v2_embeddings.npz`，shape `(738, 256)`，NaN 0；43 个失败已刷新为明确分类：`eeg_window_before_recording=29`、`eeg_window_after_recording=14`。
 - Wear full v2：`outputs/embeddings/wear_physio_features_v2_full_embeddings.npz`，成功 781，失败 0，NaN 0。
 - Audio full v2：本轮主线采用 `audio_opensmile_egemaps_v1`，`outputs/embeddings/audio_opensmile_egemaps_full_embeddings.npz` 成功 781，失败 0，NaN 0；`audio_emotion2vec_plus_v1` 已完成 10-window smoke，成功 10，失败 0。
-- Face true OpenFace full：`outputs/embeddings/face_openface_real_full_embeddings.npz`，成功 69，质量 mask 168，extraction failed 544，NaN 0。
-- all-real v2：`outputs/embeddings/all_complete_real_v2_embeddings.npz`，selected windows 781，四模态 shape 均 `(781, 256)`，NaN 0，mask sum `[738, 781, 69, 781]`。
-- 下游任务已从 `alert` 切为 `fatigue`；`scripts/18_run_fair_embedding_ablation.py` 和 `scripts/20_run_subject_cv.py` 均已输出 Pearson r。四模态 fair audit 可运行但 Face mask 后 test n 仅 4；四模态 subject-CV 因空 fold 失败。最终采用 `--modalities eeg,wear,audio`：fair real RMSE `1.0160`、r `0.1205`；LOSO subject-CV `fold_count=14`、`subject_leakage=False`、RMSE mean `0.9697`、r mean `0.0636`。
+- Face true OpenFace full：`outputs/embeddings/face_openface_real_full_embeddings.npz`。根因复查发现 HAAR detector 未显式传入时 OpenFace 会走 MTCNN/ONet 并 segfault，另有 `mpeg4` VideoWriter 报错但 CSV 已生成的误判；修复后成功 207，质量 mask 501，extraction failed 73，NaN 0。
+- all-real v2：`outputs/embeddings/all_complete_real_v2_embeddings.npz`，selected windows 781，四模态 shape 均 `(781, 256)`，NaN 0，mask sum `[738, 781, 207, 781]`。
+- 下游任务已从 `alert` 切为 `fatigue`；`scripts/18_run_fair_embedding_ablation.py` 和 `scripts/20_run_subject_cv.py` 均已输出 Pearson r。四模态 fair audit 可运行，real RMSE `1.3647`、r `-0.1437`；四模态 subject-CV 仍因 `sub-13` 无四模态完整样本导致空 fold。最终采用 `--modalities eeg,wear,audio`：fair real RMSE `1.0160`、r `0.1205`；LOSO subject-CV `fold_count=14`、`subject_leakage=False`、RMSE mean `0.9697`、r mean `0.0636`。

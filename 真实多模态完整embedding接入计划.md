@@ -694,7 +694,7 @@ outputs/reports/real_embedding_ablation_failures.json
 - [x] EEG full v2 已完成：`outputs/embeddings/eeg_real_eegpt_full_v2_embeddings.npz`，shape `(738, 256)`，NaN 0，失败 43 个，分类为 `eeg_window_before_recording=29`、`eeg_window_after_recording=14`。
 - [x] Wear physio v2 full 已完成：`outputs/embeddings/wear_physio_features_v2_full_embeddings.npz`，成功 781，失败 0，NaN 0。
 - [x] Audio v2 full 采用 openSMILE eGeMAPS：`outputs/embeddings/audio_opensmile_egemaps_full_embeddings.npz`，成功 781，失败 0，NaN 0；emotion2vec plus 已完成 10-window smoke，full 未作为本轮主线 profile。
-- [x] Face true OpenFace full 已完成：`outputs/embeddings/face_openface_real_full_embeddings.npz`，true OpenFace wrapper 对 10 秒窗口 clip 运行，成功 69，质量 mask 168，extraction failed 544，NaN 0。
-- [x] all-real v2 已完成：`outputs/embeddings/all_complete_real_v2_embeddings.npz`，selected windows 781，四模态 shape 均 `(781, 256)`，NaN 0，mask sum `[738, 781, 69, 781]`。
+- [x] Face true OpenFace full 已完成并修复 HAAR/MTCNN 与 codec 两类问题：`outputs/embeddings/face_openface_real_full_embeddings.npz`，true OpenFace wrapper 对 10 秒窗口 clip 运行，成功 207，质量 mask 501，extraction failed 73，NaN 0。
+- [x] all-real v2 已完成：`outputs/embeddings/all_complete_real_v2_embeddings.npz`，selected windows 781，四模态 shape 均 `(781, 256)`，NaN 0，mask sum `[738, 781, 207, 781]`。
 - [x] 下游验证已从 `alert` 切换为 `fatigue`，fair ablation 与 subject CV 均输出 RMSE 和 Pearson r。
-- [x] 四模态 subject-CV 因 Face 覆盖过稀导致空 fold；最终稳健验证使用 `--modalities eeg,wear,audio`。fatigue fair real RMSE `1.0160`、r `0.1205`；fatigue LOSO subject-CV `fold_count=14`、`subject_leakage=False`、RMSE mean `0.9697`、r mean `0.0636`。
+- [x] 四模态 subject-CV 修复后仍因 `sub-13` 无四模态完整样本导致空 fold；最终稳健验证使用 `--modalities eeg,wear,audio`。fatigue 四模态 fair real RMSE `1.3647`、r `-0.1437`；fatigue EWA fair real RMSE `1.0160`、r `0.1205`；fatigue EWA LOSO subject-CV `fold_count=14`、`subject_leakage=False`、RMSE mean `0.9697`、r mean `0.0636`。
