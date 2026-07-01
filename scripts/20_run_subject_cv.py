@@ -25,6 +25,7 @@ def main() -> int:
     parser.add_argument("--hidden-dim", type=int, default=32)
     parser.add_argument("--learning-rate", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=17)
+    parser.add_argument("--modalities", default="eeg,wear,audio,face")
     args = parser.parse_args()
 
     result = run_subject_cv(
@@ -38,11 +39,14 @@ def main() -> int:
         hidden_dim=args.hidden_dim,
         learning_rate=args.learning_rate,
         seed=args.seed,
+        modalities=tuple(item.strip() for item in args.modalities.split(",") if item.strip()),
     )
     print(f"fold_count={result['fold_count']}")
     print(f"subject_leakage={result['subject_leakage']}")
     print(f"rmse_mean={result['rmse_mean']}")
     print(f"rmse_std={result['rmse_std']}")
+    print(f"pearson_r_mean={result['pearson_r_mean']}")
+    print(f"pearson_r_std={result['pearson_r_std']}")
     print(f"json_path={args.out_json}")
     print(f"table_path={args.out_table}")
     return 0 if not result["subject_leakage"] else 1

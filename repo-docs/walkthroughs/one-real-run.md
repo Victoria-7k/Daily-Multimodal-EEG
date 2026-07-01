@@ -92,7 +92,7 @@ Face、EEG 和 Wear 沿用阶段 11 的失败清单和阶段 12 的缓存边界�
 
 v2 工作线新增了三类审计或增强入口。`scripts/18_run_fair_embedding_ablation.py` 在同一批 `sample_id` 上比较 `basic_aligned`、`basic_no_path`、`path_only` 和 `real`，避免把路径、session 或 source path 元数据捷径误判成真实信号。`scripts/12_extract_audio_embeddings.py` 现在支持 `audio_opensmile_egemaps_v1` 和 `audio_emotion2vec_plus_v1`；前者依赖 Python `opensmile`，后者依赖 emotion2vec checkpoint 和后端库。`scripts/15_extract_wear_embeddings.py --encoder-profile wear_physio_features_v2` 会把 PPG、GSR 和 ACC 的可解释生理特征写入 `quality_flags`，再保持 `wear_emb (N, 256)` 输出。
 
-`scripts/20_run_subject_cv.py` 是最终候选的 subject-level 稳健性检查，支持 leave-one-subject-out 和 grouped k-fold，并在输出里显式写 `subject_leakage=False/True`。2026-06-30 的服务器同步验证中，fair audit 在 781 行上通过，EEG coverage audit 将 43 个 EEG 缺口解释为 29 个负 offset、4 个录制后窗口和 10 个整天偏移候选；Wear v2 10-window 成功。完整 all-real v2 尚未形成，因为 OpenFace Apptainer 镜像拉取被 Docker Hub 超时阻断，服务器还缺 openSMILE、modelscope 和默认 Python 下的 torch。
+`scripts/20_run_subject_cv.py` 是最终候选的 subject-level 稳健性检查，支持 leave-one-subject-out 和 grouped k-fold，并在输出里显式写 `subject_leakage=False/True`。v2 入口现在还支持 `--modalities`，输出 `rmse_mean/rmse_std` 与 `pearson_r_mean/pearson_r_std`，每个 fold 表格列出 `test_r`。2026-07-01 的服务器同步验证中，OpenFace Apptainer wrapper 已通过 Huawei mirror 镜像接入，openSMILE、ModelScope 和默认 Python 依赖已补齐；`all_complete_real_v2_embeddings.npz` 形成 781 行、四模态 `(781, 256)`、NaN 为 0，mask sum 为 `[738, 781, 69, 781]`。真实 OpenFace 覆盖较稀疏：69 个窗口通过质量阈值，168 个窗口被质量 mask，544 个窗口 extraction failed；因此四模态 subject-CV 会因空 fold 失败。最终 fatigue 下游验证使用 EEG/Wear/Audio 子集：fair audit real RMSE `1.0160`、Pearson r `0.1205`，LOSO subject-CV RMSE mean `0.9697`、Pearson r mean `0.0636`，且 `subject_leakage=False`。
 
 ## 验证
 

@@ -59,8 +59,11 @@ class SubjectCvTests(unittest.TestCase):
 
         self.assertGreaterEqual(result["fold_count"], 4)
         self.assertFalse(result["subject_leakage"])
+        self.assertEqual(metrics["modalities"], ["eeg", "wear", "audio", "face"])
         self.assertIn("rmse_mean", metrics)
+        self.assertIn("pearson_r_mean", metrics)
         self.assertIn("| fold |", table)
+        self.assertIn("test_r", table)
 
     def test_cli_runs_subject_cv(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -95,6 +98,7 @@ class SubjectCvTests(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("fold_count=", completed.stdout)
+        self.assertIn("pearson_r_mean=", completed.stdout)
 
 
 def _write_embeddings(path: Path) -> None:

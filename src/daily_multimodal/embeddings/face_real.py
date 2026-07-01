@@ -14,10 +14,13 @@ import numpy as np
 
 from daily_multimodal.embeddings.contracts import EMBEDDING_DIM, validate_embedding_shape
 from daily_multimodal.embeddings.failures import EmbeddingFailure, write_failure_list
+from daily_multimodal.alignment.time_utils import parse_absolute_time
 
 
 LOW_CONFIDENCE_THRESHOLD = 0.80
 DEFAULT_MIN_SUCCESS_RATE = 0.50
+OPENFACE_CLIP_FPS = 0.5
+OPENFACE_CLIP_WIDTH = 640
 FaceCsvGenerator = Callable[[Path, Path], None]
 VideoClipExtractor = Callable[[Path, float, float, Path], None]
 OpenFaceRunner = Callable[[Path, Path, Path], None]
@@ -265,6 +268,31 @@ def _face_cache_dir(window: dict[str, Any], cache_root: Path | str, encoder_prof
 
 
 def _clip_bounds(window: dict[str, Any], cache: dict[str, Any]) -> tuple[float | None, float | None]:
+    window_start_text = window.get("window_start_time")
+    window_end_text = window.get("window_end_time")
+    source_path = str(cache.get("source_path") or "")
+    if window_start_text and window_end_text and source_path:
+        for candidate in window.get("video_candidates", []) or []:
+            if str(candidate.get("mp4_path") or "") != source_path:
+                continue
+            mp4_start_text = candidate.get("mp4_start_time")
+            if not mp4_start_text:
+                continue
+            try:
+                mp4_start = parse_absolute_time(str(mp4_start_text))
+                window_start = parse_absolute_time(str(window_start_text))
+                window_end = parse_absolute_time(str(window_end_text))
+            except ValueError:
+                continue
+            start = max(0.0, float((window_start - mp4_start).total_seconds()))
+            end = max(start, float((window_end - mp4_start).total_seconds()))
+            if candidate.get("duration_seconds") is not None:
+                duration = float(candidate["duration_seconds"])
+                start = min(start, duration)
+                end = min(end, duration)
+            if end > start:
+                return start, end
+
     if cache.get("clip_start_seconds") is not None and cache.get("clip_end_seconds") is not None:
         return float(cache["clip_start_seconds"]), float(cache["clip_end_seconds"])
     for candidate in window.get("video_candidates", []) or []:
@@ -322,6 +350,8 @@ def _extract_video_clip_ffmpeg(
         "-t",
         f"{duration:.6f}",
         "-an",
+        "-vf",
+        f"fps={OPENFACE_CLIP_FPS:g},scale={OPENFACE_CLIP_WIDTH}:-2",
         "-c:v",
         "libx264",
         "-preset",
@@ -351,6 +381,8 @@ def _resolve_openface_executable(openface_executable: Path | str | None) -> Path
 
 
 def _run_openface(executable: Path, source_path: Path, csv_path: Path) -> None:
+    source_path = source_path.resolve()
+    csv_path = csv_path.resolve()
     out_dir = csv_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
     command = [

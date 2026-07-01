@@ -642,22 +642,24 @@ def _value_error_type(
     end_offset: float | None,
 ) -> str:
     message = str(exc)
-    if "expected EEG window samples" not in message:
-        return "shape_mismatch"
     if start_offset is None or end_offset is None:
-        return "eeg_window_shape_mismatch"
+        return "eeg_window_shape_mismatch" if "expected EEG window samples" in message else "shape_mismatch"
     duration = eeg_duration_seconds({**window, **cache})
     if duration is None:
-        return "eeg_window_shape_mismatch"
+        return "eeg_window_shape_mismatch" if "expected EEG window samples" in message else "shape_mismatch"
     coverage = classify_eeg_window_coverage(
         start_offset_seconds=start_offset,
         end_offset_seconds=end_offset,
         bdf_duration_seconds=duration,
     )
     classification = coverage["classification"]
-    if classification == "negative_offset":
+    if classification == "negative_offset" or (
+        classification == "whole_day_shift_candidate" and end_offset <= 0.0
+    ):
         return "eeg_window_before_recording"
-    if classification == "after_recording_end":
+    if classification == "after_recording_end" or (
+        classification == "whole_day_shift_candidate" and start_offset >= duration
+    ):
         return "eeg_window_after_recording"
     if classification == "partial_overlap":
         return "eeg_window_partial_overlap"

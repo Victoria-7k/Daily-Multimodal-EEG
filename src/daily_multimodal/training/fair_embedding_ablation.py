@@ -36,7 +36,9 @@ def run_fair_embedding_ablation(
     hidden_dim: int = 32,
     learning_rate: float = 0.05,
     seed: int = 23,
+    modalities: tuple[str, ...] = FULL_MODALITIES,
 ) -> dict[str, Any]:
+    modalities = _normalize_modalities(modalities)
     basic = _load_fair_dataset(basic_embeddings, target_label=target_label)
     real = _load_fair_dataset(real_embeddings, target_label=target_label)
     aligned = _sample_ids_aligned(basic, real)
@@ -46,6 +48,7 @@ def run_fair_embedding_ablation(
             basic_embeddings=basic_embeddings,
             real_embeddings=real_embeddings,
             target_label=target_label,
+            modalities=modalities,
             row_count=min(len(basic["sample_id"]), len(real["sample_id"])),
             sample_id_aligned=aligned,
             failures=failures,
@@ -65,6 +68,7 @@ def run_fair_embedding_ablation(
         experiments[name] = _run_variant(
             name,
             data,
+            modalities=modalities,
             epochs=epochs,
             overfit_limit=overfit_limit,
             hidden_dim=hidden_dim,
@@ -77,6 +81,7 @@ def run_fair_embedding_ablation(
         basic_embeddings=basic_embeddings,
         real_embeddings=real_embeddings,
         target_label=target_label,
+        modalities=modalities,
         row_count=len(basic["sample_id"]),
         sample_id_aligned=True,
         failures=[],
@@ -180,6 +185,7 @@ def _run_variant(
     name: str,
     data: dict[str, Any],
     *,
+    modalities: tuple[str, ...],
     epochs: int,
     overfit_limit: int,
     hidden_dim: int,
@@ -187,8 +193,8 @@ def _run_variant(
     seed: int,
 ) -> dict[str, Any]:
     split = _subject_split(data["subject_id"])
-    features = _features_for_modalities(data, FULL_MODALITIES)
-    valid = _available_modality_mask(data["modality_mask"], FULL_MODALITIES)
+    features = _features_for_modalities(data, modalities)
+    valid = _available_modality_mask(data["modality_mask"], modalities)
     run_split = {split_name: indices[valid[indices]] for split_name, indices in split["indices"].items()}
     model = _fit_mlp(
         features[run_split["train"]],
@@ -200,7 +206,7 @@ def _run_variant(
     )
     return {
         "experiment": name,
-        "modalities": list(FULL_MODALITIES),
+        "modalities": list(modalities),
         "seed": int(seed),
         "overfit_check": _run_overfit_check(
             features[valid],
@@ -224,6 +230,7 @@ def _add_decisions(experiments: dict[str, Any]) -> None:
     for name, experiment in experiments.items():
         rmse = experiment["test"]["rmse"]
         experiment["test_rmse"] = rmse
+        experiment["test_pearson_r"] = experiment["test"].get("pearson")
         if name == "path_only":
             experiment["decision"] = "leakage_control"
             experiment["reason"] = "path/sample/session metadata only"
@@ -251,6 +258,7 @@ def _result_shell(
     basic_embeddings: Path | str,
     real_embeddings: Path | str,
     target_label: str,
+    modalities: tuple[str, ...],
     row_count: int,
     sample_id_aligned: bool,
     failures: list[dict[str, Any]],
@@ -260,6 +268,7 @@ def _result_shell(
         "stage": 18,
         "audit": "fair_embedding_ablation",
         "target_label": target_label,
+        "modalities": list(modalities),
         "basic_embeddings": str(basic_embeddings),
         "real_embeddings": str(real_embeddings),
         "row_count": int(row_count),
@@ -279,15 +288,16 @@ def _write_outputs(result: dict[str, Any], *, out_json: Path | str, out_table: P
 
 def _write_table(result: dict[str, Any], output: Path | str) -> None:
     rows = [
-        "| experiment | test_rmse | decision | reason | train | val | test |",
-        "| --- | ---: | --- | --- | ---: | ---: | ---: |",
+        "| experiment | test_rmse | test_r | decision | reason | train | val | test |",
+        "| --- | ---: | ---: | --- | --- | ---: | ---: | ---: |",
     ]
     for name, experiment in result["experiments"].items():
         counts = experiment.get("sample_counts", {})
         rows.append(
-            "| {name} | {rmse} | {decision} | {reason} | {train} | {val} | {test} |".format(
+            "| {name} | {rmse} | {r} | {decision} | {reason} | {train} | {val} | {test} |".format(
                 name=name,
                 rmse=_format_metric(experiment.get("test_rmse")),
+                r=_format_metric(experiment.get("test_pearson_r")),
                 decision=experiment.get("decision", ""),
                 reason=experiment.get("reason", ""),
                 train=counts.get("train", 0),
@@ -302,3 +312,13 @@ def _write_table(result: dict[str, Any], output: Path | str) -> None:
 
 def _format_metric(value: float | None) -> str:
     return "NA" if value is None else f"{float(value):.4f}"
+
+
+def _normalize_modalities(modalities: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    normalized = tuple(str(item).strip() for item in modalities if str(item).strip())
+    if not normalized:
+        raise ValueError("at least one modality is required")
+    unknown = sorted(set(normalized) - set(FULL_MODALITIES))
+    if unknown:
+        raise ValueError(f"unsupported modalities: {', '.join(unknown)}")
+    return normalized

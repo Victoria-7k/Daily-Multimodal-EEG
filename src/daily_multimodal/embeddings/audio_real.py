@@ -92,17 +92,21 @@ class Emotion2VecBackend:
         kwargs: dict[str, Any] = {"model": str(checkpoint_path)}
         if device:
             kwargs["device"] = device
-        self._pipeline = pipeline(Tasks.emotion_recognition, **kwargs)
+        try:
+            self._pipeline = pipeline(Tasks.emotion_recognition, **kwargs)
+        except ImportError as exc:  # pragma: no cover - depends on server runtime
+            missing = exc.name or str(exc).strip() or "modelscope[audio]"
+            raise RuntimeError(f"missing audio emotion dependency: {missing}") from exc
 
     def embed_frames(self, wav_path: Path) -> np.ndarray:  # pragma: no cover - requires emotion2vec runtime
         result = self._pipeline(str(wav_path), granularity="utterance", extract_embedding=True)
         embedding = None
         if isinstance(result, dict):
-            embedding = result.get("embedding") or result.get("feats") or result.get("hidden_states")
+            embedding = _first_present(result, ("embedding", "feats", "hidden_states"))
         elif isinstance(result, list) and result:
             first = result[0]
             if isinstance(first, dict):
-                embedding = first.get("embedding") or first.get("feats") or first.get("hidden_states")
+                embedding = _first_present(first, ("embedding", "feats", "hidden_states"))
         if embedding is None:
             raise RuntimeError("emotion2vec did not return an embedding")
         values = np.asarray(embedding, dtype=np.float32)
@@ -277,6 +281,13 @@ def _build_backend_for_profile(
     if checkpoint is None:
         raise RuntimeError("audio checkpoint path is required")
     return TransformersAudioBackend(checkpoint, device=device)
+
+
+def _first_present(payload: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in payload and payload[key] is not None:
+            return payload[key]
+    return None
 
 
 def _pool_frames(frames: np.ndarray, *, pooling: str) -> np.ndarray:

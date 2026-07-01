@@ -69,6 +69,8 @@
 | `basic_no_path` | 把 EEG/Face/Audio 中路径派生信号置为常量后的 basic 对照 | [Fair ablation 模块](../../src/daily_multimodal/training/fair_embedding_ablation.py) |
 | `path_only` | 只用 `sample_id`、`event_id`、`subject_id`、`session_id`、`source_paths` 派生向量的泄漏控制 | [Fair ablation 模块](../../src/daily_multimodal/training/fair_embedding_ablation.py) |
 | `real` | 去掉元数据字段后的 real embedding 对照 | [Fair ablation 模块](../../src/daily_multimodal/training/fair_embedding_ablation.py) |
+| `modalities` | 本次对照实际使用的模态顺序；默认沿用 full，也可用 `--modalities eeg,wear,audio` 排除覆盖稀疏的 Face | [Fair ablation 模块](../../src/daily_multimodal/training/fair_embedding_ablation.py) |
+| `test_pearson_r`、`test_r` | JSON 和 Markdown 表里的测试集 Pearson r，和 RMSE/MAE 一起用于 fatigue 验证 | [Fair ablation 模块](../../src/daily_multimodal/training/fair_embedding_ablation.py) |
 | `failure_count`、`failures` | 对齐失败或行数不一致时的失败记录 | [Fair ablation 模块](../../src/daily_multimodal/training/fair_embedding_ablation.py) |
 
 ## EEG coverage audit 字段
@@ -92,4 +94,4 @@
 | `tonic_mean`、`phasic_std`、`scr_count`、`gsr_slope` | Wear v2 从 GSR 估计的 tonic/phasic、SCR 和趋势字段 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
 | `motion_intensity`、`stationary_ratio`、`axis_std`、`spectral_energy` | Wear v2 从 ACC 估计的运动强度、静止比例和频域能量字段 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
 | `physio_feature_names`、`physio_feature_values` | Wear v2 写入 `quality_flags` 的原始可解释特征名和值，便于后续分析哪些生理信号起作用 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
-| `fold_count`、`subject_leakage`、`rmse_mean`、`rmse_std`、`folds` | Subject-level CV 输出字段；每个 fold 保留 train/val/test subjects 和回归指标 | [Subject CV 模块](../../src/daily_multimodal/training/subject_cv.py) |
+| `fold_count`、`subject_leakage`、`modalities`、`rmse_mean`、`rmse_std`、`pearson_r_mean`、`pearson_r_std`、`folds` | Subject-level CV 输出字段；每个 fold 保留 train/val/test subjects 和 RMSE/MAE/Pearson r，Markdown 表用 `test_r` 展示 fold r 值 | [Subject CV 模块](../../src/daily_multimodal/training/subject_cv.py) |

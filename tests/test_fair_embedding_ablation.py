@@ -42,7 +42,10 @@ class FairEmbeddingAblationTests(unittest.TestCase):
             set(result["experiments"]),
         )
         self.assertEqual(metrics["row_count"], 6)
+        self.assertEqual(metrics["modalities"], ["eeg", "wear", "face", "audio"])
+        self.assertIn("test_pearson_r", metrics["experiments"]["real"])
         self.assertIn("| experiment |", table)
+        self.assertIn("test_r", table)
         self.assertIn("basic_no_path", table)
 
     def test_fair_ablation_rejects_misaligned_rows(self):

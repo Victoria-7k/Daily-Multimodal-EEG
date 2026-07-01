@@ -17,6 +17,9 @@ from daily_multimodal.training.baseline_mlp import (
 )
 
 
+DEFAULT_MODALITIES = tuple(MODALITY_RUNS["full"])
+
+
 @dataclass(frozen=True)
 class SubjectFold:
     name: str
@@ -58,10 +61,11 @@ def run_subject_cv(
     hidden_dim: int = 32,
     learning_rate: float = 0.05,
     seed: int = 17,
+    modalities: tuple[str, ...] = DEFAULT_MODALITIES,
 ) -> dict[str, Any]:
     data = _load_embedding_dataset(embeddings, target_label=target_label)
     folds = build_subject_folds(data["subject_id"], strategy=strategy, n_splits=n_splits, seed=seed)
-    modalities = MODALITY_RUNS["full"]
+    modalities = _normalize_modalities(modalities)
     features = _features_for_modalities(data, modalities)
     valid = _available_modality_mask(data["modality_mask"], modalities)
     fold_results = []
@@ -91,15 +95,22 @@ def run_subject_cv(
             }
         )
     rmses = np.asarray([row["test"]["rmse"] for row in fold_results if row["test"]["rmse"] is not None], dtype=np.float32)
+    pearsons = np.asarray(
+        [row["test"]["pearson"] for row in fold_results if row["test"].get("pearson") is not None],
+        dtype=np.float32,
+    )
     result = {
         "stage": 20,
         "target_label": target_label,
         "embeddings": str(embeddings),
+        "modalities": list(modalities),
         "strategy": strategy,
         "fold_count": len(fold_results),
         "subject_leakage": _has_subject_leakage(folds, data["subject_id"]),
         "rmse_mean": None if rmses.size == 0 else float(np.mean(rmses)),
         "rmse_std": None if rmses.size == 0 else float(np.std(rmses)),
+        "pearson_r_mean": None if pearsons.size == 0 else float(np.mean(pearsons)),
+        "pearson_r_std": None if pearsons.size == 0 else float(np.std(pearsons)),
         "folds": fold_results,
     }
     _write_json(result, out_json)
@@ -178,12 +189,12 @@ def _write_json(result: dict[str, Any], output: Path | str) -> None:
 
 def _write_table(result: dict[str, Any], output: Path | str) -> None:
     rows = [
-        "| fold | test_subjects | train_count | val_count | test_count | test_rmse | test_mae |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        "| fold | test_subjects | train_count | val_count | test_count | test_rmse | test_mae | test_r |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for fold in result["folds"]:
         rows.append(
-            "| {fold} | {subjects} | {train_count} | {val_count} | {test_count} | {rmse} | {mae} |".format(
+            "| {fold} | {subjects} | {train_count} | {val_count} | {test_count} | {rmse} | {mae} | {r} |".format(
                 fold=fold["fold"],
                 subjects=",".join(fold["test_subjects"]),
                 train_count=fold["train"]["count"],
@@ -191,6 +202,7 @@ def _write_table(result: dict[str, Any], output: Path | str) -> None:
                 test_count=fold["test"]["count"],
                 rmse=_format_metric(fold["test"]["rmse"]),
                 mae=_format_metric(fold["test"]["mae"]),
+                r=_format_metric(fold["test"].get("pearson")),
             )
         )
     out = Path(output)
@@ -200,3 +212,14 @@ def _write_table(result: dict[str, Any], output: Path | str) -> None:
 
 def _format_metric(value: float | None) -> str:
     return "NA" if value is None else f"{float(value):.4f}"
+
+
+def _normalize_modalities(modalities: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    normalized = tuple(str(item).strip() for item in modalities if str(item).strip())
+    if not normalized:
+        raise ValueError("at least one modality is required")
+    valid = set(MODALITY_RUNS["full"])
+    unknown = sorted(set(normalized) - valid)
+    if unknown:
+        raise ValueError(f"unsupported modalities: {', '.join(unknown)}")
+    return normalized

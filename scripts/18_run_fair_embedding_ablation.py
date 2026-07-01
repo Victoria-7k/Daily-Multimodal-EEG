@@ -25,6 +25,7 @@ def main() -> int:
     parser.add_argument("--hidden-dim", type=int, default=32)
     parser.add_argument("--learning-rate", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=23)
+    parser.add_argument("--modalities", default="eeg,wear,face,audio")
     args = parser.parse_args()
 
     result = run_fair_embedding_ablation(
@@ -38,6 +39,7 @@ def main() -> int:
         hidden_dim=args.hidden_dim,
         learning_rate=args.learning_rate,
         seed=args.seed,
+        modalities=tuple(item.strip() for item in args.modalities.split(",") if item.strip()),
     )
     print(f"row_count={result['row_count']}")
     print(f"sample_id_aligned={result['sample_id_aligned']}")

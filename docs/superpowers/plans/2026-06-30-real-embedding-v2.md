@@ -532,7 +532,7 @@ git commit -m "Add physiological wearable features v2"
 - Modify: `真实多模态完整embedding接入计划.md`
 - Modify: `真实多模态完整embedding执行报告.md`
 
-- [ ] **Step 1: Produce v2 single-modality full files**
+- [x] **Step 1: Produce v2 single-modality full files**
 
 Expected full files:
 
@@ -543,7 +543,7 @@ outputs/embeddings/face_openface_real_full_embeddings.npz
 outputs/embeddings/audio_<best_profile>_full_embeddings.npz
 ```
 
-- [ ] **Step 2: Pack v2 all-real**
+- [x] **Step 2: Pack v2 all-real**
 
 Run:
 
@@ -568,7 +568,7 @@ nan_count=0 for all modalities
 mask distribution is reported
 ```
 
-- [ ] **Step 3: Run fair v2 ablation**
+- [x] **Step 3: Run fair v2 ablation**
 
 Run:
 
@@ -576,9 +576,10 @@ Run:
 PYTHONPATH=src python scripts/18_run_fair_embedding_ablation.py \
   --basic-embeddings outputs/embeddings/all_complete_basic_real_aligned_embeddings.npz \
   --real-embeddings outputs/embeddings/all_complete_real_v2_embeddings.npz \
-  --target-label alert \
-  --out-json outputs/reports/fair_embedding_ablation_v2_metrics.json \
-  --out-table outputs/reports/fair_embedding_ablation_v2_table.md
+  --target-label fatigue \
+  --modalities eeg,wear,audio \
+  --out-json outputs/reports/fair_embedding_ablation_v2_fatigue_ewa_metrics.json \
+  --out-table outputs/reports/fair_embedding_ablation_v2_fatigue_ewa_table.md
 ```
 
 Decision:
@@ -588,7 +589,7 @@ Accept a v2 modality only if it beats basic_no_path and does not depend on path_
 Keep stage10 accepted if all-real v2 still underperforms it.
 ```
 
-- [ ] **Step 4: Update reports**
+- [x] **Step 4: Update reports**
 
 Update only after server validation:
 
@@ -598,7 +599,7 @@ Update only after server validation:
 outputs/reports/real_embedding_quality_summary_v2.json
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add 真实多模态完整embedding接入计划.md 真实多模态完整embedding执行报告.md outputs/reports/real_embedding_quality_summary_v2.json
@@ -614,7 +615,7 @@ git commit -m "Report real embedding v2 validation"
 - Create: `scripts/20_run_subject_cv.py`
 - Create: `tests/test_subject_cv.py`
 
-- [ ] **Step 1: Write fold leakage tests**
+- [x] **Step 1: Write fold leakage tests**
 
 Assert:
 
@@ -623,7 +624,7 @@ for fold in folds:
     assert set(subjects[fold.train]).isdisjoint(set(subjects[fold.test]))
 ```
 
-- [ ] **Step 2: Implement grouped subject CV**
+- [x] **Step 2: Implement grouped subject CV**
 
 Support:
 
@@ -633,16 +634,17 @@ grouped_k_fold with deterministic seed
 minimum train/val/test non-empty checks
 ```
 
-- [ ] **Step 3: Run on accepted candidates**
+- [x] **Step 3: Run on accepted candidates**
 
 Run:
 
 ```bash
 PYTHONPATH=src python scripts/20_run_subject_cv.py \
   --embeddings outputs/embeddings/all_complete_real_v2_embeddings.npz \
-  --target-label alert \
-  --out-json outputs/reports/subject_cv_real_v2_metrics.json \
-  --out-table outputs/reports/subject_cv_real_v2_table.md
+  --target-label fatigue \
+  --modalities eeg,wear,audio \
+  --out-json outputs/reports/subject_cv_real_v2_fatigue_ewa_metrics.json \
+  --out-table outputs/reports/subject_cv_real_v2_fatigue_ewa_table.md
 ```
 
 Expected:
@@ -650,10 +652,10 @@ Expected:
 ```text
 fold_count >= 10
 no subject leakage
-mean/std RMSE reported
+mean/std RMSE and Pearson r reported
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/daily_multimodal/training/subject_cv.py scripts/20_run_subject_cv.py tests/test_subject_cv.py

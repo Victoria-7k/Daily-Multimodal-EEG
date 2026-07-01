@@ -153,6 +153,31 @@ class EEGRealEmbeddingTests(unittest.TestCase):
         self.assertEqual(summary["success_count"], 0)
         self.assertEqual(failures[0]["error_type"], "eeg_window_partial_overlap")
 
+    def test_reader_out_of_range_value_error_records_after_recording(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_root = root / "cache"
+            _write_eeg_cache(
+                cache_root,
+                sample_id="sample-1",
+                window_start_offset_seconds=88700.0,
+                window_end_offset_seconds=88710.0,
+                eeg_recording_duration_seconds=13410.0,
+            )
+
+            summary = extract_eeg_real_embeddings(
+                [_window("sample-1")],
+                cache_root=cache_root,
+                output_npz=root / "eeg_real_embeddings.npz",
+                failures_out=root / "failures.json",
+                encoder_profile="eeg_bandpower_v1",
+                reader=_RaisingEEGReader("tmax (88710.0) must be less than or equal to the max time (13409.9980 s)"),
+            )
+            failures = json.loads((root / "failures.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(summary["success_count"], 0)
+        self.assertEqual(failures[0]["error_type"], "eeg_window_after_recording")
+
     def test_extract_eeg_deep_checkpoint_uses_deep_backend_features(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -420,6 +445,14 @@ class _RaisingDeepEEGBackend:
 
     def embed_features(self, data, *, channel_names):
         raise RuntimeError(self._message)
+
+
+class _RaisingEEGReader:
+    def __init__(self, message: str) -> None:
+        self._message = message
+
+    def read_window(self, source_path, *, start_offset_seconds, end_offset_seconds, target_sfreq):
+        raise ValueError(self._message)
 
 
 if __name__ == "__main__":

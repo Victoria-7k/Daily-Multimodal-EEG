@@ -116,8 +116,9 @@ class FaceRealEmbeddingTests(unittest.TestCase):
             csv_path = _write_face_cache(
                 cache_root,
                 sample_id="sample-1",
+                source_name="source.mp4",
                 clip_start_seconds=12.5,
-                clip_end_seconds=22.5,
+                clip_end_seconds=72.5,
             )
             executable = root / "FeatureExtraction"
             executable.write_text("fake executable", encoding="utf-8")
@@ -133,7 +134,20 @@ class FaceRealEmbeddingTests(unittest.TestCase):
                 _write_openface_csv(output_csv)
 
             summary = extract_face_real_embeddings(
-                [_window("sample-1")],
+                [
+                    {
+                        **_window("sample-1"),
+                        "window_start_time": "2025-02-28 14:13:12.500",
+                        "window_end_time": "2025-02-28 14:13:22.500",
+                        "video_candidates": [
+                            {
+                                "mp4_path": str(csv_path.parent / "source.mp4"),
+                                "mp4_start_time": "2025-02-28 14:13:00",
+                                "duration_seconds": 90.0,
+                            }
+                        ],
+                    }
+                ],
                 cache_root=cache_root,
                 output_npz=root / "face_real_embeddings.npz",
                 failures_out=root / "failures.json",
@@ -233,12 +247,13 @@ def _write_face_cache(
     *,
     sample_id: str,
     encoder_profile: str = "face_raw_openface_stats_v1",
+    source_name: str = "source.mp4",
     clip_start_seconds: float | None = None,
     clip_end_seconds: float | None = None,
 ) -> Path:
     cache_dir = cache_root / "openface" / sample_id / encoder_profile
     cache_dir.mkdir(parents=True, exist_ok=True)
-    mp4_path = cache_dir / "source.mp4"
+    mp4_path = cache_dir / source_name
     mp4_path.write_bytes(b"fake-mp4")
     csv_path = cache_dir / "openface.csv"
     payload = {
