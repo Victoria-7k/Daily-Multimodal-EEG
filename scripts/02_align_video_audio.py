@@ -18,6 +18,7 @@ from daily_multimodal.alignment.video_audio_alignment import (
     save_aligned_manifest,
     save_alignment_report,
 )
+from daily_multimodal.alignment.event_windows import DEFAULT_END_SECONDS, DEFAULT_START_SECONDS
 from daily_multimodal.manifest.validate_manifest import load_jsonl_manifest
 
 
@@ -26,8 +27,8 @@ def main() -> int:
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--out", default="outputs/manifests/events_manifest_with_video_audio.jsonl")
     parser.add_argument("--report-out", default="outputs/reports/video_audio_alignment_report.json")
-    parser.add_argument("--start-seconds", type=float, default=-60)
-    parser.add_argument("--end-seconds", type=float, default=0)
+    parser.add_argument("--start-seconds", type=float, default=DEFAULT_START_SECONDS)
+    parser.add_argument("--end-seconds", type=float, default=DEFAULT_END_SECONDS)
     parser.add_argument("--timezone", default="Asia/Shanghai")
     parser.add_argument("--ffprobe-timeout", type=float, default=10)
     parser.add_argument("--ffprobe-workers", type=int, default=8)

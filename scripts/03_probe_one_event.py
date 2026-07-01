@@ -11,6 +11,10 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from daily_multimodal.alignment.event_windows import (
+    DEFAULT_END_SECONDS,
+    DEFAULT_START_SECONDS,
+    DEFAULT_STRIDE_SECONDS,
+    DEFAULT_WINDOW_SIZE_SECONDS,
     build_window_index,
     load_window_index,
     save_window_index,
@@ -32,10 +36,10 @@ def main() -> int:
     parser.add_argument("--shapes-out", default="outputs/reports/probe_one_event_shapes.txt")
     parser.add_argument("--sample-id")
     parser.add_argument("--require-all-modalities", action="store_true")
-    parser.add_argument("--start-seconds", type=float, default=-10)
-    parser.add_argument("--end-seconds", type=float, default=0)
-    parser.add_argument("--window-size-seconds", type=float, default=10)
-    parser.add_argument("--stride-seconds", type=float, default=5)
+    parser.add_argument("--start-seconds", type=float, default=DEFAULT_START_SECONDS)
+    parser.add_argument("--end-seconds", type=float, default=DEFAULT_END_SECONDS)
+    parser.add_argument("--window-size-seconds", type=float, default=DEFAULT_WINDOW_SIZE_SECONDS)
+    parser.add_argument("--stride-seconds", type=float, default=DEFAULT_STRIDE_SECONDS)
     parser.add_argument("--eeg-resample-hz", type=int, default=250)
     args = parser.parse_args()
 

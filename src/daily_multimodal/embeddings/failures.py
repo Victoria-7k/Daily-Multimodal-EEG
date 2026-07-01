@@ -19,6 +19,8 @@ FAILURE_ERROR_TYPES = {
     "eeg_window_shape_mismatch",
     "nan_embedding",
     "quality_threshold_failed",
+    "no_face_detected",
+    "face_detection_failed",
     "oom",
     "timeout",
     "subject_split_incomplete",

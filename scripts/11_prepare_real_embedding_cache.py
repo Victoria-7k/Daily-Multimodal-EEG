@@ -21,6 +21,16 @@ def main() -> int:
     parser.add_argument("--cache-root", default="outputs/cache")
     parser.add_argument("--out-report", default="outputs/reports/real_embedding_readiness_report.md")
     parser.add_argument("--failures-out", default="outputs/reports/real_embedding_failures.json")
+    parser.add_argument(
+        "--filtered-window-index-out",
+        default="outputs/window_index/real_cache_face_detected.jsonl",
+        help="JSONL window index kept after optional face-presence filtering.",
+    )
+    parser.add_argument(
+        "--skip-face-presence-filter",
+        action="store_true",
+        help="Disable the initial face detector filter and keep every input window.",
+    )
     parser.add_argument("--eeg-encoder-profile", default="eeg_real_frozen_v1")
     parser.add_argument("--wear-encoder-profile", default="wear_sequence_v1")
     parser.add_argument("--face-encoder-profile", default="openface_temporal_v1")
@@ -40,10 +50,16 @@ def main() -> int:
             face=args.face_encoder_profile,
             audio=args.audio_encoder_profile,
         ),
+        filter_no_face=not args.skip_face_presence_filter,
+        filtered_window_index_out=args.filtered_window_index_out,
     )
 
     print(f"report_path={args.out_report}")
     print(f"failures_path={args.failures_out}")
+    print(f"filtered_window_index_path={args.filtered_window_index_out}")
+    print(f"selected_window_count={summary['selected_window_count']}")
+    print(f"face_filter_dropped_count={summary['face_filter']['dropped_count']}")
+    print(f"face_filter_dropped_no_face_count={summary['face_filter']['dropped_no_face_count']}")
     for modality in ("eeg", "wear", "face", "audio"):
         values = summary["modalities"][modality]
         print(f"{modality}_ready_count={values['ready_count']}")

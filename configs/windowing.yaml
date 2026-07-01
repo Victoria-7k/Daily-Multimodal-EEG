@@ -1,8 +1,8 @@
 event_window:
-  start_seconds: -60
+  start_seconds: -120
   end_seconds: 0
   base_window_seconds: 10
-  base_stride_seconds: 5
+  base_stride_seconds: 10
 
 video_audio:
   timezone: Asia/Shanghai

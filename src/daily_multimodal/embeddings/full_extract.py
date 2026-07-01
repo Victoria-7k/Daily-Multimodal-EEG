@@ -53,13 +53,7 @@ def _load_or_build_windows(
     if window_index:
         return load_window_index(window_index)
     if manifest:
-        return build_window_index(
-            load_jsonl_manifest(manifest),
-            start_seconds=-10,
-            end_seconds=0,
-            window_size_seconds=10,
-            stride_seconds=5,
-        )
+        return build_window_index(load_jsonl_manifest(manifest))
     raise ValueError("Provide either manifest or window_index.")
 
 

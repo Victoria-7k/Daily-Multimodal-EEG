@@ -4,7 +4,7 @@ import json
 import re
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -13,6 +13,17 @@ from daily_multimodal.embeddings.failures import EmbeddingFailure, write_failure
 
 
 AudioExtractor = Callable[[Path, float, float, Path], None]
+FacePresenceDetector = Callable[[Path, float, float], "FacePresenceResult"]
+
+
+@dataclass(frozen=True)
+class FacePresenceResult:
+    has_face: bool
+    detector: str
+    frame_count: int
+    detected_frame_count: int
+    start_seconds: float
+    end_seconds: float
 
 
 @dataclass(frozen=True)
@@ -45,17 +56,30 @@ def prepare_real_embedding_cache(
     failures_out: Path | str,
     profiles: RealCacheProfiles | None = None,
     audio_extractor: AudioExtractor | None = None,
+    filter_no_face: bool = False,
+    face_detector: FacePresenceDetector | None = None,
+    filtered_window_index_out: Path | str | None = None,
 ) -> dict[str, Any]:
     profiles = profiles or RealCacheProfiles()
     extractor = audio_extractor or extract_audio_clip_ffmpeg
     root = Path(cache_root)
     root.mkdir(parents=True, exist_ok=True)
     failures: list[EmbeddingFailure] = []
+    selected_windows, face_filter_summary = _filter_windows_by_face_presence(
+        windows,
+        profiles=profiles,
+        filter_no_face=filter_no_face,
+        face_detector=face_detector or detect_face_presence_opencv_haar,
+        failures=failures,
+    )
     summary: dict[str, Any] = {
         "stage": 12,
         "window_count": len(windows),
+        "selected_window_count": len(selected_windows),
         "cache_root": str(root),
         "failures_path": str(failures_out),
+        "filtered_window_index_path": str(filtered_window_index_out) if filtered_window_index_out else "",
+        "face_filter": face_filter_summary,
         "modalities": {
             "eeg": _empty_modality_summary(),
             "wear": _empty_modality_summary(),
@@ -63,8 +87,9 @@ def prepare_real_embedding_cache(
             "audio": _empty_modality_summary(),
         },
     }
+    summary["modalities"]["face"]["missing_count"] += face_filter_summary["dropped_count"]
 
-    for window in windows:
+    for window in selected_windows:
         _prepare_audio_cache(window, root, profiles, extractor, summary, failures)
         _prepare_face_cache(window, root, profiles, summary, failures)
         _prepare_eeg_cache(window, root, profiles, summary, failures)
@@ -74,9 +99,70 @@ def prepare_real_embedding_cache(
         modality_summary["failure_count"] = sum(
             1 for failure in failures if failure.modality == modality
         )
+    if filtered_window_index_out:
+        _write_jsonl(selected_windows, filtered_window_index_out)
     write_failure_list(failures, failures_out)
     _write_readiness_report(summary, report_out)
     return summary
+
+
+def detect_face_presence_opencv_haar(
+    source: Path,
+    start_seconds: float,
+    end_seconds: float,
+) -> FacePresenceResult:
+    try:
+        import cv2
+    except ImportError as exc:  # pragma: no cover - depends on server runtime
+        raise DependencyMissingError(f"missing OpenCV dependency: {exc.name}") from exc
+
+    cascade_path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
+    detector = cv2.CascadeClassifier(str(cascade_path))
+    if detector.empty():
+        raise DependencyMissingError(f"OpenCV Haar cascade not found: {cascade_path}")
+
+    capture = cv2.VideoCapture(str(source))
+    if not capture.isOpened():
+        raise RuntimeError(f"could not open video: {source}")
+
+    fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+    if start_seconds > 0:
+        capture.set(cv2.CAP_PROP_POS_MSEC, float(start_seconds) * 1000.0)
+    sample_every_frames = max(1, int(round(fps))) if fps > 0 else 1
+    max_frames = 10
+    frame_count = 0
+    detected_frame_count = 0
+    raw_frame_index = int(capture.get(cv2.CAP_PROP_POS_FRAMES) or 0)
+
+    try:
+        while frame_count < max_frames:
+            ok, frame = capture.read()
+            if not ok:
+                break
+            raw_frame_index += 1
+            timestamp = (raw_frame_index - 1) / fps if fps > 0 else float(raw_frame_index - 1)
+            if timestamp >= float(end_seconds):
+                break
+            if (raw_frame_index - 1) % sample_every_frames != 0:
+                continue
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(30, 30))
+            frame_count += 1
+            if len(faces) > 0:
+                detected_frame_count += 1
+    finally:
+        capture.release()
+
+    if frame_count == 0:
+        raise RuntimeError(f"video produced no readable frames: {source}")
+    return FacePresenceResult(
+        has_face=detected_frame_count > 0,
+        detector="opencv_haar_frontalface_default",
+        frame_count=frame_count,
+        detected_frame_count=detected_frame_count,
+        start_seconds=float(start_seconds),
+        end_seconds=float(end_seconds),
+    )
 
 
 def extract_audio_clip_ffmpeg(
@@ -195,6 +281,118 @@ def _prepare_audio_cache(
     _record_ready(summary, modality, metadata_out)
 
 
+def _filter_windows_by_face_presence(
+    windows: list[dict[str, Any]],
+    *,
+    profiles: RealCacheProfiles,
+    filter_no_face: bool,
+    face_detector: FacePresenceDetector,
+    failures: list[EmbeddingFailure],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    summary = {
+        "enabled": bool(filter_no_face),
+        "requested_windows": len(windows),
+        "kept_count": len(windows),
+        "dropped_count": 0,
+        "dropped_no_face_count": 0,
+        "dropped_failure_count": 0,
+        "dropped_windows": [],
+    }
+    if not filter_no_face:
+        return list(windows), summary
+
+    kept: list[dict[str, Any]] = []
+    dropped: list[dict[str, Any]] = []
+    encoder_profile = profiles.face
+    for window in windows:
+        candidate = _select_video_candidate(window)
+        if candidate is None:
+            failure = _failure(
+                window,
+                "face",
+                encoder_profile,
+                "face_presence_filter",
+                "source_missing",
+                "required video source for face detection is missing",
+                "<missing-video-candidate>",
+            )
+            failures.append(failure)
+            dropped.append(_dropped_window_record(window, "source_missing", None))
+            continue
+        source = Path(str(candidate.get("mp4_path", "")))
+        if not source.is_file():
+            failure = _failure(
+                window,
+                "face",
+                encoder_profile,
+                "face_presence_filter",
+                "source_missing",
+                "required video source for face detection is missing",
+                str(source),
+            )
+            failures.append(failure)
+            dropped.append(_dropped_window_record(window, "source_missing", None))
+            continue
+        start_seconds, end_seconds = _candidate_clip_bounds(candidate, window)
+        try:
+            result = face_detector(source, start_seconds, end_seconds)
+        except DependencyMissingError as exc:
+            failures.append(
+                _failure(
+                    window,
+                    "face",
+                    encoder_profile,
+                    "face_presence_filter",
+                    "dependency_missing",
+                    str(exc),
+                    str(source),
+                )
+            )
+            dropped.append(_dropped_window_record(window, "dependency_missing", None))
+            continue
+        except Exception as exc:
+            failures.append(
+                _failure(
+                    window,
+                    "face",
+                    encoder_profile,
+                    "face_presence_filter",
+                    "face_detection_failed",
+                    str(exc),
+                    str(source),
+                )
+            )
+            dropped.append(_dropped_window_record(window, "face_detection_failed", None))
+            continue
+
+        result_payload = asdict(result)
+        if not result.has_face:
+            failures.append(
+                _failure(
+                    window,
+                    "face",
+                    encoder_profile,
+                    "face_presence_filter",
+                    "no_face_detected",
+                    "no face detected in sampled window frames",
+                    str(source),
+                )
+            )
+            dropped.append(_dropped_window_record(window, "no_face_detected", result_payload))
+            continue
+
+        kept_window = dict(window)
+        kept_window["face_presence"] = result_payload
+        kept.append(kept_window)
+
+    summary["kept_count"] = len(kept)
+    summary["dropped_count"] = len(dropped)
+    summary["dropped_no_face_count"] = sum(1 for row in dropped if row["reason"] == "no_face_detected")
+    summary["dropped_failure_count"] = summary["dropped_count"] - summary["dropped_no_face_count"]
+    summary["dropped_windows"] = dropped
+    return kept, summary
+
+
 def _prepare_face_cache(
     window: dict[str, Any],
     cache_root: Path,
@@ -306,6 +504,22 @@ def _select_video_candidate(window: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _candidate_clip_bounds(candidate: dict[str, Any], window: dict[str, Any]) -> tuple[float, float]:
+    source_path = str(candidate.get("mp4_path") or "")
+    mp4_start_text = candidate.get("mp4_start_time")
+    if source_path and mp4_start_text and window.get("window_start_time") and window.get("window_end_time"):
+        try:
+            mp4_start = parse_absolute_time(str(mp4_start_text))
+            window_start = parse_absolute_time(str(window["window_start_time"]))
+            window_end = parse_absolute_time(str(window["window_end_time"]))
+            start = max(0.0, float((window_start - mp4_start).total_seconds()))
+            end = max(start, float((window_end - mp4_start).total_seconds()))
+            if candidate.get("duration_seconds") is not None:
+                duration = float(candidate["duration_seconds"])
+                start = min(start, duration)
+                end = min(end, duration)
+            return start, end
+        except (TypeError, ValueError):
+            pass
     start = _as_float(candidate.get("clip_start_seconds"), 0.0)
     end = candidate.get("clip_end_seconds")
     if end is None:
@@ -404,6 +618,45 @@ def _record_failure(
     )
 
 
+def _failure(
+    window: dict[str, Any],
+    modality: str,
+    encoder_profile: str,
+    stage: str,
+    error_type: str,
+    error: str,
+    source_path: str,
+) -> EmbeddingFailure:
+    return EmbeddingFailure(
+        sample_id=str(window.get("sample_id") or "<missing-sample-id>"),
+        event_id=str(window.get("event_id") or "<missing-event-id>"),
+        subject_id=str(window.get("subject_id") or "<missing-subject-id>"),
+        modality=modality,
+        encoder_profile=encoder_profile,
+        stage=stage,
+        error_type=error_type,
+        error=error,
+        source_path=source_path or "<missing-source-path>",
+        recoverable=True,
+    )
+
+
+def _dropped_window_record(
+    window: dict[str, Any],
+    reason: str,
+    face_presence: dict[str, Any] | None,
+) -> dict[str, Any]:
+    record = {
+        "sample_id": str(window.get("sample_id", "")),
+        "event_id": str(window.get("event_id", "")),
+        "subject_id": str(window.get("subject_id", "")),
+        "reason": reason,
+    }
+    if face_presence is not None:
+        record["face_presence"] = face_presence
+    return record
+
+
 def _write_readiness_report(summary: dict[str, Any], report_out: Path | str) -> Path:
     out = Path(report_out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -411,8 +664,14 @@ def _write_readiness_report(summary: dict[str, Any], report_out: Path | str) -> 
         "# Real Embedding Readiness Report",
         "",
         f"Window count: {summary['window_count']}",
+        f"Selected windows: {summary['selected_window_count']}",
         f"Cache root: {summary['cache_root']}",
         f"Failures: {summary['failures_path']}",
+        (
+            "Face-filter kept: "
+            f"{summary['face_filter']['kept_count']}, "
+            f"dropped: {summary['face_filter']['dropped_count']}"
+        ),
         "",
         "## Modality readiness",
         "",
@@ -425,6 +684,15 @@ def _write_readiness_report(summary: dict[str, Any], report_out: Path | str) -> 
         )
     lines.append("")
     out.write_text("\n".join(lines), encoding="utf-8")
+    return out
+
+
+def _write_jsonl(rows: list[dict[str, Any]], output: Path | str) -> Path:
+    out = Path(output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
     return out
 
 

@@ -16,9 +16,9 @@
 
 ## Step 3: 事件切成可复用窗口
 
-窗口索引把事件记录变成训练或探针可以复用的样本记录。`scripts/03_build_window_index.py` 调用 [窗口构建函数](../../src/daily_multimodal/alignment/event_windows.py)，默认取事件发生前 `-10` 到 `0` 秒，窗口长度 `10` 秒，步长 `5` 秒。这个默认配置会为一个事件生成一个基础窗口；如果范围更长，则按步长滑动生成多个窗口。
+窗口索引把事件记录变成训练或探针可以复用的样本记录。`scripts/03_build_window_index.py` 调用 [窗口构建函数](../../src/daily_multimodal/alignment/event_windows.py)，默认取情绪评分事件发生前 `-120` 到 `0` 秒，窗口长度 `10` 秒，步长 `10` 秒。每个保留事件会生成 12 个不重叠样本；不足完整两分钟历史或精确视频不足两分钟覆盖的事件会在展开前跳过，并写入 `outputs/reports/window_index_summary.json`。
 
-窗口记录的核心变化是 `event_id` 变成稳定的 `sample_id`，例如测试里确认的 `sub-02_ses-03_00_row-0012_win-0000`。同一条记录还携带 EEG 起点、wear 路径、视频候选、标签和 `has_eeg`、`has_wear`、`has_face`、`has_audio` 等可用性标记。想理解这层概念，可以继续读 [事件窗口的白话模型](../modules/event-window.md)。
+窗口记录的核心变化是 `event_id` 变成稳定的 `sample_id`，例如 `sub-02_ses-03_00_row-0012_win-0000`。同一条记录还携带 EEG 起点、wear 路径、标签和 `has_eeg`、`has_wear`、`has_face`、`has_audio` 等可用性标记；精确 `video_candidates` 会被重新换算到当前 10 秒样本的 clip 秒数，避免后续 cache 对每个小窗都切同一段事件级视频。想理解这层概念，可以继续读 [事件窗口的白话模型](../modules/event-window.md)。
 
 ## Step 4: 单事件探针先检查形状和非空数据
 
@@ -54,7 +54,7 @@
 
 阶段 11 不直接接 WavLM、OpenFace 或 EEG 深度模型，而是先把真实 encoder 的边界收紧。[真实契约模块](../../src/daily_multimodal/embeddings/contracts.py) 要求每个真实单模态 embedding 是 `(256,)` 或 `(N, 256)` 浮点数组，不能包含 NaN 或无限值；[失败清单模块](../../src/daily_multimodal/embeddings/failures.py) 要求每条失败都带上 sample、modality、encoder profile、stage、error type 和 source path。空失败清单仍写为 `[]`，这样成功运行和“没有写失败文件”不会混在一起。
 
-阶段 12 再运行 `scripts/11_prepare_real_embedding_cache.py`，从窗口索引准备真实缓存。Audio 会按 `video_candidates` 的精确秒数切出 mono 16 kHz wav；face 只生成 OpenFace CSV 目标路径；EEG 和 wear 写出窗口 JSON，记录 BDF 或 PPG/GSR/ACC 源路径、窗口时间和目标采样参数。readiness report 会列出 EEG、wear、face、audio 各自的 ready count、missing count 和失败清单路径。这个阶段的目标是先区分“数据切片不可用”和“深度模型不可用”，避免阶段 13 以后把 ffmpeg、OpenFace、checkpoint 和模型 shape 问题混成一类错误。
+阶段 12 再运行 `scripts/11_prepare_real_embedding_cache.py`，从窗口索引准备真实缓存。脚本默认先用 OpenCV Haar 人脸检测器对每个 10 秒视频窗口做 face-presence 预检；没有检测到人脸、视频源缺失或检测器失败的窗口会从后续 cache index 中去掉，并在 readiness report 与失败清单中统计。保留窗口会写到 `--filtered-window-index-out` 指定的 JSONL，供 Audio、Face、EEG 和 Wear 真实入口复用。Audio 会按每个样本 `video_candidates` 的精确秒数切出 mono 16 kHz wav；face 写 OpenFace CSV 目标路径；EEG 和 wear 写出窗口 JSON，记录 BDF 或 PPG/GSR/ACC 源路径、窗口时间和目标采样参数。readiness report 会列出 face-filter kept/dropped，以及 EEG、wear、face、audio 各自的 ready count、missing count 和失败清单路径。这个阶段的目标是先区分“数据切片不可用”“无人脸样本不用”和“深度模型不可用”，避免阶段 13 以后把 ffmpeg、OpenFace、checkpoint 和模型 shape 问题混成一类错误。
 
 ## Step 10: Audio 先接真实 frozen encoder
 

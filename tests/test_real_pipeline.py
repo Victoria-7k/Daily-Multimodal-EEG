@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from daily_multimodal.embeddings.cache import (
+    FacePresenceResult,
     RealCacheProfiles,
     build_cache_key,
     prepare_real_embedding_cache,
@@ -95,6 +96,68 @@ class RealPipelineCacheTests(unittest.TestCase):
         self.assertGreaterEqual(len(failures), 4)
         self.assertTrue(all(failure["sample_id"] == "sample-1" for failure in failures))
         self.assertIn("source_missing", {failure["error_type"] for failure in failures})
+
+    def test_prepare_real_embedding_cache_filters_windows_without_detected_faces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_root = root / "source"
+            source_root.mkdir()
+            face_video = _touch(source_root / "with-face.mp4")
+            no_face_video = _touch(source_root / "without-face.mp4")
+            eeg = _touch(source_root / "sample.bdf")
+            ppg = _touch(source_root / "ppg.csv")
+            gsr = _touch(source_root / "gsr.csv")
+            acc = _touch(source_root / "acc.csv")
+            cache_root = root / "cache"
+            filtered_index_out = root / "window_index" / "face_detected.jsonl"
+
+            def fake_detector(source, start_seconds, end_seconds):
+                return FacePresenceResult(
+                    has_face=source.name == "with-face.mp4",
+                    detector="fake-face-detector",
+                    frame_count=3,
+                    detected_frame_count=1 if source.name == "with-face.mp4" else 0,
+                    start_seconds=start_seconds,
+                    end_seconds=end_seconds,
+                )
+
+            def fake_audio_extractor(_source, _start_seconds, _end_seconds, output):
+                output.parent.mkdir(parents=True, exist_ok=True)
+                _touch(output)
+
+            summary = prepare_real_embedding_cache(
+                [
+                    _cache_window(face_video, eeg, ppg, gsr, acc, sample_id="sample-face"),
+                    _cache_window(no_face_video, eeg, ppg, gsr, acc, sample_id="sample-no-face"),
+                ],
+                cache_root=cache_root,
+                report_out=root / "readiness.md",
+                failures_out=root / "failures.json",
+                profiles=RealCacheProfiles(),
+                audio_extractor=fake_audio_extractor,
+                filter_no_face=True,
+                face_detector=fake_detector,
+                filtered_window_index_out=filtered_index_out,
+            )
+            failures = json.loads((root / "failures.json").read_text(encoding="utf-8"))
+            filtered_rows = [
+                json.loads(line)
+                for line in filtered_index_out.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            report = (root / "readiness.md").read_text(encoding="utf-8")
+
+        self.assertEqual(summary["window_count"], 2)
+        self.assertEqual(summary["selected_window_count"], 1)
+        self.assertEqual(summary["face_filter"]["dropped_no_face_count"], 1)
+        self.assertEqual(summary["face_filter"]["dropped_windows"][0]["sample_id"], "sample-no-face")
+        self.assertEqual(summary["modalities"]["audio"]["ready_count"], 1)
+        self.assertEqual(summary["modalities"]["face"]["ready_count"], 1)
+        self.assertEqual(filtered_rows[0]["sample_id"], "sample-face")
+        self.assertEqual(filtered_rows[0]["face_presence"]["detector"], "fake-face-detector")
+        self.assertIn("face_presence_filter", {failure["stage"] for failure in failures})
+        self.assertIn("no_face_detected", {failure["error_type"] for failure in failures})
+        self.assertIn("Face-filter kept: 1, dropped: 1", report)
 
 
 class RealPipelineTests(unittest.TestCase):
@@ -247,10 +310,18 @@ def _touch(path: Path) -> Path:
     return path
 
 
-def _cache_window(video: Path, eeg: Path, ppg: Path, gsr: Path, acc: Path) -> dict:
+def _cache_window(
+    video: Path,
+    eeg: Path,
+    ppg: Path,
+    gsr: Path,
+    acc: Path,
+    *,
+    sample_id: str = "sample-1",
+) -> dict:
     return {
-        "sample_id": "sample-1",
-        "event_id": "event-1",
+        "sample_id": sample_id,
+        "event_id": sample_id.replace("sample", "event"),
         "subject_id": "sub-02",
         "window_start_time": "2025-02-28 14:13:00",
         "window_end_time": "2025-02-28 14:13:10",

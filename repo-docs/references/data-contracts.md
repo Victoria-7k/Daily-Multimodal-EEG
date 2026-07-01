@@ -45,8 +45,27 @@
 | `sample_id` | 窗口级稳定样本编号，格式为 `{event_id}_win-0000` | [窗口构建函数](../../src/daily_multimodal/alignment/event_windows.py) |
 | `window_start_time`、`window_end_time` | 窗口绝对时间范围 | [窗口构建函数](../../src/daily_multimodal/alignment/event_windows.py) |
 | `window_start_offset_seconds`、`window_end_offset_seconds` | 相对事件发生时刻的秒级 offset | [窗口构建函数](../../src/daily_multimodal/alignment/event_windows.py) |
+| `event_window_start_seconds`、`event_window_end_seconds` | 当前事件展开范围；默认 `-120` 到 `0`，用于说明同一事件的 12 个 10 秒样本都来自评分前两分钟 | [窗口构建函数](../../src/daily_multimodal/alignment/event_windows.py) |
+| `required_history_seconds`、`pre_event_history_seconds` | 事件进入窗口索引所需的前置历史秒数，以及 manifest 中可推断的 EEG 事件前历史秒数 | [窗口构建函数](../../src/daily_multimodal/alignment/event_windows.py) |
 | `label_columns` | 从 manifest 的 `labels` 搬到窗口记录里的标签字典 | [窗口构建函数](../../src/daily_multimodal/alignment/event_windows.py) |
 | `has_wear`、`has_face`、`has_audio` | 窗口层给 embedding 使用的模态可用性 | [窗口构建函数](../../src/daily_multimodal/alignment/event_windows.py) |
+
+## window index summary 字段
+
+| 字段 | 含义 | 来源 |
+| --- | --- | --- |
+| `events_total`、`events_selected`、`events_skipped`、`windows_total` | 输入事件数、保留事件数、跳过事件数和展开后的窗口总数 | [窗口索引入口](../../scripts/03_build_window_index.py) |
+| `skip_reasons` | 跳过原因计数；当前包括 `insufficient_pre_event_history` 和 `insufficient_video_coverage` | [窗口构建函数](../../src/daily_multimodal/alignment/event_windows.py) |
+| `skipped_events` | 每个被跳过事件的 `event_id`、`subject_id`、`session_id`、`absolute_onset_time`、原因和可用历史秒数 | [窗口构建函数](../../src/daily_multimodal/alignment/event_windows.py) |
+
+## real cache face-filter 字段
+
+| 字段 | 含义 | 来源 |
+| --- | --- | --- |
+| `selected_window_count` | stage-12 face-presence 过滤后继续准备 cache 的窗口数 | [真实缓存准备模块](../../src/daily_multimodal/embeddings/cache.py) |
+| `face_filter.enabled`、`kept_count`、`dropped_count` | 是否启用人脸预检、保留窗口数和剔除窗口数 | [真实缓存准备模块](../../src/daily_multimodal/embeddings/cache.py) |
+| `face_filter.dropped_no_face_count`、`dropped_failure_count`、`dropped_windows` | 无脸窗口数、检测失败或源缺失剔除数，以及对应 `sample_id` / `event_id` 列表 | [真实缓存准备模块](../../src/daily_multimodal/embeddings/cache.py) |
+| `face_presence` | 写入过滤后窗口索引的检测摘要，含 `detector`、`frame_count`、`detected_frame_count` 和检测 clip 秒数 | [真实缓存准备模块](../../src/daily_multimodal/embeddings/cache.py) |
 
 ## embedding 输出字段
 

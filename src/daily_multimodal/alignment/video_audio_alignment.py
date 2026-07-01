@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
+from daily_multimodal.alignment.event_windows import DEFAULT_END_SECONDS, DEFAULT_START_SECONDS
 from daily_multimodal.alignment.time_utils import parse_absolute_time
 
 
@@ -20,8 +21,8 @@ TimedProbeFunc = Callable[..., dict[str, Any]]
 def align_video_audio_rows(
     rows: list[dict[str, Any]],
     *,
-    start_seconds: int | float = -60,
-    end_seconds: int | float = 0,
+    start_seconds: int | float = DEFAULT_START_SECONDS,
+    end_seconds: int | float = DEFAULT_END_SECONDS,
     timezone_name: str = "Asia/Shanghai",
     ffprobe_timeout_seconds: int | float | None = 10,
     ffprobe_func: ProbeFunc | None = None,

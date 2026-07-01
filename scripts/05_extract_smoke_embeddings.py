@@ -47,13 +47,7 @@ def _load_or_build_windows(manifest: str | None, window_index: str | None) -> li
         return load_window_index(window_index)
     if manifest:
         rows = load_jsonl_manifest(manifest)
-        return build_window_index(
-            rows,
-            start_seconds=-10,
-            end_seconds=0,
-            window_size_seconds=10,
-            stride_seconds=5,
-        )
+        return build_window_index(rows)
     raise SystemExit("Provide either --manifest or --window-index.")
 
 
