@@ -27,6 +27,11 @@ def main() -> int:
     parser.add_argument("--require-all-modalities", action="store_true")
     parser.add_argument("--cache-root", default="outputs/cache")
     parser.add_argument("--encoder-profile", default="wear_sequence_v1")
+    parser.add_argument(
+        "--mask-low-quality-wear",
+        action="store_true",
+        help="Set wear mask to 0 for windows graded as low-quality (grade C).",
+    )
     parser.add_argument("--out", default="outputs/embeddings/wear_real_embeddings.npz")
     parser.add_argument("--failures-out", default="outputs/reports/wear_real_failures.json")
     parser.add_argument("--summary-out", default="outputs/reports/wear_real_quality_summary.json")
@@ -44,6 +49,7 @@ def main() -> int:
         output_npz=args.out,
         failures_out=args.failures_out,
         encoder_profile=args.encoder_profile,
+        mask_low_quality_wear=args.mask_low_quality_wear,
     )
     write_wear_quality_summary(summary, args.summary_out)
 

@@ -31,6 +31,8 @@ def main() -> int:
     parser.add_argument("--openface-executable")
     parser.add_argument("--allow-opencv-fallback", action="store_true")
     parser.add_argument("--min-success-rate", type=float, default=0.50)
+    parser.add_argument("--face-roi-crop-scale", type=float, default=2.0)
+    parser.add_argument("--skip-face-roi-crop", action="store_true")
     parser.add_argument("--out", default="outputs/embeddings/face_real_embeddings.npz")
     parser.add_argument("--failures-out", default="outputs/reports/face_real_failures.json")
     parser.add_argument("--summary-out", default="outputs/reports/face_real_quality_summary.json")
@@ -55,6 +57,7 @@ def main() -> int:
         openface_executable=args.openface_executable,
         allow_opencv_fallback=args.allow_opencv_fallback,
         min_success_rate=args.min_success_rate,
+        face_roi_crop_scale=None if args.skip_face_roi_crop else args.face_roi_crop_scale,
     )
     write_face_quality_summary(summary, args.summary_out)
     write_face_preprocessing_decision(summary, args.decision_out)

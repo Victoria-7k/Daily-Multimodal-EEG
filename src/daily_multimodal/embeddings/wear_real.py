@@ -18,6 +18,11 @@ from daily_multimodal.embeddings.failures import EmbeddingFailure, write_failure
 
 
 TARGET_SAMPLE_RATES_HZ = {"ppg": 64, "gsr": 32, "acc": 32}
+PLAUSIBLE_HEART_RATE_RANGE_BPM = (40.0, 180.0)
+GSR_SLOPE_ABNORMAL_ABS_THRESHOLD = 0.003
+GSR_SCR_ABNORMAL_HIGH_THRESHOLD = 52.0
+ACC_MOTION_HIGH_THRESHOLD = 0.25
+ACC_STABLE_STATIONARY_RATIO_THRESHOLD = 0.5
 TARGET_COLUMNS = {
     "ppg": ("csv_time_PPG", ("PPG",)),
     "gsr": ("csv_time_GSR", ("GSR",)),
@@ -30,6 +35,7 @@ class WearSeries:
     timestamps_seconds: np.ndarray
     values: np.ndarray
     duplicate_timestamps: bool
+    duplicate_timestamp_rows: int
     nonmonotonic_timestamps: bool
     invalid_rows: int
     source_rows: int
@@ -42,6 +48,7 @@ def extract_wear_real_embeddings(
     output_npz: Path | str,
     failures_out: Path | str,
     encoder_profile: str,
+    mask_low_quality_wear: bool = False,
     projection_seed: int = 16016,
 ) -> dict[str, Any]:
     failures: list[EmbeddingFailure] = []
@@ -101,14 +108,17 @@ def extract_wear_real_embeddings(
                     )
                 )
             else:
-                if encoder_profile == "wear_physio_features_v2":
+                if encoder_profile in {"wear_physio_features_v2", "wear_deep_sequence_v1"}:
                     feature_names, feature_values, physio_flags = _physio_features_v2(
                         sequences,
                         qualities,
                     )
                     qualities.update(physio_flags)
-                    stats_features = feature_values.astype(np.float32).tolist()
-                    sequence_features = feature_values
+                    if encoder_profile == "wear_physio_features_v2":
+                        stats_features = feature_values.astype(np.float32).tolist()
+                        sequence_features = feature_values
+                    else:
+                        sequence_features = _deep_sequence_encoder_features(sequences)
                 else:
                     feature_names = None
                     sequence_features = _sequence_encoder_features(sequences)
@@ -131,9 +141,17 @@ def extract_wear_real_embeddings(
                 "stationary_ratio": qualities.get("stationary_ratio", _stationary_ratio(sequences["acc"])),
                 "masked": not usable,
             }
-            if encoder_profile == "wear_physio_features_v2":
+            if encoder_profile in {"wear_physio_features_v2", "wear_deep_sequence_v1"}:
                 quality_flags["physio_feature_names"] = feature_names or []
                 quality_flags["physio_feature_values"] = [float(value) for value in stats_features]
+            if usable:
+                _add_wear_quality_grade(quality_flags)
+                if mask_low_quality_wear and quality_flags["wear_quality_grade"] == "C":
+                    usable = False
+                    quality_flags["wear_low_quality_masked"] = True
+                    quality_flags["masked"] = True
+                else:
+                    quality_flags["wear_low_quality_masked"] = False
             _write_sequence_cache(cache_dir, sequences, quality_flags, stats_features)
         except ValueError as exc:
             failures.append(
@@ -192,9 +210,18 @@ def _read_wear_cache(
 ) -> dict[str, Any] | None:
     cache_dir = _wear_cache_dir(window, cache_root, encoder_profile)
     metadata_path = cache_dir / "window.json"
+    fallback_profile: str | None = None
     if not metadata_path.is_file():
-        return None
+        if encoder_profile == "wear_sequence_v1":
+            return _read_wear_cache_from_window(window, encoder_profile=encoder_profile)
+        fallback_profile = "wear_sequence_v1"
+        metadata_path = _wear_cache_dir(window, cache_root, fallback_profile) / "window.json"
+        if not metadata_path.is_file():
+            return _read_wear_cache_from_window(window, encoder_profile=encoder_profile)
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if fallback_profile is not None:
+        metadata["metadata_source_encoder_profile"] = fallback_profile
+        metadata["requested_encoder_profile"] = encoder_profile
     source_paths = metadata.get("source_paths") or {}
     for modality in ("ppg", "gsr", "acc"):
         path = Path(str(source_paths.get(modality) or ""))
@@ -203,6 +230,32 @@ def _read_wear_cache(
         source_paths[modality] = str(path)
     metadata["source_paths"] = source_paths
     return metadata
+
+
+def _read_wear_cache_from_window(
+    window: dict[str, Any],
+    *,
+    encoder_profile: str,
+) -> dict[str, Any] | None:
+    source_paths = {
+        "ppg": Path(str(window.get("wear_ppg_path") or "")),
+        "gsr": Path(str(window.get("wear_gsr_path") or "")),
+        "acc": Path(str(window.get("wear_acc_path") or "")),
+    }
+    if any(not path.is_file() for path in source_paths.values()):
+        return None
+    return {
+        "sample_id": window.get("sample_id", ""),
+        "event_id": window.get("event_id", ""),
+        "subject_id": window.get("subject_id", ""),
+        "modality": "wear",
+        "encoder_profile": encoder_profile,
+        "metadata_source": "window_index",
+        "source_paths": {name: str(path) for name, path in source_paths.items()},
+        "window_start_time": window.get("window_start_time", ""),
+        "window_end_time": window.get("window_end_time", ""),
+        "target_sample_rates_hz": TARGET_SAMPLE_RATES_HZ,
+    }
 
 
 def _wear_cache_dir(window: dict[str, Any], cache_root: Path | str, encoder_profile: str) -> Path:
@@ -219,29 +272,64 @@ def _read_wear_series(
     table = _load_wear_source_table(str(path), modality)
     start_ts = _naive_epoch_seconds(window_start)
     end_ts = _naive_epoch_seconds(window_end)
-    in_window = (table["timestamps"] >= start_ts) & (table["timestamps"] < end_ts)
-    selected_timestamps = table["timestamps"][in_window]
-    selected_values = table["values"][in_window]
+    if not table["nonmonotonic"]:
+        left = int(np.searchsorted(table["timestamps"], start_ts, side="left"))
+        right = int(np.searchsorted(table["timestamps"], end_ts, side="left"))
+        selected_timestamps = table["timestamps"][left:right]
+        selected_values = table["values"][left:right]
+    else:
+        in_window = (table["timestamps"] >= start_ts) & (table["timestamps"] < end_ts)
+        selected_timestamps = table["timestamps"][in_window]
+        selected_values = table["values"][in_window]
     seconds = (selected_timestamps - start_ts).astype(np.float32)
-    duplicate = bool(np.unique(seconds).shape[0] != seconds.shape[0])
+    unique_count = int(np.unique(seconds).shape[0])
+    duplicate_rows = int(seconds.shape[0] - unique_count)
+    duplicate = duplicate_rows > 0
 
     if selected_values.size:
         order = np.argsort(seconds.astype(np.float64), kind="stable")
         sorted_seconds = seconds[order]
         sorted_values = selected_values[order]
-        unique_seconds, unique_indices = np.unique(sorted_seconds, return_index=True)
-        sorted_values = sorted_values[unique_indices]
+        output_seconds = _spread_duplicate_seconds(
+            sorted_seconds,
+            duration_seconds=float(end_ts - start_ts),
+        )
     else:
-        unique_seconds = np.zeros((0,), dtype=np.float32)
+        output_seconds = np.zeros((0,), dtype=np.float32)
         sorted_values = np.zeros((0, len(TARGET_COLUMNS[modality][1])), dtype=np.float32)
     return WearSeries(
-        timestamps_seconds=unique_seconds.astype(np.float32),
+        timestamps_seconds=output_seconds.astype(np.float32),
         values=sorted_values.astype(np.float32),
         duplicate_timestamps=duplicate,
+        duplicate_timestamp_rows=duplicate_rows,
         nonmonotonic_timestamps=bool(table["nonmonotonic"]),
         invalid_rows=int(table["invalid_rows"]),
         source_rows=int(table["source_rows"]),
     )
+
+
+def _spread_duplicate_seconds(seconds: np.ndarray, *, duration_seconds: float) -> np.ndarray:
+    values = np.asarray(seconds, dtype=np.float32).copy()
+    if values.size < 2:
+        return values
+    unique_values, starts, counts = np.unique(values, return_index=True, return_counts=True)
+    previous_interval = 1.0
+    for index, (base, start, count) in enumerate(zip(unique_values, starts, counts)):
+        if int(count) <= 1:
+            continue
+        if index + 1 < len(unique_values):
+            interval = float(unique_values[index + 1] - base)
+        else:
+            interval = float(duration_seconds - float(base))
+        if interval <= 0.0:
+            interval = previous_interval
+        else:
+            previous_interval = interval
+        stop = int(start + count)
+        values[int(start):stop] = float(base) + (np.arange(int(count), dtype=np.float32) / float(count)) * float(interval)
+    if duration_seconds > 0:
+        values = np.clip(values, 0.0, np.nextafter(np.float32(duration_seconds), np.float32(0.0)))
+    return values
 
 
 @lru_cache(maxsize=32)
@@ -389,10 +477,23 @@ def _add_quality_flags(
     quality[f"{modality}_source_rows"] = int(series.source_rows)
     quality[f"{modality}_invalid_rows"] = int(series.invalid_rows)
     quality[f"{modality}_duplicate_timestamps"] = bool(series.duplicate_timestamps)
+    quality[f"{modality}_duplicate_timestamp_rows"] = int(series.duplicate_timestamp_rows)
     quality[f"{modality}_nonmonotonic_timestamps"] = bool(series.nonmonotonic_timestamps)
     quality[f"{modality}_effective_sampling_rate_hz"] = float(rows / duration_seconds) if duration_seconds > 0 else None
     quality[f"{modality}_sequence_shape"] = list(sequence.shape)
     quality[f"{modality}_missing_ratio"] = 1.0 if rows == 0 else 0.0
+    quality[f"{modality}_flatline_ratio"] = _flatline_ratio(sequence)
+    quality[f"{modality}_flatline"] = bool(quality[f"{modality}_flatline_ratio"] >= 0.95)
+
+
+def _flatline_ratio(sequence: np.ndarray, *, tolerance: float = 1e-6) -> float:
+    values = np.asarray(sequence, dtype=np.float32)
+    if values.size == 0 or values.shape[0] < 2:
+        return 1.0
+    if values.ndim == 1:
+        values = values.reshape(-1, 1)
+    ranges = np.ptp(values, axis=0)
+    return float(np.mean(ranges <= tolerance)) if ranges.size else 1.0
 
 
 def _sequence_stats(sequence: np.ndarray) -> list[float]:
@@ -424,6 +525,78 @@ def _sequence_encoder_features(sequences: dict[str, np.ndarray]) -> np.ndarray:
                 features.extend(split.mean(axis=0).astype(np.float32).tolist())
                 features.extend(split.std(axis=0).astype(np.float32).tolist())
     return np.asarray(features, dtype=np.float32)
+
+
+def _deep_sequence_encoder_features(sequences: dict[str, np.ndarray]) -> np.ndarray:
+    matrix = _aligned_sequence_matrix(sequences, target_steps=320)
+    features: list[float] = []
+    features.extend(_sequence_stats(matrix))
+    filters = _frozen_conv_filters(channel_count=matrix.shape[1])
+    for kernel_size, weights in filters:
+        conv = _valid_conv1d(matrix, weights)
+        if conv.size == 0:
+            continue
+        activated = np.tanh(conv)
+        features.extend(activated.mean(axis=0).astype(np.float32).tolist())
+        features.extend(activated.std(axis=0).astype(np.float32).tolist())
+        features.extend(activated.max(axis=0).astype(np.float32).tolist())
+        features.extend(activated.min(axis=0).astype(np.float32).tolist())
+        features.append(float(np.mean(np.square(activated))))
+        features.append(float(kernel_size))
+    return np.asarray(features, dtype=np.float32)
+
+
+def _aligned_sequence_matrix(sequences: dict[str, np.ndarray], *, target_steps: int) -> np.ndarray:
+    columns = [
+        _resample_array_to_steps(sequences["ppg"][:, :1], target_steps),
+        _resample_array_to_steps(sequences["gsr"][:, :1], target_steps),
+        _resample_array_to_steps(sequences["acc"], target_steps),
+    ]
+    matrix = np.concatenate(columns, axis=1).astype(np.float32)
+    mean = matrix.mean(axis=0, keepdims=True)
+    std = matrix.std(axis=0, keepdims=True)
+    std[std < 1e-6] = 1.0
+    return ((matrix - mean) / std).astype(np.float32)
+
+
+def _resample_array_to_steps(values: np.ndarray, target_steps: int) -> np.ndarray:
+    arr = np.asarray(values, dtype=np.float32)
+    if arr.ndim == 1:
+        arr = arr.reshape(-1, 1)
+    if arr.shape[0] == target_steps:
+        return arr
+    if arr.shape[0] == 0:
+        return np.zeros((target_steps, arr.shape[1] if arr.ndim == 2 else 1), dtype=np.float32)
+    source_x = np.linspace(0.0, 1.0, arr.shape[0], dtype=np.float32)
+    target_x = np.linspace(0.0, 1.0, target_steps, dtype=np.float32)
+    out = np.empty((target_steps, arr.shape[1]), dtype=np.float32)
+    for column in range(arr.shape[1]):
+        out[:, column] = np.interp(target_x, source_x, arr[:, column])
+    return out
+
+
+def _frozen_conv_filters(*, channel_count: int) -> list[tuple[int, np.ndarray]]:
+    filters: list[tuple[int, np.ndarray]] = []
+    rng = np.random.default_rng(23017)
+    for kernel_size in (3, 5, 9, 15):
+        weights = rng.normal(
+            0.0,
+            1.0 / max(1.0, float(np.sqrt(kernel_size * channel_count))),
+            size=(kernel_size, channel_count, 16),
+        ).astype(np.float32)
+        filters.append((kernel_size, weights))
+    return filters
+
+
+def _valid_conv1d(matrix: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    steps = matrix.shape[0] - weights.shape[0] + 1
+    if steps <= 0:
+        return np.zeros((0, weights.shape[2]), dtype=np.float32)
+    out = np.empty((steps, weights.shape[2]), dtype=np.float32)
+    for index in range(steps):
+        window = matrix[index : index + weights.shape[0], :]
+        out[index, :] = np.tensordot(window, weights, axes=([0, 1], [0, 1]))
+    return out
 
 
 def _physio_features_v2(
@@ -481,6 +654,8 @@ def _ppg_physio_features(
         ibi_mean = 0.0
         ibi_std = 0.0
         rmssd = 0.0
+    low_bpm, high_bpm = PLAUSIBLE_HEART_RATE_RANGE_BPM
+    heart_rate_plausible = bool(peak_count >= 2 and low_bpm <= heart_rate <= high_bpm)
     return (
         {
             "heart_rate": heart_rate,
@@ -490,7 +665,11 @@ def _ppg_physio_features(
             "peak_count": float(peak_count),
             "ppg_missing_ratio": float(missing_ratio),
         },
-        {"ppg_peak_insufficient": peak_count < 2},
+        {
+            "ppg_peak_insufficient": peak_count < 2,
+            "heart_rate_plausible": heart_rate_plausible,
+            "heart_rate_plausible_range_bpm": [low_bpm, high_bpm],
+        },
     )
 
 
@@ -560,6 +739,77 @@ def _acc_physio_features(acc_sequence: np.ndarray) -> tuple[dict[str, float], di
             "spectral_energy": spectral_energy,
         },
         {},
+    )
+
+
+def _add_wear_quality_grade(quality: dict[str, Any]) -> None:
+    invalid_ratio_zero = all(
+        float(quality.get(f"{modality}_invalid_rows", 0.0)) == 0.0
+        for modality in ("ppg", "gsr", "acc")
+    )
+    flatline = any(bool(quality.get(f"{modality}_flatline", False)) for modality in ("ppg", "gsr"))
+    peak_sufficient = not bool(quality.get("ppg_peak_insufficient", True))
+    hr_plausible = bool(quality.get("heart_rate_plausible", False))
+    gsr_slope_abnormal = abs(float(quality.get("gsr_slope", 0.0))) > GSR_SLOPE_ABNORMAL_ABS_THRESHOLD
+    gsr_scr_abnormal = float(quality.get("scr_count", 0.0)) > GSR_SCR_ABNORMAL_HIGH_THRESHOLD
+    motion_intensity = float(quality.get("motion_intensity", 0.0))
+    stationary_ratio = float(quality.get("stationary_ratio", 0.0))
+    acc_motion_high = motion_intensity > ACC_MOTION_HIGH_THRESHOLD
+    acc_stable = stationary_ratio >= ACC_STABLE_STATIONARY_RATIO_THRESHOLD
+    motion_artifact_risk = bool(acc_motion_high or (not hr_plausible and motion_intensity > 0.1 and not acc_stable))
+    risk_count = sum(
+        [
+            not hr_plausible,
+            not peak_sufficient,
+            gsr_slope_abnormal,
+            gsr_scr_abnormal,
+            acc_motion_high,
+            flatline,
+            not invalid_ratio_zero,
+        ]
+    )
+    if (
+        hr_plausible
+        and peak_sufficient
+        and invalid_ratio_zero
+        and not flatline
+        and not acc_motion_high
+        and (not gsr_slope_abnormal or acc_stable)
+    ):
+        grade = "A"
+        label = "high"
+        recommended = ["wear_physio_features_v2", "wear_deep_sequence_v1", "multimodal_fusion"]
+    elif (not peak_sufficient) or (gsr_slope_abnormal and acc_motion_high) or risk_count >= 3:
+        grade = "C"
+        label = "low"
+        recommended = ["quality_audit_only"]
+    else:
+        grade = "B"
+        label = "medium"
+        recommended = ["wear_deep_sequence_v1", "quality_flagged_training"]
+
+    quality.update(
+        {
+            "wear_quality_grade": grade,
+            "wear_quality_label": label,
+            "ppg_hr_plausible": hr_plausible,
+            "ppg_peak_sufficient": peak_sufficient,
+            "gsr_slope_abnormal": gsr_slope_abnormal,
+            "gsr_scr_abnormal": gsr_scr_abnormal,
+            "acc_motion_high": acc_motion_high,
+            "acc_stable": acc_stable,
+            "motion_artifact_risk": motion_artifact_risk,
+            "wear_invalid_ratio_zero": invalid_ratio_zero,
+            "wear_quality_risk_count": int(risk_count),
+            "wear_quality_recommended_use": recommended,
+            "wear_quality_thresholds": {
+                "gsr_slope_abs_abnormal": GSR_SLOPE_ABNORMAL_ABS_THRESHOLD,
+                "gsr_scr_count_abnormal_high": GSR_SCR_ABNORMAL_HIGH_THRESHOLD,
+                "acc_motion_high": ACC_MOTION_HIGH_THRESHOLD,
+                "acc_stable_stationary_ratio": ACC_STABLE_STATIONARY_RATIO_THRESHOLD,
+                "heart_rate_plausible_range_bpm": list(PLAUSIBLE_HEART_RATE_RANGE_BPM),
+            },
+        }
     )
 
 
@@ -660,12 +910,149 @@ def _summary(
         "mean_gsr_effective_sampling_rate_hz": _mean_quality(qualities, "gsr_effective_sampling_rate_hz"),
         "mean_acc_effective_sampling_rate_hz": _mean_quality(qualities, "acc_effective_sampling_rate_hz"),
         "nan_count": int(sum(np.isnan(sample["wear_emb"]).sum() for sample in samples)),
+        "quality_audit": _quality_audit(samples, failures),
     }
 
 
 def _mean_quality(qualities: list[dict[str, Any]], key: str) -> float | None:
     values = [float(item[key]) for item in qualities if item.get(key) is not None]
     return None if not values else float(np.mean(values))
+
+
+def _quality_audit(samples: list[dict[str, Any]], failures: list[EmbeddingFailure]) -> dict[str, Any]:
+    qualities = [sample["quality_flags"] for sample in samples]
+    return {
+        "window_count": len(samples) + len([failure for failure in failures if failure.stage != "quality_gate"]),
+        "embedded_count": len(samples),
+        "success_count": sum(int(sample["modality_mask"][1]) == 1 for sample in samples),
+        "failure_count": len(failures),
+        "failure_types": _count_by_error_type(failures),
+        "masked_count": sum(int(sample["modality_mask"][1]) == 0 for sample in samples),
+        "modalities": {
+            modality: _modality_quality_audit(qualities, modality)
+            for modality in ("ppg", "gsr", "acc")
+        },
+        "ppg": {
+            "peak_count": _numeric_summary(qualities, "peak_count"),
+            "heart_rate": _numeric_summary(qualities, "heart_rate"),
+            "heart_rate_plausible_range_bpm": list(PLAUSIBLE_HEART_RATE_RANGE_BPM),
+            "heart_rate_plausible_count": _bool_count(qualities, "heart_rate_plausible", True),
+            "heart_rate_implausible_count": _bool_count(qualities, "heart_rate_plausible", False),
+            "peak_insufficient_count": _bool_count(qualities, "ppg_peak_insufficient", True),
+        },
+        "gsr": {
+            "slope": _numeric_summary(qualities, "gsr_slope"),
+            "scr_count": _numeric_summary(qualities, "scr_count"),
+            **_iqr_abnormal_summary(qualities, "gsr_slope", prefix="slope"),
+            **_iqr_abnormal_summary(qualities, "scr_count", prefix="scr_count"),
+        },
+        "acc": {
+            "motion_intensity": _numeric_summary(qualities, "motion_intensity"),
+            "stationary_ratio": _numeric_summary(qualities, "stationary_ratio"),
+        },
+        "wear_quality_grade_counts": {
+            grade: _string_count(qualities, "wear_quality_grade", grade)
+            for grade in ("A", "B", "C")
+        },
+        "motion_artifact_risk_count": _bool_count(qualities, "motion_artifact_risk", True),
+        "low_quality_masked_count": _bool_count(qualities, "wear_low_quality_masked", True),
+    }
+
+
+def _modality_quality_audit(qualities: list[dict[str, Any]], modality: str) -> dict[str, Any]:
+    return {
+        "rows_in_window": _numeric_summary(qualities, f"{modality}_rows_in_window"),
+        "effective_sampling_rate_hz": _numeric_summary(qualities, f"{modality}_effective_sampling_rate_hz"),
+        "invalid_rows": _numeric_summary(qualities, f"{modality}_invalid_rows"),
+        "source_rows": _numeric_summary(qualities, f"{modality}_source_rows"),
+        "invalid_rows_per_source_row": _ratio_summary(
+            qualities,
+            numerator_key=f"{modality}_invalid_rows",
+            denominator_key=f"{modality}_source_rows",
+        ),
+        "duplicate_timestamps_count": _bool_count(qualities, f"{modality}_duplicate_timestamps", True),
+        "duplicate_timestamp_rows": _numeric_summary(qualities, f"{modality}_duplicate_timestamp_rows"),
+        "nonmonotonic_timestamps_count": _bool_count(qualities, f"{modality}_nonmonotonic_timestamps", True),
+        "flatline_ratio": _numeric_summary(qualities, f"{modality}_flatline_ratio"),
+        "flatline_window_count": _bool_count(qualities, f"{modality}_flatline", True),
+    }
+
+
+def _numeric_summary(qualities: list[dict[str, Any]], key: str) -> dict[str, float | int | None]:
+    values = [float(item[key]) for item in qualities if item.get(key) is not None]
+    if not values:
+        return {
+            "count": 0,
+            "min": None,
+            "mean": None,
+            "median": None,
+            "max": None,
+            "sum": 0.0,
+            "zero_count": 0,
+        }
+    arr = np.asarray(values, dtype=np.float64)
+    return {
+        "count": int(arr.size),
+        "min": float(np.min(arr)),
+        "mean": float(np.mean(arr)),
+        "median": float(np.median(arr)),
+        "max": float(np.max(arr)),
+        "sum": float(np.sum(arr)),
+        "zero_count": int(np.sum(arr == 0.0)),
+    }
+
+
+def _ratio_summary(
+    qualities: list[dict[str, Any]],
+    *,
+    numerator_key: str,
+    denominator_key: str,
+) -> dict[str, float | int | None]:
+    ratios: list[dict[str, float]] = []
+    for item in qualities:
+        numerator = item.get(numerator_key)
+        denominator = item.get(denominator_key)
+        if numerator is None or denominator is None or float(denominator) <= 0.0:
+            continue
+        ratios.append({"ratio": float(numerator) / float(denominator)})
+    return _numeric_summary(ratios, "ratio")
+
+
+def _bool_count(qualities: list[dict[str, Any]], key: str, expected: bool) -> int:
+    return sum(1 for item in qualities if item.get(key) is expected)
+
+
+def _string_count(qualities: list[dict[str, Any]], key: str, expected: str) -> int:
+    return sum(1 for item in qualities if str(item.get(key, "")) == expected)
+
+
+def _iqr_abnormal_summary(
+    qualities: list[dict[str, Any]],
+    key: str,
+    *,
+    prefix: str,
+) -> dict[str, Any]:
+    values = np.asarray([float(item[key]) for item in qualities if item.get(key) is not None], dtype=np.float64)
+    if values.size < 4:
+        return {
+            f"{prefix}_abnormal_count": 0,
+            f"{prefix}_abnormal_low": None,
+            f"{prefix}_abnormal_high": None,
+        }
+    q1, q3 = np.percentile(values, [25.0, 75.0])
+    iqr = float(q3 - q1)
+    if iqr <= 0.0:
+        low = high = float(np.median(values))
+        count = int(np.sum(values != low))
+    else:
+        low = float(q1 - 1.5 * iqr)
+        high = float(q3 + 1.5 * iqr)
+        count = int(np.sum((values < low) | (values > high)))
+    return {
+        f"{prefix}_abnormal_count": count,
+        f"{prefix}_abnormal_low": low,
+        f"{prefix}_abnormal_high": high,
+    }
 
 
 def _count_by_error_type(failures: list[EmbeddingFailure]) -> dict[str, int]:

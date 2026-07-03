@@ -65,7 +65,7 @@
 | `selected_window_count` | stage-12 face-presence 过滤后继续准备 cache 的窗口数 | [真实缓存准备模块](../../src/daily_multimodal/embeddings/cache.py) |
 | `face_filter.enabled`、`kept_count`、`dropped_count` | 是否启用人脸预检、保留窗口数和剔除窗口数 | [真实缓存准备模块](../../src/daily_multimodal/embeddings/cache.py) |
 | `face_filter.dropped_no_face_count`、`dropped_failure_count`、`dropped_windows` | 无脸窗口数、检测失败或源缺失剔除数，以及对应 `sample_id` / `event_id` 列表 | [真实缓存准备模块](../../src/daily_multimodal/embeddings/cache.py) |
-| `face_presence` | 写入过滤后窗口索引的检测摘要，含 `detector`、`frame_count`、`detected_frame_count` 和检测 clip 秒数 | [真实缓存准备模块](../../src/daily_multimodal/embeddings/cache.py) |
+| `face_presence` | 写入过滤后窗口索引的检测摘要，含 `detector`、`frame_count`、`detected_frame_count`、检测 clip 秒数、`max_face_count`、`main_face_bbox`、`main_face_area_ratio`、`detected_orientations`、`retained_without_detected_face` 和 `retention_reason`；服务器全量 midpoint 路径的 detector 为 `opencv_haar_frontalface_default_alt_profile_rot180_ffmpeg_midpoint` | [真实缓存准备模块](../../src/daily_multimodal/embeddings/cache.py) |
 
 ## embedding 输出字段
 
@@ -77,6 +77,14 @@
 | `source_paths` | 每个样本使用的源路径 JSON 字符串 | [批处理保存器](../../src/daily_multimodal/embeddings/pipeline.py)、[真实打包器](../../src/daily_multimodal/embeddings/real_pipeline.py) |
 | `quality_flags` | 质量信息；basic 路径写在 JSON 报告中，真实 all-real `.npz` 也会按样本写入 JSON 字符串数组 | [批处理保存器](../../src/daily_multimodal/embeddings/pipeline.py)、[真实打包器](../../src/daily_multimodal/embeddings/real_pipeline.py) |
 | `encoder_versions` | 真实 all-real `.npz` 中每个样本的四模态 encoder profile JSON 字符串 | [真实打包器](../../src/daily_multimodal/embeddings/real_pipeline.py) |
+
+## Face ROI 预处理质量字段
+
+| 字段 | 含义 | 来源 |
+| --- | --- | --- |
+| `face_roi_crop_enabled`、`face_roi_crop_scale`、`face_roi_output_size` | OpenFace 前是否生成主脸 ROI clip、ROI 相对主脸框的放大倍数和输出边长；当前默认 `2.0` 与 `640` | [Face 真实模块](../../src/daily_multimodal/embeddings/face_real.py) |
+| `face_roi_frame_count`、`face_roi_detected_frame_count`、`face_roi_filled_missing_frame_count` | ROI clip 的输出帧数、直接检测到主脸 ROI 的帧数、以及沿用上一/后续 ROI 补齐的无脸帧数 | [Face 真实模块](../../src/daily_multimodal/embeddings/face_real.py) |
+| `face_roi_full_frame_fallback` | 整个窗口没有可靠主脸 ROI 时是否退回全画面，避免 Haar 小框假阳性把人裁没 | [Face 真实模块](../../src/daily_multimodal/embeddings/face_real.py) |
 
 ## fair embedding ablation 输出字段
 
@@ -109,8 +117,15 @@
 | 字段 | 含义 | 来源 |
 | --- | --- | --- |
 | `pooling`、`pooled_feature_dim` | Audio v2 profile 使用的池化方式；`audio_emotion2vec_plus_v1` 使用 `mean_std_max`，`audio_opensmile_egemaps_v1` 使用 `functionals` | [Audio 真实模块](../../src/daily_multimodal/embeddings/audio_real.py) |
-| `heart_rate`、`ibi_mean`、`ibi_std`、`rmssd`、`peak_count`、`ppg_peak_insufficient` | Wear v2 从 PPG 估计的心率、IBI/HRV 和峰值质量字段 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
+| `ppg_rows_in_window`、`gsr_rows_in_window`、`acc_rows_in_window` | Wear v2 每个 10 秒窗口内三路原始 CSV 有效行数 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
+| `ppg_effective_sampling_rate_hz`、`gsr_effective_sampling_rate_hz`、`acc_effective_sampling_rate_hz` | Wear v2 用窗口内有效行数除以窗口秒数得到的原始有效采样率；与重采样目标不同 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
+| `*_invalid_rows`、`*_source_rows`、`*_duplicate_timestamps`、`*_duplicate_timestamp_rows`、`*_nonmonotonic_timestamps`、`*_flatline_ratio`、`*_flatline` | Wear v2 每路原始 CSV 的无效行、源行数、重复时间戳窗口标记、重复时间戳行数、非单调时间戳和整窗 flatline 质量字段；重复秒级时间戳会按行顺序摊开用于插值，不再丢弃原始样本 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
+| `heart_rate`、`heart_rate_plausible`、`heart_rate_plausible_range_bpm`、`ibi_mean`、`ibi_std`、`rmssd`、`peak_count`、`ppg_peak_insufficient` | Wear v2 从 PPG 估计的心率、IBI/HRV、峰值质量字段和默认 `40-180 bpm` 心率合理性标记 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
 | `tonic_mean`、`phasic_std`、`scr_count`、`gsr_slope` | Wear v2 从 GSR 估计的 tonic/phasic、SCR 和趋势字段 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
 | `motion_intensity`、`stationary_ratio`、`axis_std`、`spectral_energy` | Wear v2 从 ACC 估计的运动强度、静止比例和频域能量字段 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
+| `wear_quality_grade`、`wear_quality_label` | Wear v2 每窗 A/B/C 质量分级；A 为 high、B 为 medium、C 为 low。默认只标记，不丢弃；传 `--mask-low-quality-wear` 时 C 类 wear mask 置 0 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py)、[Wear 真实入口](../../scripts/15_extract_wear_embeddings.py) |
+| `ppg_hr_plausible`、`ppg_peak_sufficient`、`gsr_slope_abnormal`、`gsr_scr_abnormal`、`acc_motion_high`、`acc_stable`、`motion_artifact_risk`、`wear_invalid_ratio_zero`、`wear_quality_risk_count` | Wear A/B/C 分级和质量 flags；当前阈值写入每窗 `wear_quality_thresholds`，用于复现实验和质量标记训练 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
+| `quality_audit` | Wear v2 summary 中的全量质量汇总，聚合 rows/rate、invalid/source、timestamp 异常、flatline、PPG peak/heart-rate、GSR slope/SCR 异常、ACC motion/stationary | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
 | `physio_feature_names`、`physio_feature_values` | Wear v2 写入 `quality_flags` 的原始可解释特征名和值，便于后续分析哪些生理信号起作用 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
+| `wear_quality_ablation`、`W1_physio_full`、`W2_deep_full`、`W3_physio_high_quality`、`W4_deep_high_quality`、`W5a_deep_full`、`W5b_deep_quality_flags_full`、`W5c_deep_sample_weights_full`、`W5d_deep_quality_flags_sample_weights_full`、`W6_physio_ab_quality`、`W7_deep_ab_quality` | Wear-only W1-W7 与 W5a-W5d 消融输出，报告 RMSE、Pearson r、`pred_std`、`truth_std`、`error_std` 的 fold mean/std，并记录 `quality_subset`、`include_quality_flags`、`use_sample_weight`、`sample_weight_mean/std` | [Wear quality ablation 模块](../../src/daily_multimodal/training/wear_quality_ablation.py) |
 | `fold_count`、`subject_leakage`、`modalities`、`rmse_mean`、`rmse_std`、`pearson_r_mean`、`pearson_r_std`、`folds` | Subject-level CV 输出字段；每个 fold 保留 train/val/test subjects 和 RMSE/MAE/Pearson r，Markdown 表用 `test_r` 展示 fold r 值 | [Subject CV 模块](../../src/daily_multimodal/training/subject_cv.py) |

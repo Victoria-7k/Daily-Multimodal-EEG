@@ -8,9 +8,14 @@ from pathlib import Path
 import numpy as np
 
 from daily_multimodal.embeddings.cache import (
+    FacePresenceTask,
     FacePresenceResult,
     RealCacheProfiles,
     build_cache_key,
+    face_presence_sample_times,
+    face_presence_results_from_frame_detections,
+    face_presence_summary_from_detections,
+    group_face_presence_tasks,
     prepare_real_embedding_cache,
 )
 from daily_multimodal.embeddings.real_pipeline import pack_real_embeddings
@@ -158,6 +163,111 @@ class RealPipelineCacheTests(unittest.TestCase):
         self.assertIn("face_presence_filter", {failure["stage"] for failure in failures})
         self.assertIn("no_face_detected", {failure["error_type"] for failure in failures})
         self.assertIn("Face-filter kept: 1, dropped: 1", report)
+
+    def test_prepare_real_embedding_cache_retains_no_face_midpoint_when_same_event_has_face(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_root = root / "source"
+            source_root.mkdir()
+            face_video = _touch(source_root / "with-face.mp4")
+            blocked_video = _touch(source_root / "blocked-face.mp4")
+            eeg = _touch(source_root / "sample.bdf")
+            ppg = _touch(source_root / "ppg.csv")
+            gsr = _touch(source_root / "gsr.csv")
+            acc = _touch(source_root / "acc.csv")
+            filtered_index_out = root / "window_index" / "face_detected.jsonl"
+
+            def fake_detector(source, start_seconds, end_seconds):
+                has_face = source.name == "with-face.mp4"
+                return FacePresenceResult(
+                    has_face=has_face,
+                    detector="fake-face-detector",
+                    frame_count=1,
+                    detected_frame_count=1 if has_face else 0,
+                    start_seconds=start_seconds,
+                    end_seconds=end_seconds,
+                )
+
+            def fake_audio_extractor(_source, _start_seconds, _end_seconds, output):
+                output.parent.mkdir(parents=True, exist_ok=True)
+                _touch(output)
+
+            face_window = _cache_window(face_video, eeg, ppg, gsr, acc, sample_id="sample-face")
+            blocked_window = _cache_window(blocked_video, eeg, ppg, gsr, acc, sample_id="sample-blocked")
+            blocked_window["event_id"] = face_window["event_id"]
+
+            summary = prepare_real_embedding_cache(
+                [face_window, blocked_window],
+                cache_root=root / "cache",
+                report_out=root / "readiness.md",
+                failures_out=root / "failures.json",
+                profiles=RealCacheProfiles(),
+                audio_extractor=fake_audio_extractor,
+                filter_no_face=True,
+                face_detector=fake_detector,
+                filtered_window_index_out=filtered_index_out,
+            )
+            failures = json.loads((root / "failures.json").read_text(encoding="utf-8"))
+            filtered_rows = [
+                json.loads(line)
+                for line in filtered_index_out.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+
+        self.assertEqual(summary["selected_window_count"], 2)
+        self.assertEqual(summary["face_filter"]["dropped_no_face_count"], 0)
+        self.assertNotIn("no_face_detected", {failure["error_type"] for failure in failures})
+        retained = {row["sample_id"]: row["face_presence"] for row in filtered_rows}
+        self.assertTrue(retained["sample-blocked"]["retained_without_detected_face"])
+        self.assertEqual(retained["sample-blocked"]["retention_reason"], "same_event_face_detected")
+
+    def test_face_presence_sample_times_seek_across_window_without_scanning_every_frame(self):
+        self.assertEqual(face_presence_sample_times(92.0, 102.0, max_frames=5), [92.0, 94.5, 97.0, 99.5, 102.0])
+        self.assertEqual(face_presence_sample_times(10.0, 10.2, max_frames=5), [10.0, 10.2])
+        self.assertEqual(face_presence_sample_times(5.0, 5.0, max_frames=5), [5.0])
+
+    def test_face_presence_summary_from_detections_records_main_face_and_multi_face(self):
+        summary = face_presence_summary_from_detections(
+            frame_shape=(100, 200),
+            detections_by_orientation={
+                "upright": [(0, 0, 10, 10), (50, 10, 40, 20)],
+                "rot180": [],
+            },
+        )
+
+        self.assertTrue(summary["has_face"])
+        self.assertEqual(summary["max_face_count"], 2)
+        self.assertEqual(summary["main_face_bbox"], [50, 10, 40, 20])
+        self.assertAlmostEqual(summary["main_face_area_ratio"], 0.04)
+        self.assertEqual(summary["detected_orientations"], ["upright"])
+
+    def test_face_presence_results_from_sampled_frame_detections_maps_back_to_windows(self):
+        tasks = [
+            FacePresenceTask(_cache_window(Path("a.mp4"), Path("e.bdf"), Path("p.csv"), Path("g.csv"), Path("a.csv"), sample_id="sample-a"), Path("a.mp4"), 0.0, 10.0),
+            FacePresenceTask(_cache_window(Path("a.mp4"), Path("e.bdf"), Path("p.csv"), Path("g.csv"), Path("a.csv"), sample_id="sample-b"), Path("a.mp4"), 10.0, 20.0),
+        ]
+
+        results = face_presence_results_from_frame_detections(
+            tasks,
+            [(0.0, False), (5.0, True), (10.0, False), (15.0, False), (20.0, True)],
+            detector="test-detector",
+        )
+
+        self.assertEqual([result.has_face for result in results], [True, False])
+        self.assertEqual([result.frame_count for result in results], [2, 2])
+        self.assertEqual([result.detected_frame_count for result in results], [1, 0])
+
+    def test_group_face_presence_tasks_splits_far_apart_ranges_for_ffmpeg_sampling(self):
+        tasks = [
+            FacePresenceTask({}, Path("a.mp4"), 0.0, 10.0),
+            FacePresenceTask({}, Path("a.mp4"), 10.0, 20.0),
+            FacePresenceTask({}, Path("a.mp4"), 200.0, 210.0),
+            FacePresenceTask({}, Path("a.mp4"), 211.0, 220.0),
+        ]
+
+        groups = group_face_presence_tasks(tasks, max_gap_seconds=1.0)
+
+        self.assertEqual([[task.start_seconds for task in group] for group in groups], [[0.0, 10.0], [200.0, 211.0]])
 
 
 class RealPipelineTests(unittest.TestCase):

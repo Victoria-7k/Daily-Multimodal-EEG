@@ -165,6 +165,97 @@ class FaceRealEmbeddingTests(unittest.TestCase):
         self.assertEqual(openface_calls[0][1].parent, csv_path.parent)
         self.assertNotEqual(openface_calls[0][1], clip_calls[0][0])
 
+    def test_openface_window_clip_uses_face_roi_crop_when_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_root = root / "cache"
+            csv_path = _write_face_cache(
+                cache_root,
+                sample_id="sample-1",
+                source_name="source.mp4",
+                clip_start_seconds=12.5,
+                clip_end_seconds=22.5,
+            )
+            executable = root / "FeatureExtraction"
+            executable.write_text("fake executable", encoding="utf-8")
+            crop_calls = []
+            openface_calls = []
+
+            def fake_roi_extractor(source_path, start_seconds, end_seconds, output_clip, *, roi_scale):
+                crop_calls.append((source_path, start_seconds, end_seconds, output_clip, roi_scale))
+                output_clip.write_bytes(b"roi-window-mp4")
+
+            def fake_openface_runner(_openface_executable, clip_path, output_csv):
+                openface_calls.append(clip_path)
+                self.assertEqual(clip_path.read_bytes(), b"roi-window-mp4")
+                _write_openface_csv(output_csv)
+
+            summary = extract_face_real_embeddings(
+                [_window("sample-1")],
+                cache_root=cache_root,
+                output_npz=root / "face_real_embeddings.npz",
+                failures_out=root / "failures.json",
+                encoder_profile="face_raw_openface_stats_v1",
+                openface_executable=executable,
+                openface_runner=fake_openface_runner,
+                face_roi_crop_scale=2.0,
+                face_roi_clip_extractor=fake_roi_extractor,
+            )
+
+        self.assertEqual(summary["success_count"], 1)
+        self.assertEqual(crop_calls[0][1:3], (12.5, 22.5))
+        self.assertEqual(crop_calls[0][4], 2.0)
+        self.assertEqual(openface_calls[0].name, "window.mp4")
+
+    def test_face_roi_expands_to_two_times_square_and_clamps_to_frame(self):
+        roi = face_real._expanded_face_roi(
+            (40, 30, 20, 10),
+            frame_width=100,
+            frame_height=80,
+            scale=2.0,
+        )
+
+        self.assertEqual(roi, (30, 15, 40, 40))
+
+        clamped = face_real._expanded_face_roi(
+            (0, 0, 20, 20),
+            frame_width=50,
+            frame_height=50,
+            scale=2.0,
+        )
+
+        self.assertEqual(clamped, (0, 0, 40, 40))
+
+    def test_face_roi_sequence_reuses_previous_face_when_frame_has_no_detection(self):
+        rois = face_real._face_roi_sequence(
+            detections=[
+                None,
+                (40, 30, 20, 10),
+                None,
+                None,
+                (50, 40, 10, 10),
+            ],
+            frame_width=100,
+            frame_height=80,
+            scale=2.0,
+        )
+
+        self.assertEqual(rois[0], (30, 15, 40, 40))
+        self.assertEqual(rois[1], (30, 15, 40, 40))
+        self.assertEqual(rois[2], (30, 15, 40, 40))
+        self.assertEqual(rois[3], (30, 15, 40, 40))
+        self.assertEqual(rois[4], (45, 35, 20, 20))
+
+    def test_face_roi_sequence_uses_full_frame_when_no_faces_exist(self):
+        rois = face_real._face_roi_sequence(
+            detections=[None, None],
+            frame_width=100,
+            frame_height=80,
+            scale=2.0,
+        )
+
+        self.assertEqual(rois, [(0, 0, 100, 80), (0, 0, 100, 80)])
+
     def test_openface_starting_tracking_no_csv_can_fallback_to_generator(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

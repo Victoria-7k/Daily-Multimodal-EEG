@@ -95,6 +95,9 @@ class WearRealEmbeddingTests(unittest.TestCase):
         self.assertEqual(summary["success_count"], 1)
         self.assertTrue(quality_flags[0]["ppg_duplicate_timestamps"])
         self.assertTrue(quality_flags[0]["ppg_nonmonotonic_timestamps"])
+        self.assertEqual(quality_flags[0]["ppg_rows_in_window"], 20)
+        self.assertEqual(quality_flags[0]["ppg_duplicate_timestamp_rows"], 1)
+        self.assertEqual(quality_flags[0]["ppg_effective_sampling_rate_hz"], 2.0)
 
     def test_empty_wear_window_is_masked_and_records_quality_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -259,6 +262,168 @@ class WearRealEmbeddingTests(unittest.TestCase):
         self.assertGreater(moving_flags["motion_intensity"], static_flags["motion_intensity"])
         self.assertLess(moving_flags["stationary_ratio"], static_flags["stationary_ratio"])
 
+    def test_wear_quality_audit_summary_reports_requested_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_root = root / "cache"
+            plausible_cache = _write_wear_cache(
+                cache_root,
+                sample_id="sample-plausible",
+                encoder_profile="wear_physio_features_v2",
+            )
+            flat_cache = _write_wear_cache(
+                cache_root,
+                sample_id="sample-flat",
+                encoder_profile="wear_physio_features_v2",
+            )
+            _write_physio_v2_csvs(plausible_cache, flat_ppg=False, moving_acc=False)
+            _write_physio_v2_csvs(flat_cache, flat_ppg=True, moving_acc=True)
+
+            summary = extract_wear_real_embeddings(
+                [_window("sample-plausible"), _window("sample-flat")],
+                cache_root=cache_root,
+                output_npz=root / "wear_real_embeddings.npz",
+                failures_out=root / "failures.json",
+                encoder_profile="wear_physio_features_v2",
+            )
+            with np.load(root / "wear_real_embeddings.npz", allow_pickle=True) as loaded:
+                quality_flags = [json.loads(value) for value in loaded["quality_flags"].tolist()]
+
+        audit = summary["quality_audit"]
+        self.assertEqual(audit["window_count"], 2)
+        self.assertEqual(audit["failure_count"], 0)
+        self.assertEqual(audit["modalities"]["ppg"]["rows_in_window"]["min"], 640.0)
+        self.assertEqual(audit["modalities"]["gsr"]["rows_in_window"]["mean"], 320.0)
+        self.assertEqual(audit["modalities"]["acc"]["invalid_rows"]["sum"], 0.0)
+        self.assertEqual(audit["modalities"]["ppg"]["source_rows"]["min"], 640.0)
+        self.assertEqual(audit["modalities"]["ppg"]["duplicate_timestamps_count"], 0)
+        self.assertEqual(audit["modalities"]["ppg"]["nonmonotonic_timestamps_count"], 0)
+        self.assertEqual(audit["modalities"]["ppg"]["flatline_window_count"], 1)
+        self.assertEqual(audit["ppg"]["heart_rate_plausible_range_bpm"], [40.0, 180.0])
+        self.assertEqual(audit["ppg"]["heart_rate_plausible_count"], 1)
+        self.assertEqual(audit["ppg"]["heart_rate_implausible_count"], 1)
+        self.assertEqual(audit["ppg"]["peak_count"]["min"], 0.0)
+        self.assertGreater(audit["ppg"]["peak_count"]["max"], 5.0)
+        self.assertIn("slope_abnormal_count", audit["gsr"])
+        self.assertIn("scr_count_abnormal_count", audit["gsr"])
+        self.assertIn("motion_intensity", audit["acc"])
+        self.assertIn("stationary_ratio", audit["acc"])
+        self.assertFalse(quality_flags[0]["ppg_flatline"])
+        self.assertTrue(quality_flags[0]["heart_rate_plausible"])
+        self.assertTrue(quality_flags[1]["ppg_flatline"])
+        self.assertFalse(quality_flags[1]["heart_rate_plausible"])
+        self.assertEqual(quality_flags[0]["wear_quality_grade"], "A")
+        self.assertEqual(quality_flags[0]["wear_quality_label"], "high")
+        self.assertIn("wear_physio_features_v2", quality_flags[0]["wear_quality_recommended_use"])
+        self.assertEqual(quality_flags[1]["wear_quality_grade"], "C")
+        self.assertEqual(quality_flags[1]["wear_quality_label"], "low")
+        self.assertTrue(quality_flags[1]["motion_artifact_risk"])
+        self.assertEqual(audit["wear_quality_grade_counts"], {"A": 1, "B": 0, "C": 1})
+
+    def test_wear_quality_grade_b_keeps_motion_risky_but_usable_windows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_root = root / "cache"
+            cache_dir = _write_wear_cache(
+                cache_root,
+                sample_id="sample-moving",
+                encoder_profile="wear_physio_features_v2",
+            )
+            _write_physio_v2_csvs(cache_dir, flat_ppg=False, moving_acc=True, gsr_step=0.0)
+
+            summary = extract_wear_real_embeddings(
+                [_window("sample-moving")],
+                cache_root=cache_root,
+                output_npz=root / "wear_real_embeddings.npz",
+                failures_out=root / "failures.json",
+                encoder_profile="wear_physio_features_v2",
+            )
+            with np.load(root / "wear_real_embeddings.npz", allow_pickle=True) as loaded:
+                flags = json.loads(loaded["quality_flags"].tolist()[0])
+                mask = loaded["modality_mask"].tolist()
+
+        self.assertEqual(summary["success_count"], 1)
+        self.assertEqual(flags["wear_quality_grade"], "B")
+        self.assertEqual(flags["wear_quality_label"], "medium")
+        self.assertTrue(flags["motion_artifact_risk"])
+        self.assertEqual(mask, [[0, 1, 0, 0]])
+
+    def test_mask_low_quality_wear_sets_mask_zero_for_grade_c(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_root = root / "cache"
+            cache_dir = _write_wear_cache(
+                cache_root,
+                sample_id="sample-flat",
+                encoder_profile="wear_physio_features_v2",
+            )
+            _write_physio_v2_csvs(cache_dir, flat_ppg=True, moving_acc=True)
+
+            summary = extract_wear_real_embeddings(
+                [_window("sample-flat")],
+                cache_root=cache_root,
+                output_npz=root / "wear_real_embeddings.npz",
+                failures_out=root / "failures.json",
+                encoder_profile="wear_physio_features_v2",
+                mask_low_quality_wear=True,
+            )
+            with np.load(root / "wear_real_embeddings.npz", allow_pickle=True) as loaded:
+                flags = json.loads(loaded["quality_flags"].tolist()[0])
+                mask = loaded["modality_mask"].tolist()
+
+        self.assertEqual(summary["success_count"], 0)
+        self.assertEqual(summary["masked_count"], 1)
+        self.assertEqual(flags["wear_quality_grade"], "C")
+        self.assertTrue(flags["wear_low_quality_masked"])
+        self.assertEqual(mask, [[0, 0, 0, 0]])
+
+    def test_wear_physio_v2_can_reuse_sequence_cache_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_root = root / "cache"
+            cache_dir = _write_wear_cache(
+                cache_root,
+                sample_id="sample-1",
+                encoder_profile="wear_sequence_v1",
+            )
+            _write_physio_v2_csvs(cache_dir, flat_ppg=False, moving_acc=False)
+
+            summary = extract_wear_real_embeddings(
+                [_window("sample-1")],
+                cache_root=cache_root,
+                output_npz=root / "wear_real_embeddings.npz",
+                failures_out=root / "failures.json",
+                encoder_profile="wear_physio_features_v2",
+            )
+
+        self.assertEqual(summary["success_count"], 1)
+        self.assertEqual(summary["failure_count"], 0)
+
+    def test_wear_physio_v2_can_read_window_index_sources_without_cache_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_dir = root / "sources"
+            source_dir.mkdir()
+            _write_physio_v2_csvs(source_dir, flat_ppg=False, moving_acc=False)
+            window = {
+                **_window("sample-1"),
+                "wear_ppg_path": str(source_dir / "ppg.csv"),
+                "wear_gsr_path": str(source_dir / "gsr.csv"),
+                "wear_acc_path": str(source_dir / "acc.csv"),
+            }
+
+            summary = extract_wear_real_embeddings(
+                [window],
+                cache_root=root / "missing-cache",
+                output_npz=root / "wear_real_embeddings.npz",
+                failures_out=root / "failures.json",
+                encoder_profile="wear_physio_features_v2",
+            )
+
+        self.assertEqual(summary["success_count"], 1)
+        self.assertEqual(summary["failure_count"], 0)
+        self.assertEqual(summary["quality_audit"]["modalities"]["ppg"]["rows_in_window"]["mean"], 640.0)
+
 
 def _window(sample_id: str) -> dict:
     return {
@@ -343,7 +508,7 @@ def _write_csv(path: Path, columns: list[str], rows: list[list]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _write_physio_v2_csvs(cache_dir: Path, *, flat_ppg: bool, moving_acc: bool) -> None:
+def _write_physio_v2_csvs(cache_dir: Path, *, flat_ppg: bool, moving_acc: bool, gsr_step: float = 0.001) -> None:
     start = datetime.fromisoformat("2025-02-28 14:13:00")
     ppg_rows = []
     gsr_rows = []
@@ -356,7 +521,7 @@ def _write_physio_v2_csvs(cache_dir: Path, *, flat_ppg: bool, moving_acc: bool) 
         ppg_rows.append([ppg_value, t])
     for index in range(320):
         t = start + timedelta(seconds=index / 32.0)
-        gsr_rows.append([0.2 + index * 0.001, t])
+        gsr_rows.append([0.2 + index * gsr_step, t])
         if moving_acc:
             acc_rows.append([
                 np.sin(index / 5.0),
