@@ -88,6 +88,29 @@ face_real_profiles:
     min_success_rate: 0.50
     preprocessing_enabled: true
     activation_rule: face_preprocessing_decision
+  openface_only_v1:
+    output_dim: 256
+    source: openface_csv
+    extractor: openface
+    contract_key: face_emb
+    min_success_rate: 0.50
+  openface_behavior_flags_v2:
+    output_dim: 256
+    source: openface_csv_plus_behavior_flags
+    contract_key: face_emb
+    behavior_flag_count: 8
+    projection: deterministic_fixed_random
+  fullframe_deep_v4:
+    output_dim: 256
+    source: full_window_video
+    contract_key: face_emb
+    frame_count: 8
+    pooling: mean_std
+  openface_deep_behavior_v3:
+    output_dim: 256
+    source: openface_csv_plus_fullframe_deep
+    contract_key: face_emb
+    optional_behavior_flags: true
 
 wear_real_profiles:
   wear_sequence_v1:
