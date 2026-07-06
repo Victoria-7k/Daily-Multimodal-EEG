@@ -18,6 +18,16 @@ from daily_multimodal.embeddings.failures import EmbeddingFailure, write_failure
 
 
 TARGET_SAMPLE_RATES_HZ = {"ppg": 64, "gsr": 32, "acc": 32}
+PHYSIO_FEATURE_ENCODER_PROFILES = {
+    "wear_physio_features_v2",
+    "wear_deep_sequence_v1",
+    "wear_physio_features_preprocessed_v1",
+    "wear_deep_sequence_preprocessed_v1",
+}
+PREPROCESSED_ENCODER_PROFILES = {
+    "wear_physio_features_preprocessed_v1",
+    "wear_deep_sequence_preprocessed_v1",
+}
 PLAUSIBLE_HEART_RATE_RANGE_BPM = (40.0, 180.0)
 GSR_SLOPE_ABNORMAL_ABS_THRESHOLD = 0.003
 GSR_SCR_ABNORMAL_HIGH_THRESHOLD = 52.0
@@ -89,6 +99,13 @@ def extract_wear_real_embeddings(
                 )
                 target_rate = int(cache.get("target_sample_rates_hz", {}).get(modality) or TARGET_SAMPLE_RATES_HZ[modality])
                 sequence = _resample_series(series, duration_seconds=duration, target_rate_hz=target_rate)
+                if encoder_profile in PREPROCESSED_ENCODER_PROFILES:
+                    sequence, preprocessing_flags = _preprocess_wear_sequence(
+                        modality,
+                        sequence,
+                        target_rate_hz=target_rate,
+                    )
+                    qualities.update(preprocessing_flags)
                 sequences[modality] = sequence
                 _add_quality_flags(qualities, modality, series, sequence, duration_seconds=duration)
                 stats_features.extend(_sequence_stats(sequence))
@@ -108,13 +125,13 @@ def extract_wear_real_embeddings(
                     )
                 )
             else:
-                if encoder_profile in {"wear_physio_features_v2", "wear_deep_sequence_v1"}:
+                if encoder_profile in PHYSIO_FEATURE_ENCODER_PROFILES:
                     feature_names, feature_values, physio_flags = _physio_features_v2(
                         sequences,
                         qualities,
                     )
                     qualities.update(physio_flags)
-                    if encoder_profile == "wear_physio_features_v2":
+                    if encoder_profile in {"wear_physio_features_v2", "wear_physio_features_preprocessed_v1"}:
                         stats_features = feature_values.astype(np.float32).tolist()
                         sequence_features = feature_values
                     else:
@@ -141,7 +158,10 @@ def extract_wear_real_embeddings(
                 "stationary_ratio": qualities.get("stationary_ratio", _stationary_ratio(sequences["acc"])),
                 "masked": not usable,
             }
-            if encoder_profile in {"wear_physio_features_v2", "wear_deep_sequence_v1"}:
+            if encoder_profile in PREPROCESSED_ENCODER_PROFILES:
+                quality_flags["wear_preprocessing_applied"] = True
+                quality_flags["wear_preprocessing_version"] = "wear_signal_preprocessing_v1"
+            if encoder_profile in PHYSIO_FEATURE_ENCODER_PROFILES:
                 quality_flags["physio_feature_names"] = feature_names or []
                 quality_flags["physio_feature_values"] = [float(value) for value in stats_features]
             if usable:
@@ -462,6 +482,78 @@ def _resample_series(
             right=series.values[-1, column],
         )
     return out.astype(np.float32)
+
+
+def _preprocess_wear_sequence(
+    modality: str,
+    sequence: np.ndarray,
+    *,
+    target_rate_hz: int,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    raw = np.asarray(sequence, dtype=np.float32)
+    if raw.ndim == 1:
+        raw = raw.reshape(-1, 1)
+    processed = raw.copy()
+    steps: list[str] = []
+    if processed.size:
+        processed = _robust_winsorize(processed)
+        steps.append("robust_winsorize_1_99pct")
+        if modality == "ppg":
+            baseline = _moving_average(processed, max(3, int(round(float(target_rate_hz) * 2.0))))
+            high_passed = processed - baseline
+            processed = _moving_average(high_passed, max(3, int(round(float(target_rate_hz) / 5.0))))
+            steps.append("bandpass_approx_0.5_5hz")
+        elif modality == "gsr":
+            processed = _moving_average(processed, max(3, int(round(float(target_rate_hz) / 1.0))))
+            steps.append("lowpass_approx_1hz")
+        elif modality == "acc":
+            processed = processed - np.median(processed, axis=0, keepdims=True)
+            steps.append("gravity_median_removed")
+            processed = _moving_average(processed, max(3, int(round(float(target_rate_hz) / 5.0))))
+            steps.append("lowpass_approx_5hz")
+    input_std = float(np.std(raw)) if raw.size else 0.0
+    output_std = float(np.std(processed)) if processed.size else 0.0
+    mean_abs_delta = float(np.mean(np.abs(processed - raw))) if raw.size else 0.0
+    flags = {
+        f"{modality}_preprocessing_steps": steps,
+        f"{modality}_preprocessing_input_mean": float(np.mean(raw)) if raw.size else 0.0,
+        f"{modality}_preprocessing_output_mean": float(np.mean(processed)) if processed.size else 0.0,
+        f"{modality}_preprocessing_input_std": input_std,
+        f"{modality}_preprocessing_output_std": output_std,
+        f"{modality}_preprocessing_mean_abs_delta": mean_abs_delta,
+        f"{modality}_preprocessing_changed": bool(mean_abs_delta > 1e-6),
+    }
+    return processed.astype(np.float32), flags
+
+
+def _robust_winsorize(values: np.ndarray, *, lower_pct: float = 1.0, upper_pct: float = 99.0) -> np.ndarray:
+    arr = np.asarray(values, dtype=np.float32)
+    if arr.size == 0:
+        return arr.copy()
+    clipped = arr.copy()
+    for column in range(clipped.shape[1]):
+        low, high = np.percentile(clipped[:, column], [lower_pct, upper_pct])
+        if np.isfinite(low) and np.isfinite(high) and high >= low:
+            clipped[:, column] = np.clip(clipped[:, column], low, high)
+    return clipped.astype(np.float32)
+
+
+def _moving_average(values: np.ndarray, window_size: int) -> np.ndarray:
+    arr = np.asarray(values, dtype=np.float32)
+    if arr.size == 0:
+        return arr.copy()
+    window = max(1, int(window_size))
+    if window <= 1 or arr.shape[0] <= 1:
+        return arr.copy()
+    if window % 2 == 0:
+        window += 1
+    radius = window // 2
+    padded = np.pad(arr, ((radius, radius), (0, 0)), mode="edge")
+    kernel = np.ones((window,), dtype=np.float32) / float(window)
+    smoothed = np.empty_like(arr)
+    for column in range(arr.shape[1]):
+        smoothed[:, column] = np.convolve(padded[:, column], kernel, mode="valid")
+    return smoothed.astype(np.float32)
 
 
 def _add_quality_flags(

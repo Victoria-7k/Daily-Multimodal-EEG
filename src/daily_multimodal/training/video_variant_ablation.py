@@ -39,15 +39,28 @@ def run_video_variant_ablation(
     if sample_mode not in SAMPLE_MODES:
         raise ValueError(f"unsupported sample_mode: {sample_mode}")
     normalized = _normalize_variants(variants)
-    datasets = {
-        name: _load_variant_dataset(path, target_label=target_label)
+    sources = {
+        name: _parse_variant_source(path)
         for name, path in normalized.items()
         if not _is_mean_baseline(path)
+    }
+    datasets = {
+        name: _load_variant_dataset(source["eval_embeddings"], target_label=target_label)
+        for name, source in sources.items()
+    }
+    train_datasets = {
+        name: _load_variant_dataset(source["train_embeddings"], target_label=target_label)
+        for name, source in sources.items()
+        if source["train_embeddings"] is not None
     }
     if not datasets:
         raise ValueError("at least one non-baseline variant .npz is required")
 
     selected = _select_sample_sets(datasets, sample_mode=sample_mode)
+    selected = {
+        name: _attach_train_embeddings(data, train_datasets.get(name))
+        for name, data in selected.items()
+    }
     experiments: dict[str, Any] = {}
     reference_name = next(iter(datasets))
     for offset, (name, value) in enumerate(normalized.items()):
@@ -79,7 +92,10 @@ def run_video_variant_ablation(
         "mode": mode,
         "target_label": target_label,
         "sample_mode": sample_mode,
-        "variants": {name: str(value) for name, value in normalized.items()},
+        "variants": {
+            name: "mean_baseline" if _is_mean_baseline(value) else _json_ready(sources[name])
+            for name, value in normalized.items()
+        },
         "sample_sets": _sample_set_summary(selected, sample_mode=sample_mode),
         "experiments": experiments,
         "paired_fold_deltas": _paired_fold_deltas(experiments),
@@ -110,6 +126,16 @@ def _normalize_variants(variants: Mapping[str, str | Path] | list[str] | tuple[s
 
 def _is_mean_baseline(value: str | Path) -> bool:
     return str(value) in MEAN_BASELINE_NAMES
+
+
+def _parse_variant_source(value: str | Path) -> dict[str, str | None]:
+    text = str(value)
+    if "::" in text:
+        eval_path, train_path = text.split("::", 1)
+        if not eval_path or not train_path:
+            raise ValueError(f"train-override variant must use eval.npz::train.npz: {text}")
+        return {"eval_embeddings": eval_path, "train_embeddings": train_path}
+    return {"eval_embeddings": text, "train_embeddings": None}
 
 
 def _load_variant_dataset(path: Path | str, *, target_label: str) -> dict[str, Any]:
@@ -209,7 +235,7 @@ def _subset_by_sample_ids(data: dict[str, Any], sample_ids: list[str]) -> dict[s
 
 
 def _subset_dataset(data: dict[str, Any], indices: np.ndarray) -> dict[str, Any]:
-    return {
+    subset = {
         "sample_id": data["sample_id"][indices],
         "subject_id": data["subject_id"][indices],
         "event_id": data["event_id"][indices],
@@ -217,6 +243,29 @@ def _subset_dataset(data: dict[str, Any], indices: np.ndarray) -> dict[str, Any]
         "face_emb": data["face_emb"][indices],
         "modality_mask": data["modality_mask"][indices],
         "usable": data["usable"][indices],
+    }
+    if "train_face_emb" in data:
+        subset["train_face_emb"] = data["train_face_emb"][indices]
+    if "train_embeddings_source" in data:
+        subset["train_embeddings_source"] = data["train_embeddings_source"]
+    return subset
+
+
+def _attach_train_embeddings(data: dict[str, Any], train_data: dict[str, Any] | None) -> dict[str, Any]:
+    if train_data is None:
+        return {**data, "train_face_emb": data["face_emb"], "train_embeddings_source": None}
+    aligned = _subset_by_sample_ids(train_data, data["sample_id"].tolist())
+    for key in ("sample_id", "subject_id", "event_id"):
+        if aligned[key].astype(str).tolist() != data[key].astype(str).tolist():
+            raise ValueError(f"train embeddings metadata mismatch for {key}")
+    if not np.allclose(aligned["target"], data["target"]):
+        raise ValueError("train embeddings target values do not match eval embeddings")
+    if not bool(np.all(aligned["usable"])):
+        raise ValueError("train embeddings must be usable for every selected eval row")
+    return {
+        **data,
+        "train_face_emb": aligned["face_emb"],
+        "train_embeddings_source": "train_override",
     }
 
 
@@ -243,8 +292,9 @@ def _run_embedding_experiment(
     for offset, fold in enumerate(folds):
         if len(fold.train) == 0 or len(fold.val) == 0 or len(fold.test) == 0:
             return _failed_experiment(base, f"{fold.name} has empty train/val/test split")
+        train_face_emb = data.get("train_face_emb", data["face_emb"])
         model = _fit_mlp(
-            data["face_emb"][fold.train],
+            train_face_emb[fold.train],
             data["target"][fold.train],
             epochs=epochs,
             hidden_dim=hidden_dim,
@@ -260,7 +310,7 @@ def _run_embedding_experiment(
                 "train_sample_ids": data["sample_id"][fold.train].tolist(),
                 "val_sample_ids": data["sample_id"][fold.val].tolist(),
                 "test_sample_ids": data["sample_id"][fold.test].tolist(),
-                "train": _evaluate_predictions(_predict(model, data["face_emb"][fold.train]), data["target"][fold.train]),
+                "train": _evaluate_predictions(_predict(model, train_face_emb[fold.train]), data["target"][fold.train]),
                 "val": _evaluate_predictions(_predict(model, data["face_emb"][fold.val]), data["target"][fold.val]),
                 "test": _evaluate_predictions(_predict(model, data["face_emb"][fold.test]), data["target"][fold.test]),
                 "test_predictions": _predict(model, data["face_emb"][fold.test]).astype(float).tolist(),

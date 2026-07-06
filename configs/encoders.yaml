@@ -137,8 +137,23 @@ wear_real_profiles:
     ppg_features: [heart_rate, ibi_mean, ibi_std, rmssd, peak_count, missing_ratio]
     gsr_features: [tonic_mean, phasic_std, scr_count, slope, missing_ratio]
     acc_features: [motion_intensity, stationary_ratio, axis_std, spectral_energy]
+  wear_physio_features_preprocessed_v1:
+    output_dim: 256
+    encoder: deterministic_physio_feature_projection
+    preprocessing: wear_signal_preprocessing_v1
+    ppg_preprocessing: [robust_winsorize_1_99pct, bandpass_approx_0.5_5hz]
+    gsr_preprocessing: [robust_winsorize_1_99pct, lowpass_approx_1hz]
+    acc_preprocessing: [robust_winsorize_1_99pct, gravity_median_removed, lowpass_approx_5hz]
+  wear_deep_sequence_preprocessed_v1:
+    output_dim: 256
+    encoder: fixed_random_tcn_sequence_projection
+    preprocessing: wear_signal_preprocessing_v1
+    target_sample_rates_hz:
+      ppg: 64
+      gsr: 32
+      acc: 32
 
-fair_embedding_ablation:
+  fair_embedding_ablation:
   aligned_variants:
     basic_aligned:
       source: basic_embeddings

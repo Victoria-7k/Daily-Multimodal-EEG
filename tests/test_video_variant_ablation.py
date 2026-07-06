@@ -4,7 +4,9 @@ import json
 import math
 
 import numpy as np
+import pytest
 
+import daily_multimodal.training.video_variant_ablation as video_variant_ablation
 from daily_multimodal.training.video_variant_ablation import (
     _build_video_folds,
     _load_variant_dataset,
@@ -94,6 +96,47 @@ def test_behavior_retained_keeps_variant_specific_row_counts(tmp_path):
     assert result["experiments"]["V2"]["row_count"] == 5
     assert result["sample_sets"]["behavior_retained"]["V1"]["row_count"] == 6
     assert result["sample_sets"]["behavior_retained"]["V2"]["row_count"] == 5
+
+
+def test_train_embedding_override_is_used_only_for_train_fold(tmp_path, monkeypatch):
+    eval_path = tmp_path / "eval.npz"
+    train_path = tmp_path / "train_aug.npz"
+    sample_ids = ["a0", "a1", "a2", "b0", "b1", "b2", "c0", "c1", "c2"]
+    _write_variant(eval_path, sample_ids, masks=[1] * len(sample_ids), offset=0.0)
+    _write_variant(train_path, sample_ids, masks=[1] * len(sample_ids), offset=1000.0)
+    fit_inputs = []
+    predict_inputs = []
+
+    def fake_fit_mlp(x, y, **kwargs):
+        del y, kwargs
+        fit_inputs.append(np.asarray(x).copy())
+        return {"model": "fake"}
+
+    def fake_predict(model, x):
+        del model
+        predict_inputs.append(np.asarray(x).copy())
+        return np.zeros(len(x), dtype=np.float32)
+
+    monkeypatch.setattr(video_variant_ablation, "_fit_mlp", fake_fit_mlp)
+    monkeypatch.setattr(video_variant_ablation, "_predict", fake_predict)
+
+    result = run_video_variant_ablation(
+        variants={"A1": f"{eval_path}::{train_path}"},
+        target_label="fatigue",
+        sample_mode="strict_aligned",
+        out_json=tmp_path / "metrics.json",
+        out_table=tmp_path / "table.md",
+        epochs=3,
+        hidden_dim=4,
+        fold_strategy="leave_one_subject_out",
+    )
+
+    assert result["variants"]["A1"]["eval_embeddings"] == str(eval_path)
+    assert result["variants"]["A1"]["train_embeddings"] == str(train_path)
+    assert fit_inputs
+    assert all(float(x[:, 0].min()) >= 1000.0 for x in fit_inputs)
+    assert predict_inputs
+    assert any(float(x[:, 0].max()) < 1000.0 for x in predict_inputs)
 
 
 def test_paired_v2_vs_v1_fold_deltas_are_emitted_for_matching_folds(tmp_path):

@@ -9,27 +9,36 @@ from typing import Any
 import numpy as np
 
 from daily_multimodal.embeddings.contracts import validate_embedding_shape
-from daily_multimodal.training.video_variant_ablation import FACE_MASK_INDEX, _pearson
+from daily_multimodal.training.video_variant_ablation import FACE_MASK_INDEX, _build_video_folds, _pearson
 
 
 def run_video_embedding_probes(
     *,
     embeddings: Path | str,
+    train_embeddings: Path | str | None = None,
     target_label: str,
     out_json: Path | str,
     out_table: Path | str,
     seed: int = 41,
     n_splits: int = 5,
+    fold_strategy: str = "shuffled_k_fold",
+    p3_fold_strategy: str | None = None,
 ) -> dict[str, Any]:
+    p3_strategy = p3_fold_strategy or fold_strategy
     data = _load_probe_dataset(embeddings, target_label=target_label)
+    if train_embeddings is not None:
+        train_data = _load_probe_dataset(train_embeddings, target_label=target_label)
+        data = _attach_train_probe_embeddings(data, train_data)
     result = {
         "embeddings": str(embeddings),
+        "train_embeddings": None if train_embeddings is None else str(train_embeddings),
         "target_label": target_label,
         "row_count": int(len(data["target"])),
         "probes": {
             "P1_subject_logreg": _classification_probe(
                 data["embedding"],
                 data["subject_id"],
+                train_x=data.get("train_embedding"),
                 seed=seed,
                 n_splits=n_splits,
             ),
@@ -39,10 +48,10 @@ def run_video_embedding_probes(
                 n_splits=n_splits,
             ),
             "P3_fatigue_ridge": _ridge_probe(
-                data["embedding"],
-                data["target"],
+                data,
                 seed=seed,
                 n_splits=n_splits,
+                fold_strategy=p3_strategy,
             ),
         },
     }
@@ -68,9 +77,36 @@ def _load_probe_dataset(path: Path | str, *, target_label: str) -> dict[str, Any
     return {
         "sample_id": sample_id[mask],
         "subject_id": subject_id[mask],
+        "event_id": event_id[mask],
         "session_id": session_id[mask],
         "target": target[mask],
         "embedding": embedding[mask],
+    }
+
+
+def _attach_train_probe_embeddings(data: dict[str, Any], train_data: dict[str, Any]) -> dict[str, Any]:
+    aligned = _subset_probe_by_sample_ids(train_data, data["sample_id"].tolist())
+    for key in ("sample_id", "subject_id", "event_id", "session_id"):
+        if aligned[key].astype(str).tolist() != data[key].astype(str).tolist():
+            raise ValueError(f"train embeddings metadata mismatch for {key}")
+    if not np.allclose(aligned["target"], data["target"]):
+        raise ValueError("train embeddings target values do not match eval embeddings")
+    return {**data, "train_embedding": aligned["embedding"]}
+
+
+def _subset_probe_by_sample_ids(data: dict[str, Any], sample_ids: list[str]) -> dict[str, Any]:
+    index = {sample_id: idx for idx, sample_id in enumerate(data["sample_id"].astype(str).tolist())}
+    missing = [sample_id for sample_id in sample_ids if sample_id not in index]
+    if missing:
+        raise ValueError(f"train embeddings missing sample_id values: {missing[:5]}")
+    indices = np.asarray([index[sample_id] for sample_id in sample_ids], dtype=np.int64)
+    return {
+        "sample_id": data["sample_id"][indices],
+        "subject_id": data["subject_id"][indices],
+        "event_id": data["event_id"][indices],
+        "session_id": data["session_id"][indices],
+        "target": data["target"][indices],
+        "embedding": data["embedding"][indices],
     }
 
 
@@ -78,6 +114,7 @@ def _classification_probe(
     x: np.ndarray,
     y: np.ndarray,
     *,
+    train_x: np.ndarray | None = None,
     seed: int,
     n_splits: int,
 ) -> dict[str, Any]:
@@ -88,7 +125,7 @@ def _classification_probe(
         from sklearn.pipeline import make_pipeline
         from sklearn.preprocessing import StandardScaler
     except ImportError as exc:
-        return _classification_probe_numpy(x, y, seed=seed, n_splits=n_splits, backend=f"numpy_fallback:{exc}")
+        return _classification_probe_numpy(x, y, train_x=train_x, seed=seed, n_splits=n_splits, backend=f"numpy_fallback:{exc}")
     y = np.asarray(y).astype(str)
     split_count = _stratified_split_count(y, n_splits)
     if split_count < 2:
@@ -102,7 +139,8 @@ def _classification_probe(
             StandardScaler(),
             LogisticRegression(max_iter=1000, class_weight="balanced", random_state=seed),
         )
-        model.fit(x[train], y[train])
+        fit_x = x if train_x is None else train_x
+        model.fit(fit_x[train], y[train])
         pred = model.predict(x[test])
         acc = float(accuracy_score(y[test], pred))
         f1 = float(f1_score(y[test], pred, average="macro"))
@@ -130,6 +168,7 @@ def _within_subject_session_probe(data: dict[str, Any], *, seed: int, n_splits: 
         result = _classification_probe(
             data["embedding"][indices],
             sessions,
+            train_x=None if "train_embedding" not in data else data["train_embedding"][indices],
             seed=seed,
             n_splits=n_splits,
         )
@@ -148,14 +187,41 @@ def _within_subject_session_probe(data: dict[str, Any], *, seed: int, n_splits: 
     }
 
 
-def _ridge_probe(x: np.ndarray, y: np.ndarray, *, seed: int, n_splits: int) -> dict[str, Any]:
+def _ridge_probe(
+    data: dict[str, Any],
+    *,
+    seed: int,
+    n_splits: int,
+    fold_strategy: str,
+) -> dict[str, Any]:
+    x = data["embedding"]
+    train_x = data.get("train_embedding", x)
+    y = data["target"]
+    if fold_strategy != "shuffled_k_fold":
+        try:
+            video_folds = _build_video_folds(
+                {
+                    "sample_id": data["sample_id"],
+                    "subject_id": data["subject_id"],
+                    "event_id": data["event_id"],
+                    "target": data["target"],
+                },
+                strategy=fold_strategy,
+                n_splits=n_splits,
+                seed=seed,
+            )
+        except ValueError as exc:
+            return {"failure": str(exc), "fold_strategy": fold_strategy}
+        splits = [(fold.name, fold.train, fold.test) for fold in video_folds]
+        return _ridge_probe_from_splits(x, y, train_x=train_x, splits=splits, fold_strategy=fold_strategy)
+
     try:
         from sklearn.linear_model import Ridge
         from sklearn.model_selection import KFold
         from sklearn.pipeline import make_pipeline
         from sklearn.preprocessing import StandardScaler
     except ImportError as exc:
-        return _ridge_probe_numpy(x, y, seed=seed, n_splits=n_splits, backend=f"numpy_fallback:{exc}")
+        return _ridge_probe_numpy(x, y, train_x=train_x, seed=seed, n_splits=n_splits, backend=f"numpy_fallback:{exc}")
     split_count = max(2, min(int(n_splits), len(y)))
     cv = KFold(n_splits=split_count, shuffle=True, random_state=seed)
     rmses = []
@@ -163,16 +229,51 @@ def _ridge_probe(x: np.ndarray, y: np.ndarray, *, seed: int, n_splits: int) -> d
     folds = []
     for index, (train, test) in enumerate(cv.split(x)):
         model = make_pipeline(StandardScaler(), Ridge(alpha=1.0))
-        model.fit(x[train], y[train])
+        model.fit(train_x[train], y[train])
         pred = model.predict(x[test])
         rmse = float(math.sqrt(np.mean(np.square(pred - y[test]))))
         r = _pearson(np.asarray(pred, dtype=np.float32), y[test].astype(np.float32))
         rmses.append(rmse)
         if r is not None:
             rs.append(r)
-        folds.append({"fold": index, "test_count": int(len(test)), "rmse": rmse, "pearson": r})
+        folds.append({"fold": f"shuffled_{index:02d}", "test_count": int(len(test)), "rmse": rmse, "pearson": r})
     return {
+        "fold_strategy": fold_strategy,
         "fold_count": int(split_count),
+        "rmse_mean": float(np.mean(rmses)),
+        "rmse_std": float(np.std(rmses)),
+        "pearson_r_mean": None if not rs else float(np.mean(rs)),
+        "pearson_r_std": None if not rs else float(np.std(rs)),
+        "folds": folds,
+    }
+
+
+def _ridge_probe_from_splits(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    train_x: np.ndarray,
+    splits: list[tuple[str, np.ndarray, np.ndarray]],
+    fold_strategy: str,
+) -> dict[str, Any]:
+    rmses = []
+    rs = []
+    folds = []
+    for fold_name, train, test in splits:
+        if len(train) == 0 or len(test) == 0:
+            continue
+        pred = _ridge_predict(train_x[train], y[train], x[test], alpha=1.0)
+        rmse = float(math.sqrt(np.mean(np.square(pred - y[test]))))
+        r = _pearson(np.asarray(pred, dtype=np.float32), y[test].astype(np.float32))
+        rmses.append(rmse)
+        if r is not None:
+            rs.append(r)
+        folds.append({"fold": fold_name, "test_count": int(len(test)), "rmse": rmse, "pearson": r})
+    if not folds:
+        return {"failure": "no non-empty P3 Ridge folds", "fold_strategy": fold_strategy}
+    return {
+        "fold_strategy": fold_strategy,
+        "fold_count": int(len(folds)),
         "rmse_mean": float(np.mean(rmses)),
         "rmse_std": float(np.std(rmses)),
         "pearson_r_mean": None if not rs else float(np.mean(rs)),
@@ -192,6 +293,7 @@ def _classification_probe_numpy(
     x: np.ndarray,
     y: np.ndarray,
     *,
+    train_x: np.ndarray | None = None,
     seed: int,
     n_splits: int,
     backend: str,
@@ -203,8 +305,9 @@ def _classification_probe_numpy(
     accs = []
     f1s = []
     folds = []
+    fit_x = x if train_x is None else train_x
     for index, (train, test) in enumerate(_stratified_folds(y, split_count, seed=seed)):
-        pred = _softmax_logreg_predict(x[train], y[train], x[test], seed=seed + index)
+        pred = _softmax_logreg_predict(fit_x[train], y[train], x[test], seed=seed + index)
         acc = float(np.mean(pred == y[test]))
         f1 = _macro_f1(y[test], pred)
         accs.append(acc)
@@ -287,6 +390,7 @@ def _ridge_probe_numpy(
     x: np.ndarray,
     y: np.ndarray,
     *,
+    train_x: np.ndarray,
     seed: int,
     n_splits: int,
     backend: str,
@@ -296,7 +400,7 @@ def _ridge_probe_numpy(
     rs = []
     folds = []
     for index, (train, test) in enumerate(_kfold_indices(len(y), split_count, seed=seed)):
-        pred = _ridge_predict(x[train], y[train], x[test], alpha=1.0)
+        pred = _ridge_predict(train_x[train], y[train], x[test], alpha=1.0)
         rmse = float(math.sqrt(np.mean(np.square(pred - y[test]))))
         r = _pearson(np.asarray(pred, dtype=np.float32), y[test].astype(np.float32))
         rmses.append(rmse)
@@ -305,6 +409,7 @@ def _ridge_probe_numpy(
         folds.append({"fold": index, "test_count": int(len(test)), "rmse": rmse, "pearson": r})
     return {
         "backend": backend,
+        "fold_strategy": "shuffled_k_fold",
         "fold_count": int(split_count),
         "rmse_mean": float(np.mean(rmses)),
         "rmse_std": float(np.std(rmses)),

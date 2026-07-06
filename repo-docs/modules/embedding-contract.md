@@ -1,5 +1,9 @@
 # 统一 embedding 契约
 
+这一页先说明项目为什么需要统一的向量出口：不同原始信号会经历不同的清洗、切窗和编码步骤，但训练和评估入口应该看到稳定、可替换、可追踪的样本表。阅读时可以先把它理解成一层交通规则：每个模态都用固定形状表达可用内容，用同一张可用性表说明缺失或失败原因。
+
+后面的技术小节会列出具体数组名、脚本入口和版本名。那些细节主要服务于排查和复现实验；如果只是想理解整体设计，先抓住“固定维度、固定顺序、失败可审计、版本可区分”这四件事就够了。
+
 ## 白话模型
 
 统一 embedding 契约让后续模型不用关心每个模态当前是真实编码器还是 smoke encoder。每个窗口都会尝试产出四个固定维度数组：EEG、wear、face、audio。缺失或不可用的模态用零向量和 `modality_mask` 表示，成功读取的模态用同样长度的向量表示。
@@ -40,3 +44,35 @@ v2 profile 仍遵守同一 `(N, 256)` 契约，但在 `quality_flags` 中暴露�
 在主路径里，[Step 5: basic encoder 写出统一 embedding 契约](../walkthroughs/one-real-run.md#step-5-basic-encoder-写出统一-embedding-契约) 解释这层契约如何被脚本使用。需要查 `.npz`、报告和阶段产物时读 [运行命令和产物](../references/commands-and-artifacts.md)；需要查窗口字段时读 [字段契约](../references/data-contracts.md)。
 
 证据状态：除特别标注外，本页基于当前源码和测试已确认。
+
+## Video V4a DINOv2 contract, 2026-07-04
+
+`src/daily_multimodal/embeddings/dinov2_roi.py` owns the current video V4a embedding contract. It keeps compatibility with the existing multimodal packer by writing video embeddings into `face_emb`, but the encoder version is now `video_v4a_dinov2_2xroi_mean_std_max` rather than an OpenFace profile.
+
+The V4a baseline samples 16 frames per 10-second window by default, runs a frozen DINOv2-style frame encoder, pools the frame sequence with `mean + std + max`, then projects the concatenated vector to `(256,)`. Low-FPS ROI clips are resampled to the requested frame count before encoding, so the current 0.5 FPS server ROI cache still produces 16 frame embeddings per usable window. The public extraction entrypoint is `scripts/27_extract_dinov2_roi_embeddings.py`; the explicit CLI flags are `--num-frames 16` and `--temporal-pooling mean_std_max`. `--frame-sequences-out` writes the aligned `[N, frames, hidden_dim]` frame sequence bundle for V4b. `--max-frames-per-window` is retained as a deprecated compatibility alias.
+
+For region comparison, the same extractor can read `outputs/cache/video_regions/<region>/<sample_id>/window.mp4` via `--region-cache-root` and `--video-region`. The default `2x_face_roi` encoder version remains `video_v4a_dinov2_2xroi_mean_std_max`; region-cache variants use `video_v4a_dinov2_upper_body_mean_std_max` and `video_v4a_dinov2_full_frame_mean_std_max`, with `quality_flags.input_region` recording the selected region.
+
+Per-row `quality_flags` should expose the video contract for later audit: `temporal_pooling`, `pooled_stat_names`, `sampled_frame_count`, `usable_frame_count`, `frame_embedding_dim`, and `projected_from_dim`. Downstream video probes should identify this baseline by `encoder_versions.face == video_v4a_dinov2_2xroi_mean_std_max` and should not treat it as an OpenFace feature stream.
+
+V4d augmented DINOv2 extraction keeps the same `face_emb (N,256)` and optional frame-sequence contracts, but changes the encoder version to `video_v4d_aug_dinov2_<region>_mean_std_max`. The current augmentation profile is `v4d_mild_color_crop_scale`: it applies deterministic brightness, contrast, color jitter, crop jitter, and scale jitter to raw sampled frames, encodes original plus augmented views, averages frame embeddings by frame position, and records `augmentation_profile`, `augmentation_views`, and `augmentation_ops` in `quality_flags`. The default `augmentation_profile=none` path remains the frozen V4a contract.
+
+The stable ROI policy for V4d is explicit rather than global: pass `--region-cache-root outputs/cache/video_regions --video-region upper_body --fallback-video-region full_frame` to prefer upper-body clips while falling back to full-frame cache clips only when the requested upper-body clip is missing. This keeps the R1/2x face ROI baseline unchanged. Policy-enabled encoder versions include the fallback region, for example `video_v4a_dinov2_upper_body_full_frame_fallback_mean_std_max` or `video_v4d_aug_dinov2_upper_body_full_frame_fallback_mean_std_max`; per-row `quality_flags` record `requested_input_region`, `effective_input_region`, `fallback_video_region`, and `video_region_fallback_used`.
+
+`src/daily_multimodal/embeddings/video_domain_robust.py` owns the V4d adversarial-training interface. It does not change the `.npz` embedding contract by itself; instead, training code can use `encode_domain_targets` to build stable subject/session class targets, then attach `DomainAdversarialHeads` to a video embedding tensor. The heads apply gradient reversal before subject/session classifiers, so minimizing their cross-entropy loss pushes the upstream video representation away from subject/session shortcuts while keeping fatigue supervision in the main task loss.
+
+## Video V4b temporal contract, 2026-07-04
+
+`src/daily_multimodal/embeddings/video_temporal.py` owns the first V4b temporal embedding builder. It consumes a DINOv2 frame-sequence bundle with `frame_embeddings` shaped `[N, frames, hidden_dim]`, preserves `sample_id`, `event_id`, `subject_id`, and `labels`, and writes the output through the existing `face_emb (N, 256)` compatibility slot.
+
+The two initial encoder versions are `video_v4b_tcn_dinov2_2xroi` and `video_v4b_temporal_transformer_dinov2_2xroi`. Both expose per-row `quality_flags` with `temporal_encoder`, `input_frame_count`, `frame_embedding_dim`, `source_encoder_version`, `source_mask_value`, and `projected_from_dim` when a row is usable. Non-finite frame-sequence rows are masked with a zero `face_emb`, `modality_mask[:,2]=0`, and `quality_flags.masked_reason=nonfinite_frame_embeddings`; source rows with `modality_mask[:,2]=0` are also masked with `masked_reason=source_video_mask_zero`.
+
+## Video region cache contract, 2026-07-04
+
+`src/daily_multimodal/embeddings/video_regions.py` prepares the three planned video input regions under one cache root: `2x_face_roi`, `upper_body`, and `full_frame`. Each successful region writes `<out_root>/<region>/<sample_id>/window.mp4` plus a `region.json` sidecar, and the full run writes `video_regions_manifest.jsonl` and `video_regions_failures.json`.
+
+The upper-body path may use injected MediaPipe/pose localization or existing bbox metadata. If no upper-body box is available, the sidecar keeps `region=upper_body` but records `effective_region=full_frame` and `upper_body_fallback_full_frame=true`, making the fallback explicit for later embedding extraction and ROI comparisons.
+
+The default region writer emits short, DINO-oriented clips rather than copying full source MP4 files: it samples 16 frames from the requested window, applies any crop bbox, scales frames to 640px width, and writes a compact MP4. It reads each source window sequentially and reuses the sampled raw frames when both `upper_body` and `full_frame` are requested for the same window. `face_presence.main_face_bbox` from the current window index is OpenCV-style `[x,y,w,h]`, and the upper-body fallback expands that face box before cropping. This keeps region cache artifacts small enough for R1/R2/R3 extraction while preserving the region content used by the visual encoder.
+
+When the default writer is asked for only `upper_body` and `full_frame`, it further groups rows by `(source_video_path, event_id)` and decodes each source/event group once. Sidecars written through this faster path use `region_source=source_video_event_group`; the per-window output path and fallback fields stay the same, so downstream DINOv2 extraction continues to read the cache by `sample_id` and `video_region`.

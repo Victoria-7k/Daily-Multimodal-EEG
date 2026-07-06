@@ -228,6 +228,44 @@ class WearRealEmbeddingTests(unittest.TestCase):
         self.assertGreater(flags["stationary_ratio"], 0.90)
         self.assertIn("heart_rate", flags["physio_feature_names"])
 
+    def test_wear_preprocessed_profile_filters_signals_and_records_steps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_root = root / "cache"
+            cache_dir = _write_wear_cache(
+                cache_root,
+                sample_id="sample-1",
+                encoder_profile="wear_physio_features_preprocessed_v1",
+            )
+            _write_wear_preprocessing_csvs(cache_dir)
+
+            summary = extract_wear_real_embeddings(
+                [_window("sample-1")],
+                cache_root=cache_root,
+                output_npz=root / "wear_real_embeddings.npz",
+                failures_out=root / "failures.json",
+                encoder_profile="wear_physio_features_preprocessed_v1",
+            )
+            with np.load(root / "wear_real_embeddings.npz", allow_pickle=True) as loaded:
+                flags = json.loads(loaded["quality_flags"].tolist()[0])
+            with np.load(cache_dir / "sequence.npz") as sequences:
+                ppg = sequences["ppg"][:, 0]
+                gsr = sequences["gsr"][:, 0]
+                acc = sequences["acc"]
+
+        self.assertEqual(summary["success_count"], 1)
+        self.assertTrue(flags["wear_preprocessing_applied"])
+        self.assertEqual(flags["wear_preprocessing_version"], "wear_signal_preprocessing_v1")
+        self.assertIn("bandpass_approx_0.5_5hz", flags["ppg_preprocessing_steps"])
+        self.assertIn("lowpass_approx_1hz", flags["gsr_preprocessing_steps"])
+        self.assertIn("gravity_median_removed", flags["acc_preprocessing_steps"])
+        self.assertTrue(flags["ppg_preprocessing_changed"])
+        self.assertTrue(flags["gsr_preprocessing_changed"])
+        self.assertTrue(flags["acc_preprocessing_changed"])
+        self.assertLess(abs(float(np.mean(ppg))), 0.25)
+        self.assertLess(flags["gsr_preprocessing_output_std"], flags["gsr_preprocessing_input_std"])
+        self.assertLess(abs(float(np.mean(acc[:, 2]))), 0.2)
+
     def test_wear_physio_features_v2_flags_flat_ppg_and_moving_acc(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -531,6 +569,42 @@ def _write_physio_v2_csvs(cache_dir: Path, *, flat_ppg: bool, moving_acc: bool, 
             ])
         else:
             acc_rows.append([0.0, 0.0, 1.0, t])
+    _write_csv(cache_dir / "ppg.csv", ["PPG", "csv_time_PPG"], ppg_rows)
+    _write_csv(cache_dir / "gsr.csv", ["GSR", "csv_time_GSR"], gsr_rows)
+    _write_csv(
+        cache_dir / "acc.csv",
+        ["Motion_dataX", "Motion_dataY", "Motion_dataZ", "csv_time_motion"],
+        acc_rows,
+    )
+
+
+def _write_wear_preprocessing_csvs(cache_dir: Path) -> None:
+    start = datetime.fromisoformat("2025-02-28 14:13:00")
+    ppg_rows = []
+    gsr_rows = []
+    acc_rows = []
+    rng = np.random.default_rng(42)
+    for index in range(640):
+        t = start + timedelta(seconds=index / 64.0)
+        seconds = index / 64.0
+        pulse = 0.7 * max(0.0, np.sin(2 * np.pi * 1.2 * seconds)) ** 8
+        drift = 0.8 * np.sin(2 * np.pi * 0.08 * seconds)
+        noise = 0.08 * rng.normal()
+        ppg_rows.append([0.5 + drift + pulse + noise, t])
+    for index in range(320):
+        t = start + timedelta(seconds=index / 32.0)
+        seconds = index / 32.0
+        slow = 0.5 + 0.02 * seconds
+        high_frequency_noise = 0.12 * np.sin(2 * np.pi * 8.0 * seconds)
+        gsr_rows.append([slow + high_frequency_noise, t])
+        acc_rows.append(
+            [
+                0.2 * np.sin(2 * np.pi * 0.7 * seconds),
+                0.1 * np.cos(2 * np.pi * 0.5 * seconds),
+                1.0 + 0.05 * np.sin(2 * np.pi * 0.9 * seconds),
+                t,
+            ]
+        )
     _write_csv(cache_dir / "ppg.csv", ["PPG", "csv_time_PPG"], ppg_rows)
     _write_csv(cache_dir / "gsr.csv", ["GSR", "csv_time_GSR"], gsr_rows)
     _write_csv(
