@@ -72,9 +72,125 @@
 
 简单解读：upper-body 在 LOSO/S1/S4 的 RMSE 略好，但 S2 明显弱于 2xROI，因此当前默认仍保留 R1 / 2x face ROI。full-frame 在 S1/S4 的 r 较高，但 LOSO/S2 RMSE 更差，不适合作为默认输入。
 
-## 5. 当前简要结论
+## 5. V4d Augmentation 结论更新
+
+### 5.1 已作废的旧 A1/A2 判断
+
+旧 A1/A2 全量 projected artifacts 是在 projection salt 修复前生成的。由于 A0/A1/A2 可能使用了不同随机投影矩阵，旧 paired embedding audit 中的结果：
+
+- A0 vs A1 cosine mean 约 `-0.0189`
+- A0 vs A2 cosine mean 约 `0.0196`
+- L2 接近 `sqrt(2)`
+
+不能解释为 augmentation 本身过强。旧 A0-A2 downstream/probe 结果也不应继续作为结论引用。
+
+旧文件已归档到：
+
+`outputs/archive/invalid_projection_salt_20260707_0125/`
+
+### 5.2 Fixed-salt A1/A2 paired audit
+
+projection salt 修复后，A1/A2 与 A0 共用 upper-body V4a projection salt：
+
+`video_v4a_dinov2_upper_body_mean_std_max`
+
+新的 paired audit 输出：
+
+`outputs/reports/video_v4d_fixed_salt/paired_embedding_audit/`
+
+| Pair | Cosine mean | Cosine median | L2 mean | Relative L2 |
+| --- | ---: | ---: | ---: | ---: |
+| A0 vs A1 | `0.9990` | `0.9993` | `0.0408` | `0.0408` |
+| A0 vs A2 | `0.9938` | `0.9947` | `0.1076` | `0.1076` |
+
+解读：A1/A2 在 fixed projection 下只是轻到中等扰动，不是正交级别的分布错位。因此，“A1/A2 把 fatigue 信号打掉”的旧结论需要撤回；下游判断必须使用 fixed-salt A1/A2 重跑结果。
+
+### 5.3 Fixed-salt A0/A1/A2 train-only probe + downstream rerun
+
+严格评估口径：validation/test 始终使用 deterministic A0 upper-body embedding；A1/A2 只作为 train-fold override。输出位置：
+
+- downstream reports: `outputs/reports/video_variants/v4d_a0_a2_fixed_salt_train_only/`
+- probe reports: `outputs/reports/video_probes/v4d_a0_a2_fixed_salt_train_only/`
+- summary: `outputs/reports/video_v4d_fixed_salt/a0_a2_probe_eval_summary.{json,md}`
+
+| Variant | Subject Probe | Session Probe | LOSO r | S1 r | S4 r | S2 r |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A0 | `0.9583` | `0.9525` | `-0.0150` | `0.3357` | `0.1509` | `0.1241` |
+| A1 | `0.9583` | `0.9523` | `-0.0198` | `0.3254` | `0.1823` | `0.1387` |
+| A2 | `0.9568` | `0.9520` | `-0.0356` | `0.3250` | `0.1634` | `0.1556` |
+
+解读：A1/A2 并没有明显降低 subject/session probe，说明 train-only appearance augmentation 还没有真正削弱 shortcut。A1 对 S4 有提升，A2 对 S2 有提升，但二者都降低 S1，且 LOSO 更差。因此 fixed-salt A1/A2 不能作为 V4d 成功方案，只能作为后续 mixed original/augmented 或 embedding interpolation 的参考。
+
+### 5.4 Adapter + GRL screening
+
+第一轮筛选使用 PyTorch adapter/GRL 入口，30 epochs，`adapter_dim=64`，`hidden_dim=32`。B5 只使用 A1 train-fold override；validation/test 仍使用 deterministic A0。Subject/Session Probe 来自 LOSO out-of-fold representation。
+
+输出位置：
+
+- runner: `outputs/reports/video_grl_adapter/run_b0_b5_grl_adapter.sh`
+- summary: `outputs/reports/video_grl_adapter/b0_b5_fixed_salt/b0_b5_grl_summary.{json,md}`
+- split reports: `outputs/reports/video_grl_adapter/b0_b5_fixed_salt/{loso,s1,s4,s2}_metrics.{json,md}`
+
+| Variant | lambda | Subject Probe | Session Probe | LOSO r | S1 r | S4 r | S2 r |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| B0 | `0.0000` | `0.9739` | `0.9525` | `-0.0392` | `0.3316` | `0.1546` | `0.1824` |
+| B1 | `0.0000` | `0.8707` | `0.8869` | `-0.0005` | `0.3897` | `0.1821` | `0.2026` |
+| B2_lam0.001 | `0.0010` | `0.8570` | `0.8863` | `-0.0107` | `0.3783` | `0.1709` | `0.2018` |
+| B2_lam0.005 | `0.0050` | `0.8666` | `0.8832` | `0.0143` | `0.3783` | `0.1680` | `0.2380` |
+| B2_lam0.01 | `0.0100` | `0.8695` | `0.8855` | `-0.0010` | `0.3916` | `0.2328` | `0.1158` |
+| B2_lam0.05 | `0.0500` | `0.8667` | `0.8883` | `0.0034` | `0.3463` | `0.1922` | `0.1184` |
+| B3_lam0.001 | `0.0010` | `0.8732` | `0.8839` | `0.0030` | `0.3713` | `0.1503` | `0.1361` |
+| B3_lam0.005 | `0.0050` | `0.8863` | `0.8874` | `-0.0022` | `0.3900` | `0.2017` | `0.1821` |
+| B3_lam0.01 | `0.0100` | `0.8703` | `0.8824` | `-0.0192` | `0.3813` | `0.1584` | `0.1072` |
+| B3_lam0.05 | `0.0500` | `0.8686` | `0.8873` | `0.0203` | `0.3873` | `0.1839` | `0.1431` |
+| B4_lam0.001 | `0.0010` | `0.8738` | `0.8788` | `-0.0045` | `0.3624` | `0.1522` | `0.1386` |
+| B4_lam0.005 | `0.0050` | `0.8562` | `0.8809` | `0.0253` | `0.3639` | `0.1622` | `0.1593` |
+| B4_lam0.01 | `0.0100` | `0.8611` | `0.8859` | `0.0107` | `0.3706` | `0.1641` | `0.1313` |
+| B4_lam0.05 | `0.0500` | `0.8700` | `0.8811` | `-0.0140` | `0.3829` | `0.1750` | `0.1664` |
+| B5_A1_lam0.001 | `0.0010` | `0.8833` | `0.8914` | `-0.0420` | `0.3590` | `0.1760` | `0.1372` |
+| B5_A1_lam0.005 | `0.0050` | `0.8504` | `0.8864` | `-0.0123` | `0.3600` | `0.1544` | `0.1685` |
+| B5_A1_lam0.01 | `0.0100` | `0.8755` | `0.8952` | `0.0025` | `0.3863` | `0.1804` | `0.1481` |
+
+解读：adapter 本身已经大幅降低 subject/session probe，并提升 S1/S4/S2；B1 是当前最稳的低复杂度候选。GRL 的额外收益不稳定，但 B2_lam0.005、B3_lam0.05、B4_lam0.005 在 LOSO r 上相对 B1 更好，适合二轮用更多 epochs/seed 复查。B5_A1 没有超过 B1，说明当前 A1 train-time augmentation + GRL 不是第一优先。
+
+## 6. 当前简要结论
 
 - V4a 是当前可用的视频深度视觉 baseline，但 subject/session shortcut 很强。
 - V4b 时序建模收益有限，没有解决 LOSO/S2 泛化问题。
 - ROI 对比后，默认输入仍保留 `2x face ROI`；`upper-body ROI` 保留为候选 ablation；`full-frame` 仅作为对照。
-- 下一阶段 V4d 应重点验证数据增强或 domain robustness 是否能降低 subject/session shortcut，同时不损害 LOSO/S4/S2 fatigue 指标。
+- V4d fixed-salt train-only A1/A2 已重跑；它们几乎没有降低 subject/session shortcut，且 LOSO/S1 不如 A0，只在 S4/S2 有局部提升。
+- Adapter 是当前最值得推进的 V4d 方向；B1 已明显降低 subject/session probe 并提升 S1/S4/S2。
+- 下一阶段优先复查 B1、B2_lam0.005、B3_lam0.05、B4_lam0.005，而不是继续 A4/A5 或直接用 A1/A2 train-only replacement。
+
+## 7. V4d B1/B2 Repeat Stability And Adapter-Z Audit
+
+New rerun compares `B1`, `B2_lam0.005`, and `B2_lam0.01` with deterministic A0 upper-body eval embeddings, 5 seeds, `epochs=30`, `adapter_dim=64`, and `hidden_dim=32`.
+
+- repeat runner: `outputs/reports/video_grl_adapter/run_b1_b2_repeat_and_repr_audit.sh`
+- repeat summary: `outputs/reports/video_grl_adapter/b1_b2_repeat_stability/repeat_stability_summary.{json,md}`
+- per-seed reports: `outputs/reports/video_grl_adapter/b1_b2_repeat_stability/seed_{41..45}/{loso,s4,s2}_metrics.{json,md}`
+- OOF adapter representation bundle: `outputs/reports/video_grl_adapter/representation_audit/b0_b1_b2_loso_representations.npz`
+- adapter-z audit: `outputs/reports/video_grl_adapter/representation_audit/b0_b1_b2_representation_audit.{json,md}`
+
+| Split | Variant | seeds | r mean | r std | r min | r max | RMSE mean |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| LOSO | B1 | 5 | `-0.0010` | `0.0080` | `-0.0108` | `0.0133` | `0.9771` |
+| LOSO | B2_lam0.005 | 5 | `0.0025` | `0.0088` | `-0.0104` | `0.0143` | `0.9741` |
+| LOSO | B2_lam0.01 | 5 | `0.0026` | `0.0091` | `-0.0113` | `0.0143` | `0.9756` |
+| S4 | B1 | 5 | `0.1815` | `0.0261` | `0.1549` | `0.2307` | `0.9223` |
+| S4 | B2_lam0.005 | 5 | `0.1872` | `0.0226` | `0.1680` | `0.2302` | `0.9196` |
+| S4 | B2_lam0.01 | 5 | `0.1800` | `0.0291` | `0.1482` | `0.2328` | `0.9226` |
+| S2 | B1 | 5 | `0.1868` | `0.0404` | `0.1184` | `0.2391` | `0.9714` |
+| S2 | B2_lam0.005 | 5 | `0.1784` | `0.0447` | `0.1177` | `0.2380` | `0.9763` |
+| S2 | B2_lam0.01 | 5 | `0.1638` | `0.0447` | `0.1158` | `0.2363` | `0.9866` |
+
+Repeat-stability conclusion: B2 small-lambda LOSO/S4 mean gains over B1 are tiny and within seed-level variance; S2 is more stable with B1. The first-pass B2_lam0.005 S2/LOSO advantage should be treated as a candidate signal, not a stable upgrade. S2 high-error subjects concentrate around `sub-03`, `sub-08`, `sub-09`, `sub-13`, and `sub-11`; S4 low-r subjects concentrate around `sub-05`, `sub-13`, `sub-14`, `sub-15`, and `sub-11`.
+
+| Variant | dim | Subject Probe | Session Probe | Fatigue Ridge LOSO r | Fatigue Ridge S1 r | Fatigue Ridge S4 r | Fatigue Ridge S2 r | var mean | pred std |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| B0 | 256 | `0.9739` | `0.9525` | `-0.0279` | `0.2943` | `0.1536` | `0.0831` | `1.0523` | `0.3448` |
+| B1 | 64 | `0.8707` | `0.8869` | `-0.0139` | `0.2214` | `0.0648` | `0.0542` | `1.0241` | `0.3848` |
+| B2_lam0.005 | 64 | `0.8569` | `0.8849` | `-0.0129` | `0.2108` | `0.1273` | `0.0165` | `1.0169` | `0.4179` |
+| B2_lam0.01 | 64 | `0.8664` | `0.8852` | `0.0196` | `0.2408` | `0.0984` | `0.1675` | `1.0268` | `0.4165` |
+
+Adapter-z conclusion: adapter representations reduce subject/session probe accuracy, but Fatigue Ridge does not improve overall versus B0. B1's downstream gain is therefore more consistent with supervised adapter plus nonlinear fatigue head fitting than with a clearly better linear fatigue geometry in adapter z. Keep B1 as the main V4d candidate; treat B2 lambdas as conservative regularization candidates only.
