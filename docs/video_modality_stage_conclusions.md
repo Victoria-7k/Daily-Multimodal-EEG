@@ -160,7 +160,7 @@ projection salt 修复后，A1/A2 与 A0 共用 upper-body V4a projection salt�
 - ROI 对比后，默认输入仍保留 `2x face ROI`；`upper-body ROI` 保留为候选 ablation；`full-frame` 仅作为对照。
 - V4d fixed-salt train-only A1/A2 已重跑；它们几乎没有降低 subject/session shortcut，且 LOSO/S1 不如 A0，只在 S4/S2 有局部提升。
 - Adapter 是当前最值得推进的 V4d 方向；B1 已明显降低 subject/session probe 并提升 S1/S4/S2。
-- 下一阶段优先复查 B1、B2_lam0.005、B3_lam0.05、B4_lam0.005，而不是继续 A4/A5 或直接用 A1/A2 train-only replacement。
+- 2026-07-07 B1/B2 repeat 后，B1 冻结为当前视频主模型；下一阶段暂停继续扫 GRL、appearance augmentation 和 10 秒 frame-level temporal encoder，转向事件时间尺度与个体化诊断。
 
 ## 7. V4d B1/B2 Repeat Stability And Adapter-Z Audit
 
@@ -194,3 +194,62 @@ Repeat-stability conclusion: B2 small-lambda LOSO/S4 mean gains over B1 are tiny
 | B2_lam0.01 | 64 | `0.8664` | `0.8852` | `0.0196` | `0.2408` | `0.0984` | `0.1675` | `1.0268` | `0.4165` |
 
 Adapter-z conclusion: adapter representations reduce subject/session probe accuracy, but Fatigue Ridge does not improve overall versus B0. B1's downstream gain is therefore more consistent with supervised adapter plus nonlinear fatigue head fitting than with a clearly better linear fatigue geometry in adapter z. Keep B1 as the main V4d candidate; treat B2 lambdas as conservative regularization candidates only.
+
+## 8. B1-Frozen Event-Level Aggregation And LOSO Diagnostics
+
+After the B1/B2 repeat, the next local implementation froze B1 and reused the synced LOSO OOF adapter representation bundle:
+
+- input: `outputs/server_sync/video_v4d_results_2026-07-07/server_tree/outputs/reports/video_grl_adapter/representation_audit/b0_b1_b2_loso_representations.npz`
+- event outputs: `outputs/embeddings/video_event_b1/E{1,2,3}_*.npz`
+- event reports: `outputs/reports/video_event_b1/{loso,s1,s4,s2}_metrics.{json,md}`
+- diagnostics: `outputs/reports/video_loso_diagnostics/`
+- personalization: `outputs/reports/video_personalization/b1_loso_residual_calibration.{json,md}`
+
+The OOF bundle has `8328` windows, `694` events, and `repr__B1.shape=(8328,64)` with no NaNs. Event-level pooling kept all `694` events; no event had fewer than the default `8` required windows.
+
+| Model / diagnostic | LOSO r / RMSE | S1 r / RMSE | S4 r / RMSE | S2 r / RMSE | Decision |
+| --- | ---: | ---: | ---: | ---: | --- |
+| B1 window baseline, 5-seed mean | `-0.0010 / 0.9771` | `0.3897 / NA` | `0.1815 / 0.9223` | `0.1868 / 0.9714` | Frozen video backbone |
+| E1 mean event pooling | `-0.0096 / 1.0807` | `0.3060 / 0.9242` | `0.1261 / 0.9865` | `0.0697 / 1.1847` | No promotion |
+| E2 mean+std event pooling | `0.0245 / 1.0744` | `0.2724 / 0.9568` | `0.0696 / 1.0461` | `0.1186 / 1.1531` | No promotion |
+| E3 mean+std+max event pooling | `0.0195 / 1.0730` | `0.2978 / 0.9480` | `0.1517 / 1.0074` | `0.0454 / 1.1875` | No promotion |
+| E3 subject-centered target diagnostic | `0.1385 / 0.8894` | NA | NA | NA | Diagnostic only |
+| B1 residual few-shot, best K/session | `0.0170 / 0.9996` | NA | NA | NA | No simple-bias personalization gain |
+
+Interpretation:
+
+- Simple 120 s pooling does not beat the B1 window-level baseline on S4/S2, so the 12-window TCN/Transformer branch should not start yet.
+- Subject-centered event targets improve LOSO r for E3, which suggests subject baseline calibration is part of the failure; this is not a deployment method because it uses the held-out subject's true mean.
+- LOSO per-subject signs are mixed: `9` positive-r subjects and `5` negative-r subjects in the B1 LOSO fold report, consistent with subject-dependent fatigue-behavior mapping differences.
+- Residual few-shot calibration on B1 LOSO predictions worsened RMSE for K-event protocols and only reached r `0.0170` for 1-session, so simple bias correction is not enough; a future personalization branch should use a richer residual model or small subject-specific head.
+
+## 9. Structure-Search Closure Diagnostics, 2026-07-08
+
+The latest guidance closes the video-only structure-search phase: do not continue GRL sweeps, appearance augmentation, or 12-window temporal encoders until the baseline-vs-within-subject question is resolved. The next diagnostic priority is to separate subject baseline calibration from within-subject fatigue-behavior mapping.
+
+Local artifact check for the requested `B1-R1` versus `B1-R2` ROI decision found that the original R1/R2 embedding files were not available in this workspace or synced server tree. A blocker report with the required server command template was written to `outputs/reports/video_roi_b1/roi_b1_artifact_check.{json,md}`. This means the final ROI version still needs a server rerun from the original R1 `2x face ROI` and R2 `upper-body` embeddings before the final video branch is locked.
+
+Window-level B1 adapter representations were exported back into the existing `face_emb (N,256)` contract through deterministic projection:
+
+- bundle: `outputs/embeddings/video_window_b1/B1_window_repr_embeddings.npz`
+- centered bundle: `outputs/embeddings/video_window_b1/B1_window_repr_centered_embeddings.npz`
+- reports: `outputs/reports/video_window_b1/`
+
+| Diagnostic | Target | LOSO r | RMSE | pred_std | Interpretation |
+| --- | --- | ---: | ---: | ---: | --- |
+| C0 B1 window representation | absolute fatigue | `-0.0448` | `0.9933` | `0.3517` | Absolute cross-subject calibration remains poor |
+| C1 B1 window representation | subject-centered fatigue | `0.0157` | `0.8242` | `0.2636` | Centering greatly lowers RMSE, but r is still near zero |
+
+The centered-label result supports baseline calibration as a large part of the RMSE failure, but the near-zero r after centering says the within-subject mapping is still not portable enough for deployment.
+
+Affine few-shot calibration was then added to the personalization entrypoint. On original B1 LOSO predictions, regularized affine K=10 improved RMSE from `0.9251` to `0.8813`, but Pearson r stayed near zero (`0.0003`). On centered C1 predictions, 0-shot had the best RMSE (`0.7983`), and affine calibration did not improve it. Bias-only and affine few-shot calibration therefore do not restore predictive correlation; a future personalization branch should only proceed if it uses a stronger residual model or small subject-specific head.
+
+Cross-subject centered transfer was added as a mapping-direction diagnostic:
+
+- report: `outputs/reports/video_transfer_matrix/b1_centered_transfer_matrix.{json,md}`
+- subjects: `14`
+- within-subject diagonal r mean: `0.6981`
+- off-diagonal transfer r mean: `0.0089`
+- positive / negative off-diagonal pairs: `117 / 79`
+
+This is the clearest signal so far: B1 contains strong within-subject learnable structure, but the learned centered mapping does not transfer across subjects. The next main direction should be subject calibration and subject-dependent mapping clusters, plus a final server-side `B1-R1` versus `B1-R2` rerun. Multimodal fusion should freeze the selected B1 video branch and compare no-video versus `+V4a` versus `+B1`; video-only structure search remains paused.
