@@ -1,0 +1,15 @@
+{
+  "fusion_config": "configs/fusion_matrix.yaml",
+  "window_index": "outputs/window_index/real_cache_face_detected_full_v2_mainface.jsonl",
+  "cohort_manifest": "outputs/splits/fusion_within_subject_120s10s_cohort.json",
+  "split_manifest": "outputs/splits/fusion_within_subject_120s10s_splits_seed17.json",
+  "split_seed": 17,
+  "model_seed": 1701,
+  "protocols": ["event_grouped_5fold", "session_held_out"],
+  "models": ["train_mean", "concat_ridge_alpha10", "learnable_cross_attention"],
+  "production": {
+    "epochs": 200,
+    "hidden_dim": 128,
+    "learning_rate": 0.001
+  }
+}
