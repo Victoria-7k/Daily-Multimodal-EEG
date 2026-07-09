@@ -177,8 +177,259 @@ def write_cohort_manifest(
     }
 
 
+def build_split_manifest(
+    cohort: Sequence[str] | np.ndarray,
+    metadata: Sequence[WindowMetadata],
+    *,
+    split_seed: int = 17,
+) -> dict:
+    ordered_sample_ids = np.asarray(cohort).astype(str).tolist()
+    row_by_sample = {row.sample_id: row for row in metadata}
+    missing = [sample_id for sample_id in ordered_sample_ids if sample_id not in row_by_sample]
+    if missing:
+        raise ValueError(f"metadata missing cohort sample_id values: {missing[:5]}")
+    ordered_rows = [row_by_sample[sample_id] for sample_id in ordered_sample_ids]
+    subjects: dict[str, list[WindowMetadata]] = {}
+    for row in ordered_rows:
+        subjects.setdefault(row.subject_id, []).append(row)
+    subject_order = list(subjects)
+    return {
+        "schema_version": 1,
+        "split_seed": int(split_seed),
+        "cohort_count": len(ordered_sample_ids),
+        "protocols": {
+            "event_grouped_5fold": {
+                "subjects": [
+                    _event_grouped_subject_manifest(subject, subjects[subject], split_seed)
+                    for subject in subject_order
+                ]
+            },
+            "session_held_out": {
+                "subjects": [
+                    _session_subject_manifest(subject, subjects[subject])
+                    for subject in subject_order
+                ]
+            },
+        },
+    }
+
+
+def validate_split_manifest(
+    manifest: Mapping[str, object],
+    *,
+    cohort_hash: str,
+    window_index_hash: str,
+) -> None:
+    if str(manifest.get("cohort_sha256")) != str(cohort_hash):
+        raise ValueError("cohort hash mismatch")
+    if str(manifest.get("window_index_sha256")) != str(window_index_hash):
+        raise ValueError("window index hash mismatch")
+    protocols = manifest.get("protocols")
+    if not isinstance(protocols, Mapping):
+        raise ValueError("split manifest missing protocols")
+    for required in ("event_grouped_5fold", "session_held_out"):
+        if required not in protocols:
+            raise ValueError(f"split manifest missing protocol {required}")
+
+
 def _event_key(row: WindowMetadata) -> EventKey:
     return (str(row.subject_id), str(row.session_id), str(row.event_id))
+
+
+def _event_grouped_subject_manifest(
+    subject_id: str,
+    rows: Sequence[WindowMetadata],
+    split_seed: int,
+) -> dict:
+    component_by_event, _overlaps = build_overlap_components(rows)
+    rows_by_component: dict[str, list[WindowMetadata]] = {}
+    for row in rows:
+        rows_by_component.setdefault(component_by_event[_event_key(row)], []).append(row)
+    base = _subject_base(subject_id, rows)
+    if len(rows_by_component) < 5:
+        return {
+            **base,
+            "status": "insufficient_split_units",
+            "split_unit_count": len(rows_by_component),
+            "folds": [],
+        }
+    components = _balanced_components(rows_by_component, split_seed)
+    buckets: list[list[str]] = [[] for _ in range(5)]
+    bucket_sizes = [0] * 5
+    for component_id in components:
+        bucket_index = min(range(5), key=lambda idx: (bucket_sizes[idx], idx))
+        buckets[bucket_index].append(component_id)
+        bucket_sizes[bucket_index] += len(rows_by_component[component_id])
+    folds = []
+    for fold_index in range(5):
+        test_components = set(buckets[fold_index])
+        val_components = set(buckets[(fold_index + 1) % 5])
+        train_components = set(rows_by_component) - test_components - val_components
+        folds.append(
+            _fold_manifest(
+                fold_index=fold_index,
+                train_rows=_rows_for_components(rows_by_component, train_components),
+                val_rows=_rows_for_components(rows_by_component, val_components),
+                test_rows=_rows_for_components(rows_by_component, test_components),
+                train_split_unit_ids=sorted(train_components),
+                val_split_unit_ids=sorted(val_components),
+                test_split_unit_ids=sorted(test_components),
+            )
+        )
+    return {
+        **base,
+        "status": "eligible",
+        "split_unit_count": len(rows_by_component),
+        "folds": folds,
+    }
+
+
+def _session_subject_manifest(subject_id: str, rows: Sequence[WindowMetadata]) -> dict:
+    base = _subject_base(subject_id, rows)
+    sessions = _ordered_unique(row.session_id for row in rows)
+    if len(sessions) < 3:
+        return {
+            **base,
+            "status": "insufficient_sessions",
+            "session_ids": sessions,
+            "folds": [],
+        }
+    folds = []
+    for fold_index, test_session in enumerate(sessions):
+        val_session = sessions[(fold_index + 1) % len(sessions)]
+        train_sessions = set(sessions) - {test_session, val_session}
+        folds.append(
+            _fold_manifest(
+                fold_index=fold_index,
+                train_rows=[row for row in rows if row.session_id in train_sessions],
+                val_rows=[row for row in rows if row.session_id == val_session],
+                test_rows=[row for row in rows if row.session_id == test_session],
+                train_split_unit_ids=sorted(train_sessions),
+                val_split_unit_ids=[val_session],
+                test_split_unit_ids=[test_session],
+            )
+        )
+    return {
+        **base,
+        "status": "eligible",
+        "session_ids": sessions,
+        "folds": folds,
+    }
+
+
+def _subject_base(subject_id: str, rows: Sequence[WindowMetadata]) -> dict:
+    return {
+        "subject_id": subject_id,
+        "sample_count": len(rows),
+        "event_count": len({_event_key(row) for row in rows}),
+        "session_ids": _ordered_unique(row.session_id for row in rows),
+    }
+
+
+def _balanced_components(
+    rows_by_component: Mapping[str, Sequence[WindowMetadata]],
+    split_seed: int,
+) -> list[str]:
+    rng = np.random.default_rng(int(split_seed))
+    by_size: dict[int, list[str]] = {}
+    for component_id, rows in rows_by_component.items():
+        by_size.setdefault(len(rows), []).append(component_id)
+    ordered: list[str] = []
+    for size in sorted(by_size, reverse=True):
+        values = sorted(by_size[size])
+        rng.shuffle(values)
+        ordered.extend(values)
+    return ordered
+
+
+def _rows_for_components(
+    rows_by_component: Mapping[str, Sequence[WindowMetadata]],
+    component_ids: set[str],
+) -> list[WindowMetadata]:
+    rows = [
+        row
+        for component_id in sorted(component_ids)
+        for row in rows_by_component[component_id]
+    ]
+    return sorted(rows, key=lambda row: row.sample_id)
+
+
+def _fold_manifest(
+    *,
+    fold_index: int,
+    train_rows: Sequence[WindowMetadata],
+    val_rows: Sequence[WindowMetadata],
+    test_rows: Sequence[WindowMetadata],
+    train_split_unit_ids: Sequence[str],
+    val_split_unit_ids: Sequence[str],
+    test_split_unit_ids: Sequence[str],
+) -> dict:
+    return {
+        "fold_id": f"fold-{fold_index:02d}",
+        "train_sample_ids": _sample_ids(train_rows),
+        "val_sample_ids": _sample_ids(val_rows),
+        "test_sample_ids": _sample_ids(test_rows),
+        "train_event_keys": _event_keys(train_rows),
+        "val_event_keys": _event_keys(val_rows),
+        "test_event_keys": _event_keys(test_rows),
+        "train_split_unit_ids": list(train_split_unit_ids),
+        "val_split_unit_ids": list(val_split_unit_ids),
+        "test_split_unit_ids": list(test_split_unit_ids),
+        "train_session_ids": _ordered_unique(row.session_id for row in train_rows),
+        "val_session_ids": _ordered_unique(row.session_id for row in val_rows),
+        "test_session_ids": _ordered_unique(row.session_id for row in test_rows),
+        "train_window_count": len(train_rows),
+        "val_window_count": len(val_rows),
+        "test_window_count": len(test_rows),
+        "train_event_count": len(_event_keys(train_rows)),
+        "val_event_count": len(_event_keys(val_rows)),
+        "test_event_count": len(_event_keys(test_rows)),
+        "cross_partition_time_overlap_count": _cross_partition_overlap_count(
+            train_rows,
+            val_rows,
+            test_rows,
+        ),
+    }
+
+
+def _sample_ids(rows: Sequence[WindowMetadata]) -> list[str]:
+    return [row.sample_id for row in sorted(rows, key=lambda row: row.sample_id)]
+
+
+def _event_keys(rows: Sequence[WindowMetadata]) -> list[list[str]]:
+    return [
+        list(key)
+        for key in sorted({_event_key(row) for row in rows})
+    ]
+
+
+def _ordered_unique(values: Sequence[str] | object) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value)
+        if text not in seen:
+            result.append(text)
+            seen.add(text)
+    return result
+
+
+def _cross_partition_overlap_count(*partitions: Sequence[WindowMetadata]) -> int:
+    labeled_rows = [
+        (partition_index, row)
+        for partition_index, rows in enumerate(partitions)
+        for row in rows
+    ]
+    count = 0
+    for left_index, (left_partition, left) in enumerate(labeled_rows):
+        for right_partition, right in labeled_rows[left_index + 1 :]:
+            if left_partition == right_partition:
+                continue
+            if (left.subject_id, left.session_id) != (right.subject_id, right.session_id):
+                continue
+            if max(left.start, right.start) < min(left.end, right.end):
+                count += 1
+    return count
 
 
 def _required_str(raw: Mapping[str, object], key: str, path: Path | str, line_number: int) -> str:
