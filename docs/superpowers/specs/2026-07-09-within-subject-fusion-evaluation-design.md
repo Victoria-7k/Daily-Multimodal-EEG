@@ -139,10 +139,12 @@ and actual sample counts plus both sample-ID hashes with `oof_complete=true`.
 Metrics are reported at two levels:
 
 - window-level OOF
-- event-level OOF after averaging all window predictions for each event
+- event-level OOF after averaging all window predictions for each
+  `(subject_id, session_id, event_id)` event key
 
-The event target must be constant across its windows within floating-point
-tolerance; otherwise evaluation fails.
+The event target must be constant across the windows for each composite event
+key within floating-point tolerance; otherwise evaluation fails. Event-level
+aggregation never groups by bare `event_id` or by `(subject_id, event_id)`.
 
 Each experiment reports two overall views:
 
@@ -154,6 +156,14 @@ Each experiment reports two overall views:
 
 Raw pooled Pearson may be retained as a clearly marked diagnostic but is never
 the headline pooled correlation.
+
+The prespecified model ranking metric is event-level subject-macro Pearson.
+Event-level macro RMSE and within-subject-centered pooled Pearson are auxiliary
+reporting metrics, not alternate post-hoc selection criteria. When
+initialization-sensitivity follow-up needs the top attention configurations,
+attention configurations are sorted by event-level subject-macro Pearson
+descending with `null` values last; exact ties are broken by experiment name
+only for deterministic execution.
 
 ### Paired ablation cohort
 
@@ -246,8 +256,8 @@ The existing cross-subject runner remains behaviorally unchanged.
   `degenerate_train_target`; they are never silently trained.
 - Incomplete, duplicate, or unexpected OOF sample coverage raises an error
   before subject metrics are computed.
-- Event-level aggregation raises an error if one subject/event has inconsistent
-  target values across its windows.
+- Event-level aggregation raises an error if one composite event key has
+  inconsistent target values across its windows.
 - Subjects with fewer than five overlap-connected split units are recorded and skipped.
 - Subjects with too few sessions are skipped only for session-held-out.
 - Missing or stale resume artifacts are recomputed rather than trusted.
@@ -280,6 +290,7 @@ Automated tests cover:
 - subject metrics recomputed from complete OOF predictions
 - OOF aggregation fails on missing, duplicate, or unexpected samples
 - event aggregation rejects inconsistent event targets
+- event aggregation keeps repeated local event IDs separate across sessions
 - subject-centered pooled Pearson
 - global paired cohort equality across all experiments
 - window-level and event-level OOF metrics
@@ -300,8 +311,8 @@ Server execution has three gates:
 
 The full 12-experiment production matrix uses one fixed `model_seed`. After
 the primary matrix is complete, only the top two or three attention
-configurations are rerun with additional model seeds to estimate initialization
-sensitivity.
+configurations by the prespecified event-level subject-macro Pearson ranking
+are rerun with additional model seeds to estimate initialization sensitivity.
 
 ## Acceptance Criteria
 

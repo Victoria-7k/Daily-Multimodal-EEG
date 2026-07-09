@@ -24,6 +24,7 @@
 - Report window-level and event-level OOF metrics.
 - Verify each event has one consistent target before event-level aggregation.
 - Headline pooled Pearson must be within-subject centered.
+- Prespecified model ranking metric is event-level subject-macro Pearson; event-level macro RMSE and within-subject-centered pooled Pearson are auxiliary reports, not post-hoc selection criteria.
 - Run `train_mean` and `concat_ridge_alpha10` baselines on the same cohort and splits.
 - Production mode must not compute train-set predictions.
 - Resume only from artifacts whose cohort, split, configuration, and prediction hashes match.
@@ -59,11 +60,12 @@
 | Feature and target normalization audit | Task 3 adds public feature and target normalization fit APIs, hashes both statistic sets, and tests validation/test outlier isolation |
 | Expected OOF completeness | Task 4 changes `summarize_subject_oof(records, expected_sample_ids)` to fail on missing, duplicate, or unexpected samples |
 | Target degeneracy | Task 4 records train/val/test target variance per fold, rejects degenerate training targets, and returns `pearson=null` for constant held-out targets |
-| Event-target consistency | Task 4 validates one target per subject/event before event aggregation |
+| Event-target consistency | Task 4 validates one target per `(subject_id, session_id, event_id)` event key before event aggregation |
 | Unified output paths | Task 5 writes prediction shards, run state, and attention checkpoints using protocol/experiment/model/subject-safe paths |
 | Benchmark decision consumed by production | Task 5 adds `--backend-decision`; Task 6 writes and passes `backend_decision.json` into production commands |
 | Collision-safe overlap keys | Task 1 uses `(subject_id, session_id, event_id)` component keys and tests reused local event IDs |
 | Protocol-specific acceptance | Task 2 and Task 7 document five event folds for eligible event subjects and one held-out fold per eligible session |
+| Prespecified best-model metric | Task 6 ranks attention configurations by event-level subject-macro Pearson before any multi-seed follow-up |
 | Efficiency fixes | Task 5 caches train-mean by protocol/subject/fold and avoids submitting full datasets per CPU job; Task 6 keeps the full matrix to one seed then reruns only the top attention configs with extra seeds |
 
 ---
@@ -247,9 +249,9 @@ def test_split_manifest_is_fixed_across_model_seeds_and_blocks_overlap():
     for protocol in first["protocols"].values():
         for subject in protocol["subjects"]:
             for fold in subject.get("folds", []):
-                train = set(fold["train_event_ids"])
-                val = set(fold["val_event_ids"])
-                test = set(fold["test_event_ids"])
+                train = set(map(tuple, fold["train_event_keys"]))
+                val = set(map(tuple, fold["val_event_keys"]))
+                test = set(map(tuple, fold["test_event_keys"]))
                 assert not train & val
                 assert not train & test
                 assert not val & test
@@ -435,6 +437,7 @@ git commit -m "feat: audit train-only fusion normalization"
 
 **Interfaces:**
 - `regression_metrics(prediction, target) -> dict`
+- `event_key(records) -> tuple[np.ndarray, np.ndarray, np.ndarray]`
 - `aggregate_event_predictions(records) -> PredictionRecords`
 - `summarize_subject_oof(records, expected_sample_ids) -> dict`
 - `summarize_pooled_oof(records) -> dict`
@@ -494,6 +497,7 @@ def test_subject_oof_fails_when_unexpected_sample_appears():
 def test_event_oof_averages_window_predictions():
     records = make_records(
         subjects=["sub-01"] * 4,
+        sessions=["ses-01", "ses-01", "ses-01", "ses-01"],
         events=["e1", "e1", "e2", "e2"],
         folds=[0, 0, 1, 1],
         target=[1.0, 1.0, 3.0, 3.0],
@@ -507,6 +511,7 @@ def test_event_oof_averages_window_predictions():
 def test_event_aggregation_rejects_inconsistent_event_targets():
     records = make_records(
         subjects=["sub-01", "sub-01"],
+        sessions=["ses-01", "ses-01"],
         events=["e1", "e1"],
         folds=[0, 0],
         target=[1.0, 2.0],
@@ -514,6 +519,21 @@ def test_event_aggregation_rejects_inconsistent_event_targets():
     )
     with pytest.raises(ValueError, match="inconsistent target"):
         aggregate_event_predictions(records)
+
+
+def test_event_aggregation_keeps_same_event_id_separate_across_sessions():
+    records = make_records(
+        subjects=["sub-01", "sub-01"],
+        sessions=["ses-01", "ses-02"],
+        events=["e1", "e1"],
+        folds=[0, 1],
+        target=[1.0, 3.0],
+        prediction=[1.0, 3.0],
+    )
+    event_records = aggregate_event_predictions(records)
+    assert event_records.session_id.tolist() == ["ses-01", "ses-02"]
+    assert event_records.event_id.tolist() == ["e1", "e1"]
+    assert event_records.target.tolist() == [1.0, 3.0]
 
 
 def test_degenerate_training_target_is_rejected_and_constant_test_pearson_is_null():
@@ -548,6 +568,11 @@ Define `PredictionRecords` with aligned arrays:
 sample_id, event_id, subject_id, session_id, fold_id,
 target, prediction, attention, model_name, experiment, protocol
 ```
+
+`aggregate_event_predictions` groups windows by the composite event key
+`(subject_id, session_id, event_id)`, never by bare `event_id` or
+`(subject_id, event_id)`. Event target consistency checks use that same
+composite key before averaging predictions.
 
 `summarize_subject_oof` must assert each eligible sample occurs exactly once,
 then recompute window metrics from all subject records and event metrics from
@@ -824,10 +849,14 @@ ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && pyth
 
 Keep the primary 12-experiment matrix at fixed `model_seed=1701`. After both
 primary protocols complete, select the top two or three
-`learnable_cross_attention` configurations by the prespecified primary metric
-and rerun only those attention configurations with additional model seeds.
-Use the same frozen cohort and split manifests; do not rerun all 12
-experiments for multi-seed sensitivity.
+`learnable_cross_attention` configurations by the prespecified primary ranking
+metric: event-level subject-macro Pearson, sorted descending with `null` values
+last. Use event-level macro RMSE and within-subject-centered pooled Pearson as
+auxiliary reporting metrics only, not as alternate selection rules. If the
+primary metric ties exactly, break ties by experiment name for deterministic
+execution. Rerun only the selected attention configurations with additional
+model seeds. Use the same frozen cohort and split manifests; do not rerun all
+12 experiments for multi-seed sensitivity.
 
 - [ ] **Step 8: Verify full-run invariants**
 
@@ -867,12 +896,13 @@ Before full production, focused tests must cover:
 10. OOF aggregation fails on a duplicate sample
 11. complete subject OOF metrics are recomputed from held-out predictions
 12. event aggregation rejects inconsistent event targets
-13. centered pooled Pearson is computed after subject-wise centering
-14. run-state paths include protocol, experiment, model, and subject
-15. checkpoint paths include protocol
-16. production does not predict train indices
-17. benchmark decision is consumed by production runtime
-18. serial and parallel execution preserve deterministic job outputs
+13. event aggregation keeps repeated local event IDs separate across sessions
+14. centered pooled Pearson is computed after subject-wise centering
+15. run-state paths include protocol, experiment, model, and subject
+16. checkpoint paths include protocol
+17. production does not predict train indices
+18. benchmark decision is consumed by production runtime
+19. serial and parallel execution preserve deterministic job outputs
 
 ---
 
