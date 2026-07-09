@@ -1,884 +1,720 @@
-# Within-Subject Fusion Evaluation Implementation Plan
+# Leakage-Audited Within-Subject Fusion Evaluation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Run all 12 existing fusion experiments as independent event-grouped five-fold evaluations for every subject, with per-subject, macro, and pooled results.
+**Goal:** Evaluate all 12 fusion experiments with frozen, leakage-audited within-subject splits, complete OOF metrics, paired cohorts, baselines, resumable prediction artifacts, and efficient production execution.
 
-**Architecture:** Add a focused `within_subject_fusion` module that owns deterministic event-grouped folds and metric aggregation without depending on PyTorch. Add a separate matrix runner that reuses the existing fusion configuration, aligned `FusionDataset`, learnable attention trainer, predictor, and checkpoint writer, leaving the cross-subject runner unchanged.
+**Architecture:** A preparation phase builds immutable cohort and split manifests before training. Focused split, metric, and execution modules then run event-grouped and session-held-out protocols using deterministic experiment-by-subject jobs; every job writes an independent prediction shard and atomic resume state before experiment-level aggregation.
 
-**Tech Stack:** Python 3, NumPy, PyTorch, argparse, JSON, Markdown, pytest/unittest
+**Tech Stack:** Python 3, NumPy, PyTorch, scikit-learn Ridge, argparse, concurrent.futures, JSON/JSONL/NPZ, pytest
 
 ## Global Constraints
 
-- Run all 12 experiments produced by `matrix_experiment_specs`.
-- Use five folds per subject, with three event groups for training, one for validation, and one for testing.
-- Never split windows from the same `event_id` across partitions.
-- Train, normalize, and early-stop independently for each subject.
-- Record subjects with fewer than five distinct events as `insufficient_events`.
-- Report per-fold, per-subject, macro, and pooled RMSE, MAE, and Pearson correlation.
-- Pearson is `null` for constant predictions or targets and is excluded only from Pearson aggregation.
-- Preserve existing cross-subject reports, checkpoints, runner behavior, and branch definitions.
-- Use `apply_patch` for manual edits and safe PowerShell here-strings for nontrivial remote commands.
+- Run all 12 configurations produced by `matrix_experiment_specs`; cheap screening is a gate, not a pruning step.
+- Use one ordered global paired cohort: the `sample_id` intersection across all 12 post-mask fusion datasets.
+- Build the cohort and split manifests once, hash them, and require every experiment to load them unchanged.
+- Separate `split_seed=17` from `model_seed=1701`.
+- Treat overlap-connected events from the same subject/session as one split unit.
+- Primary protocol: event-grouped five-fold OOF with three groups train, one validation, one test.
+- Secondary protocol: within-subject session-held-out OOF with one session test, one validation, and the remainder train.
+- Fit feature and target normalization only on training indices and audit it for every attention fold.
+- Recompute subject metrics from complete OOF predictions, not fold-metric averages.
+- Report window-level and event-level OOF metrics.
+- Headline pooled Pearson must be within-subject centered.
+- Run `train_mean` and `concat_ridge_alpha10` baselines on the same cohort and splits.
+- Production mode must not compute train-set predictions.
+- Resume only from artifacts whose cohort, split, configuration, and prediction hashes match.
+- Parallelism unit is `protocol x experiment x subject`; CUDA uses one worker per visible device.
+- Preserve all existing cross-subject code paths and outputs.
+
+## Review Incorporation
+
+| Priority | Review item | Planned implementation |
+| --- | --- | --- |
+| P0-1 | Fixed shared split manifest | Task 2 writes one hashed manifest loaded by all 12 experiments |
+| P0-2 | Separate split/model seeds | Task 2 owns `split_seed`; Task 5 derives job seeds from `model_seed` |
+| P0-3 | Cross-event raw-time overlap | Task 1 builds overlap-connected components from the window index |
+| P0-4 | Train-only normalization audit | Task 3 exposes and verifies the exact training-only fit |
+| P0-5 | Complete OOF subject metrics | Task 4 concatenates all held-out predictions before recomputing |
+| P0-6 | Within-subject-centered pooled r | Task 4 centers prediction and target within subject before pooled r |
+| P0-7 | Paired ablation cohort | Task 1 uses one global 12-experiment intersection |
+| P1-8 | Window and event OOF | Task 4 reports both levels |
+| P1-9 | Session-held-out protocol | Task 2 adds a frozen session protocol |
+| P1-10 | Simple baselines | Task 4 adds train mean and fixed-alpha concatenated Ridge |
+| P1-11 | Resume | Task 5 validates atomic job state and prediction hashes |
+| P1-12 | Independent predictions | Task 4 writes per-job NPZ shards; Task 5 merges them |
+| P2-13 | Cheap screening before full matrix | Task 6 runs all branches cheaply before production |
+| P2-14 | CPU parallel vs CUDA benchmark | Task 6 benchmarks identical jobs and freezes backend settings |
+| P2-15 | No production train prediction | Task 5 predicts validation and test only |
+| P2-16 | Experiment-subject parallelism | Task 5 uses deterministic process jobs with isolated paths |
 
 ---
 
-### Task 1: Deterministic within-subject event folds
+### Task 1: Build the global paired cohort and temporal-overlap audit
 
 **Files:**
-- Create: `src/daily_multimodal/training/within_subject_fusion.py`
-- Create: `tests/test_within_subject_fusion.py`
+- Create: `src/daily_multimodal/training/within_subject_splits.py`
+- Create: `tests/test_within_subject_splits.py`
+- Create: `configs/within_subject_fusion.yaml`
 
 **Interfaces:**
-- Consumes: aligned `subject_id: np.ndarray` and `event_id: np.ndarray` from `FusionDataset`
-- Produces: `WithinSubjectFold`, `SkippedSubject`, and `build_within_subject_event_folds(subject_id, event_id, n_splits=5, seed=17)`
+- `build_global_paired_cohort(sample_ids_by_experiment, reference_order) -> np.ndarray`
+- `load_window_metadata(path, required_sample_ids) -> list[WindowMetadata]`
+- `build_overlap_components(rows) -> tuple[dict[str, str], list[dict]]`
+- `write_cohort_manifest(...) -> dict`
 
-- [ ] **Step 1: Write failing fold-construction tests**
+- [ ] **Step 1: Write failing tests for global pairing and raw-time overlap**
 
 ```python
-from __future__ import annotations
-
-import unittest
-
+from datetime import datetime
 import numpy as np
 
-from daily_multimodal.training.within_subject_fusion import (
-    build_within_subject_event_folds,
+from daily_multimodal.training.within_subject_splits import (
+    WindowMetadata,
+    build_global_paired_cohort,
+    build_overlap_components,
 )
 
 
-class WithinSubjectFoldTests(unittest.TestCase):
-    def test_event_grouped_folds_are_deterministic_disjoint_and_exhaustive(self):
-        subjects = np.asarray(["sub-01"] * 12 + ["sub-02"] * 10)
-        events = np.asarray(
-            [f"s1-event-{idx // 2}" for idx in range(12)]
-            + [f"s2-event-{idx // 2}" for idx in range(10)]
-        )
+def test_global_cohort_is_ordered_intersection_across_all_experiments():
+    sample_ids = {
+        f"exp-{index:02d}": np.asarray(["s3", "s1", "s2"] if index == 0 else ["s1", "s2", "extra"])
+        for index in range(12)
+    }
+    cohort = build_global_paired_cohort(sample_ids, reference_order=sample_ids["exp-00"])
+    assert cohort.tolist() == ["s1", "s2"]
 
-        first_folds, first_skipped = build_within_subject_event_folds(
-            subjects, events, n_splits=5, seed=17
-        )
-        second_folds, second_skipped = build_within_subject_event_folds(
-            subjects, events, n_splits=5, seed=17
-        )
 
-        self.assertEqual(first_skipped, second_skipped)
-        self.assertEqual(
-            [(fold.name, fold.test.tolist()) for fold in first_folds],
-            [(fold.name, fold.test.tolist()) for fold in second_folds],
-        )
-        for subject in ("sub-01", "sub-02"):
-            subject_folds = [fold for fold in first_folds if fold.subject_id == subject]
-            self.assertEqual(len(subject_folds), 5)
-            subject_rows = set(np.flatnonzero(subjects == subject).tolist())
-            test_rows = []
-            for fold in subject_folds:
-                train_events = set(events[fold.train])
-                val_events = set(events[fold.val])
-                test_events = set(events[fold.test])
-                self.assertFalse(train_events & val_events)
-                self.assertFalse(train_events & test_events)
-                self.assertFalse(val_events & test_events)
-                test_rows.extend(fold.test.tolist())
-            self.assertEqual(sorted(test_rows), sorted(subject_rows))
-
-    def test_subject_with_fewer_than_five_events_is_skipped(self):
-        subjects = np.asarray(["sub-01"] * 8 + ["sub-02"] * 5)
-        events = np.asarray(
-            [f"s1-event-{idx // 2}" for idx in range(8)]
-            + [f"s2-event-{idx}" for idx in range(5)]
-        )
-
-        folds, skipped = build_within_subject_event_folds(
-            subjects, events, n_splits=5, seed=17
-        )
-
-        self.assertFalse(any(fold.subject_id == "sub-01" for fold in folds))
-        self.assertEqual(len([fold for fold in folds if fold.subject_id == "sub-02"]), 5)
-        self.assertEqual(
-            skipped,
-            [
-                {
-                    "subject_id": "sub-01",
-                    "status": "insufficient_events",
-                    "event_count": 4,
-                    "window_count": 8,
-                    "required_events": 5,
-                }
-            ],
-        )
+def test_overlapping_events_form_one_connected_split_unit():
+    rows = [
+        WindowMetadata("w1", "e1", "sub-01", "ses-01", datetime.fromisoformat("2026-01-01 10:00:00"), datetime.fromisoformat("2026-01-01 10:02:00")),
+        WindowMetadata("w2", "e2", "sub-01", "ses-01", datetime.fromisoformat("2026-01-01 10:01:00"), datetime.fromisoformat("2026-01-01 10:03:00")),
+        WindowMetadata("w3", "e3", "sub-01", "ses-01", datetime.fromisoformat("2026-01-01 11:00:00"), datetime.fromisoformat("2026-01-01 11:02:00")),
+    ]
+    component_by_event, overlaps = build_overlap_components(rows)
+    assert component_by_event["e1"] == component_by_event["e2"]
+    assert component_by_event["e1"] != component_by_event["e3"]
+    assert overlaps == [{
+        "subject_id": "sub-01",
+        "session_id": "ses-01",
+        "event_a": "e1",
+        "event_b": "e2",
+        "overlap_seconds": 60.0,
+    }]
 ```
 
-- [ ] **Step 2: Run tests and verify the missing-module failure**
+- [ ] **Step 2: Verify RED**
 
 Run:
 
 ```powershell
-python -m pytest tests/test_within_subject_fusion.py -q
+python -m pytest tests/test_within_subject_splits.py -q
 ```
 
-Expected: collection fails with
-`ModuleNotFoundError: No module named 'daily_multimodal.training.within_subject_fusion'`.
+Expected: collection fails because `within_subject_splits` does not exist.
 
-- [ ] **Step 3: Implement fold construction**
+- [ ] **Step 3: Implement cohort and overlap primitives**
 
-Create `src/daily_multimodal/training/within_subject_fusion.py` with these
-public types and behavior:
+Create immutable `WindowMetadata` and implement:
 
 ```python
-from __future__ import annotations
-
-from dataclasses import dataclass
-import zlib
-
-import numpy as np
-
-
 @dataclass(frozen=True)
-class WithinSubjectFold:
-    name: str
+class WindowMetadata:
+    sample_id: str
+    event_id: str
     subject_id: str
-    train: np.ndarray
-    val: np.ndarray
-    test: np.ndarray
-    train_events: tuple[str, ...]
-    val_events: tuple[str, ...]
-    test_events: tuple[str, ...]
+    session_id: str
+    start: datetime
+    end: datetime
 
 
-SkippedSubject = dict[str, str | int]
-
-
-def build_within_subject_event_folds(
-    subject_id: np.ndarray,
-    event_id: np.ndarray,
+def build_global_paired_cohort(
+    sample_ids_by_experiment: Mapping[str, np.ndarray],
     *,
-    n_splits: int = 5,
-    seed: int = 17,
-) -> tuple[list[WithinSubjectFold], list[SkippedSubject]]:
-    subjects = np.asarray(subject_id).astype(str)
-    events = np.asarray(event_id).astype(str)
-    if subjects.ndim != 1 or events.ndim != 1 or len(subjects) != len(events):
-        raise ValueError("subject_id and event_id must be aligned one-dimensional arrays")
-    if int(n_splits) < 3:
-        raise ValueError("within-subject CV requires at least three folds")
-
-    folds: list[WithinSubjectFold] = []
-    skipped: list[SkippedSubject] = []
-    for subject in dict.fromkeys(subjects.tolist()):
-        subject_rows = np.flatnonzero(subjects == subject)
-        subject_events = list(dict.fromkeys(events[subject_rows].tolist()))
-        if len(subject_events) < int(n_splits):
-            skipped.append(
-                {
-                    "subject_id": subject,
-                    "status": "insufficient_events",
-                    "event_count": len(subject_events),
-                    "window_count": len(subject_rows),
-                    "required_events": int(n_splits),
-                }
-            )
-            continue
-
-        stable_subject_seed = zlib.crc32(subject.encode("utf-8"))
-        rng = np.random.default_rng(np.random.SeedSequence([int(seed), stable_subject_seed]))
-        shuffled = np.asarray(subject_events, dtype=str)
-        rng.shuffle(shuffled)
-        groups = [tuple(group.tolist()) for group in np.array_split(shuffled, int(n_splits))]
-
-        for fold_index in range(int(n_splits)):
-            test_events = groups[fold_index]
-            val_events = groups[(fold_index + 1) % int(n_splits)]
-            train_events = tuple(
-                event
-                for group_index, group in enumerate(groups)
-                if group_index not in {fold_index, (fold_index + 1) % int(n_splits)}
-                for event in group
-            )
-            fold = WithinSubjectFold(
-                name=f"fold-{fold_index:02d}",
-                subject_id=subject,
-                train=subject_rows[np.isin(events[subject_rows], train_events)],
-                val=subject_rows[np.isin(events[subject_rows], val_events)],
-                test=subject_rows[np.isin(events[subject_rows], test_events)],
-                train_events=train_events,
-                val_events=val_events,
-                test_events=test_events,
-            )
-            _validate_fold(fold)
-            folds.append(fold)
-    return folds, skipped
-
-
-def _validate_fold(fold: WithinSubjectFold) -> None:
-    train_events = set(fold.train_events)
-    val_events = set(fold.val_events)
-    test_events = set(fold.test_events)
-    if train_events & val_events or train_events & test_events or val_events & test_events:
-        raise ValueError(f"{fold.subject_id} {fold.name} has event leakage")
-    if len(fold.train) == 0 or len(fold.val) == 0 or len(fold.test) == 0:
-        raise ValueError(f"{fold.subject_id} {fold.name} has an empty partition")
+    reference_order: np.ndarray,
+) -> np.ndarray:
+    if len(sample_ids_by_experiment) != 12:
+        raise ValueError("paired fusion cohort requires exactly 12 experiments")
+    common = set(np.asarray(reference_order).astype(str).tolist())
+    for name, values in sample_ids_by_experiment.items():
+        ids = np.asarray(values).astype(str)
+        if len(ids) != len(set(ids.tolist())):
+            raise ValueError(f"{name} contains duplicate sample_id values")
+        common &= set(ids.tolist())
+    ordered = [value for value in np.asarray(reference_order).astype(str) if value in common]
+    if not ordered:
+        raise ValueError("global paired cohort is empty")
+    return np.asarray(ordered, dtype=str)
 ```
 
-- [ ] **Step 4: Run fold tests**
+`load_window_metadata` must read the JSONL once, require exactly one row for
+each cohort sample, parse `window_start_time`/`window_end_time`, and use the
+JSONL `session_id`. `build_overlap_components` must union events when
+`max(start_a, start_b) < min(end_a, end_b)` within the same subject/session.
+
+- [ ] **Step 4: Add the evaluation configuration**
+
+Create `configs/within_subject_fusion.yaml` as JSON-compatible YAML:
+
+```json
+{
+  "fusion_config": "configs/fusion_matrix.yaml",
+  "window_index": "outputs/window_index/real_cache_face_detected_full_v2_mainface.jsonl",
+  "cohort_manifest": "outputs/splits/fusion_within_subject_120s10s_cohort.json",
+  "split_manifest": "outputs/splits/fusion_within_subject_120s10s_splits_seed17.json",
+  "split_seed": 17,
+  "model_seed": 1701,
+  "protocols": ["event_grouped_5fold", "session_held_out"],
+  "models": ["train_mean", "concat_ridge_alpha10", "learnable_cross_attention"],
+  "production": {
+    "epochs": 200,
+    "hidden_dim": 128,
+    "learning_rate": 0.001
+  }
+}
+```
+
+- [ ] **Step 5: Verify GREEN**
 
 Run:
 
 ```powershell
-python -m pytest tests/test_within_subject_fusion.py -q
+python -m pytest tests/test_within_subject_splits.py -q
 ```
 
-Expected: `2 passed`.
+Expected: both tests pass.
 
-- [ ] **Step 5: Commit the fold builder**
+- [ ] **Step 6: Commit**
 
 ```powershell
-git add -- src/daily_multimodal/training/within_subject_fusion.py tests/test_within_subject_fusion.py
-git commit -m "feat: add within-subject event folds"
+git add -- src/daily_multimodal/training/within_subject_splits.py tests/test_within_subject_splits.py configs/within_subject_fusion.yaml
+git commit -m "feat: prepare paired within-subject cohort"
 ```
 
 ---
 
-### Task 2: Per-subject, macro, and pooled aggregation
+### Task 2: Freeze event and session split manifests
 
 **Files:**
-- Modify: `src/daily_multimodal/training/within_subject_fusion.py`
-- Modify: `tests/test_within_subject_fusion.py`
+- Modify: `src/daily_multimodal/training/within_subject_splits.py`
+- Modify: `tests/test_within_subject_splits.py`
+- Create: `scripts/44_prepare_within_subject_fusion_splits.py`
 
 **Interfaces:**
-- Consumes: serializable fold rows containing test metrics, predictions, and targets
-- Produces: `regression_metrics`, `summarize_subject`, and `summarize_experiment`
+- `build_split_manifest(cohort, metadata, split_seed=17) -> dict`
+- `validate_split_manifest(manifest, cohort_hash, window_index_hash) -> None`
+- CLI writes cohort and split manifests before any training
 
-- [ ] **Step 1: Write failing aggregation tests**
-
-Append to `tests/test_within_subject_fusion.py`:
+- [ ] **Step 1: Write failing manifest tests**
 
 ```python
-from daily_multimodal.training.within_subject_fusion import (
-    regression_metrics,
-    summarize_experiment,
-    summarize_subject,
-)
+def test_split_manifest_is_fixed_across_model_seeds_and_blocks_overlap():
+    first = build_split_manifest(cohort, metadata, split_seed=17)
+    second = build_split_manifest(cohort, metadata, split_seed=17)
+    assert first == second
+    assert "model_seed" not in first
+    for protocol in first["protocols"].values():
+        for subject in protocol["subjects"]:
+            for fold in subject.get("folds", []):
+                train = set(fold["train_event_ids"])
+                val = set(fold["val_event_ids"])
+                test = set(fold["test_event_ids"])
+                assert not train & val
+                assert not train & test
+                assert not val & test
+                assert fold["cross_partition_time_overlap_count"] == 0
 
 
-class WithinSubjectAggregationTests(unittest.TestCase):
-    def test_subject_summary_aggregates_five_fold_metrics(self):
-        folds = [
-            {
-                "test": {"rmse": float(value), "mae": float(value) / 2, "pearson": 0.1 * value},
-                "test_prediction": [float(value)],
-                "test_target": [0.0],
-            }
-            for value in range(1, 6)
-        ]
-
-        summary = summarize_subject("sub-01", event_count=10, window_count=20, folds=folds)
-
-        self.assertEqual(summary["fold_count"], 5)
-        self.assertAlmostEqual(summary["rmse_mean"], 3.0)
-        self.assertAlmostEqual(summary["rmse_std"], np.std([1, 2, 3, 4, 5]))
-        self.assertAlmostEqual(summary["mae_mean"], 1.5)
-        self.assertAlmostEqual(summary["pearson_r_mean"], 0.3)
-
-    def test_experiment_summary_reports_macro_and_recomputed_pooled_metrics(self):
-        subjects = [
-            {
-                "subject_id": "sub-01",
-                "status": "completed",
-                "rmse_mean": 1.0,
-                "mae_mean": 0.8,
-                "pearson_r_mean": 0.2,
-                "folds": [
-                    {"test_prediction": [0.0, 1.0], "test_target": [0.0, 2.0]}
-                ],
-            },
-            {
-                "subject_id": "sub-02",
-                "status": "completed",
-                "rmse_mean": 3.0,
-                "mae_mean": 2.0,
-                "pearson_r_mean": None,
-                "folds": [
-                    {"test_prediction": [2.0, 3.0], "test_target": [1.0, 4.0]}
-                ],
-            },
-        ]
-
-        summary = summarize_experiment(
-            subjects,
-            skipped_subjects=[
-                {
-                    "subject_id": "sub-03",
-                    "status": "insufficient_events",
-                    "event_count": 4,
-                    "window_count": 8,
-                    "required_events": 5,
-                }
-            ],
-        )
-
-        expected = regression_metrics(
-            np.asarray([0.0, 1.0, 2.0, 3.0]),
-            np.asarray([0.0, 2.0, 1.0, 4.0]),
-        )
-        self.assertEqual(summary["valid_subject_count"], 2)
-        self.assertEqual(summary["skipped_subject_count"], 1)
-        self.assertEqual(summary["pooled_prediction_count"], 4)
-        self.assertAlmostEqual(summary["macro"]["rmse_mean"], 2.0)
-        self.assertAlmostEqual(summary["macro"]["pearson_r_mean"], 0.2)
-        self.assertEqual(summary["pooled"], expected)
-
-    def test_regression_metrics_returns_null_pearson_for_constant_target(self):
-        metrics = regression_metrics(np.asarray([1.0, 2.0]), np.asarray([3.0, 3.0]))
-        self.assertIsNone(metrics["pearson"])
+def test_session_protocol_holds_out_each_session_once():
+    manifest = build_split_manifest(cohort, metadata, split_seed=17)
+    row = manifest["protocols"]["session_held_out"]["subjects"][0]
+    held_out = [fold["test_session_ids"][0] for fold in row["folds"]]
+    assert sorted(held_out) == sorted(row["session_ids"])
 ```
 
-- [ ] **Step 2: Run tests and verify missing-function failures**
+- [ ] **Step 2: Verify RED**
 
 Run:
 
 ```powershell
-python -m pytest tests/test_within_subject_fusion.py -q
+python -m pytest tests/test_within_subject_splits.py -q
 ```
 
-Expected: collection fails because `regression_metrics`,
-`summarize_subject`, and `summarize_experiment` are not defined.
+Expected: failures report missing `build_split_manifest`.
 
-- [ ] **Step 3: Implement aggregation**
+- [ ] **Step 3: Implement frozen protocol construction**
 
-Append these public functions to
-`src/daily_multimodal/training/within_subject_fusion.py`:
+For `event_grouped_5fold`, balance overlap components by descending window
+count into the currently lightest of five fold buckets, using a seeded stable
+shuffle only to break equal-size ties. For fold `i`, test bucket `i`,
+validation bucket `(i+1) mod 5`, and the other three buckets train.
 
-```python
-from typing import Any, Sequence
+For `session_held_out`, preserve deterministic session order from the window
+index. For fold `i`, test session `i`, validation session `(i+1) mod S`, and
+remaining sessions train. Record `insufficient_split_units` or
+`insufficient_sessions` rather than silently dropping a subject.
 
+Every fold must store sample IDs, event IDs, split-unit IDs, session IDs,
+counts, and `cross_partition_time_overlap_count=0`.
 
-def regression_metrics(prediction: np.ndarray, target: np.ndarray) -> dict[str, float | int | None]:
-    pred = np.asarray(prediction, dtype=np.float32).reshape(-1)
-    truth = np.asarray(target, dtype=np.float32).reshape(-1)
-    if len(pred) != len(truth):
-        raise ValueError("prediction and target must have the same length")
-    if len(truth) == 0:
-        return {"count": 0, "rmse": None, "mae": None, "pearson": None}
-    error = pred - truth
-    pearson = None
-    if len(truth) >= 2 and float(np.std(pred)) > 0.0 and float(np.std(truth)) > 0.0:
-        pearson = float(np.corrcoef(pred, truth)[0, 1])
-    return {
-        "count": int(len(truth)),
-        "rmse": float(np.sqrt(np.mean(np.square(error)))),
-        "mae": float(np.mean(np.abs(error))),
-        "pearson": pearson,
-    }
+- [ ] **Step 4: Implement the preparation CLI**
 
+The CLI must:
 
-def summarize_subject(
-    subject_id: str,
-    *,
-    event_count: int,
-    window_count: int,
-    folds: Sequence[dict[str, Any]],
-) -> dict[str, Any]:
-    return {
-        "subject_id": subject_id,
-        "status": "completed",
-        "event_count": int(event_count),
-        "window_count": int(window_count),
-        "fold_count": len(folds),
-        **_metric_distribution(folds, "rmse", "rmse"),
-        **_metric_distribution(folds, "mae", "mae"),
-        **_metric_distribution(folds, "pearson", "pearson_r"),
-        "folds": list(folds),
-    }
-
-
-def summarize_experiment(
-    subjects: Sequence[dict[str, Any]],
-    *,
-    skipped_subjects: Sequence[SkippedSubject],
-) -> dict[str, Any]:
-    completed = [row for row in subjects if row.get("status") == "completed"]
-    predictions = [
-        value
-        for subject in completed
-        for fold in subject["folds"]
-        for value in fold["test_prediction"]
-    ]
-    targets = [
-        value
-        for subject in completed
-        for fold in subject["folds"]
-        for value in fold["test_target"]
-    ]
-    return {
-        "subject_count": len(completed) + len(skipped_subjects),
-        "valid_subject_count": len(completed),
-        "skipped_subject_count": len(skipped_subjects),
-        "pooled_prediction_count": len(predictions),
-        "macro": {
-            **_subject_metric_distribution(completed, "rmse_mean", "rmse"),
-            **_subject_metric_distribution(completed, "mae_mean", "mae"),
-            **_subject_metric_distribution(completed, "pearson_r_mean", "pearson_r"),
-        },
-        "pooled": regression_metrics(np.asarray(predictions), np.asarray(targets)),
-        "subjects": list(completed),
-        "skipped_subjects": list(skipped_subjects),
-    }
-
-
-def _metric_distribution(
-    folds: Sequence[dict[str, Any]], metric: str, prefix: str
-) -> dict[str, float | None]:
-    values = np.asarray(
-        [fold["test"][metric] for fold in folds if fold["test"].get(metric) is not None],
-        dtype=np.float32,
-    )
-    return {
-        f"{prefix}_mean": None if values.size == 0 else float(np.mean(values)),
-        f"{prefix}_std": None if values.size == 0 else float(np.std(values)),
-    }
-
-
-def _subject_metric_distribution(
-    subjects: Sequence[dict[str, Any]], metric: str, prefix: str
-) -> dict[str, float | None]:
-    values = np.asarray(
-        [subject[metric] for subject in subjects if subject.get(metric) is not None],
-        dtype=np.float32,
-    )
-    return {
-        f"{prefix}_mean": None if values.size == 0 else float(np.mean(values)),
-        f"{prefix}_std": None if values.size == 0 else float(np.std(values)),
-    }
-```
-
-- [ ] **Step 4: Run aggregation and fold tests**
+1. Load all 12 fusion datasets without training.
+2. Compute native row counts and the global ordered intersection.
+3. Rebuild all 12 datasets with strict `base_sample_ids=cohort`.
+4. Assert identical sample IDs, subjects, events, and targets.
+5. Hash source files and ordered cohort IDs with SHA-256.
+6. Write manifests atomically using temporary files plus `Path.replace`.
+7. Refuse to overwrite a different existing manifest unless
+   `--force-rebuild` is supplied.
 
 Run:
 
 ```powershell
-python -m pytest tests/test_within_subject_fusion.py -q
+python scripts/44_prepare_within_subject_fusion_splits.py --config configs/within_subject_fusion.yaml
 ```
 
-Expected: `5 passed`.
-
-- [ ] **Step 5: Commit aggregation**
+- [ ] **Step 5: Verify manifest tests and dry preparation**
 
 ```powershell
-git add -- src/daily_multimodal/training/within_subject_fusion.py tests/test_within_subject_fusion.py
-git commit -m "feat: aggregate within-subject fusion metrics"
+python -m pytest tests/test_within_subject_splits.py -q
+python scripts/44_prepare_within_subject_fusion_splits.py --config configs/within_subject_fusion.yaml --dry-run
+```
+
+Expected: tests pass; dry-run reports 12 native datasets, one paired cohort,
+both protocols, and no files written.
+
+- [ ] **Step 6: Commit**
+
+```powershell
+git add -- src/daily_multimodal/training/within_subject_splits.py tests/test_within_subject_splits.py scripts/44_prepare_within_subject_fusion_splits.py
+git commit -m "feat: freeze within-subject split manifests"
 ```
 
 ---
 
-### Task 3: Add the 12-experiment within-subject runner
+### Task 3: Make train-only normalization auditable
 
 **Files:**
-- Create: `scripts/44_run_within_subject_fusion_matrix.py`
-- Modify: `tests/test_within_subject_fusion.py`
+- Modify: `src/daily_multimodal/training/cross_attention_fusion.py`
+- Modify: `tests/test_cross_attention_fusion.py`
+- Create: `tests/test_within_subject_normalization.py`
 
 **Interfaces:**
-- Consumes: `configs/fusion_matrix.yaml` and the existing branch `.npz` files
-- Produces: experiment manifest, per-experiment JSON/Markdown, summary JSON/Markdown, and per-subject fold checkpoints
+- `fit_token_normalization(tokens, mask, indices) -> TokenNormalization`
+- `audit_model_normalization(model, dataset, train_indices) -> dict`
+- Existing `fit_learnable_cross_attention` must call the public fit function
 
-- [ ] **Step 1: Write a failing CLI dry-run test**
-
-Append to `tests/test_within_subject_fusion.py`:
-
-```python
-import json
-from pathlib import Path
-import subprocess
-import sys
-import tempfile
-
-
-class WithinSubjectFusionCliTests(unittest.TestCase):
-    def test_dry_run_expands_all_twelve_experiments(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            out_dir = Path(tmp) / "reports"
-            completed = subprocess.run(
-                [
-                    sys.executable,
-                    "scripts/44_run_within_subject_fusion_matrix.py",
-                    "--config",
-                    "configs/fusion_matrix.yaml",
-                    "--out-dir",
-                    str(out_dir),
-                    "--dry-run",
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-
-            self.assertEqual(completed.returncode, 0, completed.stderr)
-            manifest = json.loads(
-                (out_dir / "fusion_matrix_within_subject_manifest.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            self.assertEqual(manifest["experiment_count"], 12)
-            self.assertEqual(manifest["strategy"], "within_subject_event_grouped_5fold")
-            self.assertEqual(manifest["n_splits"], 5)
-```
-
-- [ ] **Step 2: Run the CLI test and verify the missing-script failure**
-
-Run:
-
-```powershell
-python -m pytest tests/test_within_subject_fusion.py::WithinSubjectFusionCliTests -q
-```
-
-Expected: FAIL because
-`scripts/44_run_within_subject_fusion_matrix.py` does not exist.
-
-- [ ] **Step 3: Implement the CLI and training loop**
-
-Create `scripts/44_run_within_subject_fusion_matrix.py` with:
+- [ ] **Step 1: Write a failing outlier-isolation test**
 
 ```python
-from __future__ import annotations
-
-import argparse
-import json
-from pathlib import Path
-import sys
-
-import numpy as np
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SRC_ROOT = PROJECT_ROOT / "src"
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from daily_multimodal.training.cross_attention_fusion import (
-    LearnableAttentionConfig,
-    build_fusion_dataset,
-    fit_learnable_cross_attention,
-    predict_with_learnable_cross_attention,
-    save_learnable_cross_attention_model,
-)
-from daily_multimodal.training.fusion_matrix import (
-    branches_for_experiment,
-    load_fusion_matrix_config,
-    matrix_experiment_specs,
-)
-from daily_multimodal.training.within_subject_fusion import (
-    build_within_subject_event_folds,
-    regression_metrics,
-    summarize_experiment,
-    summarize_subject,
-)
+def test_normalization_is_unchanged_by_validation_and_test_outliers():
+    dataset = make_dataset_with_train_rows_and_outlier_holdout()
+    train = np.asarray([0, 1, 2, 3])
+    first = fit_token_normalization(dataset.tokens, dataset.token_mask, train)
+    changed = dataset.tokens.copy()
+    changed[4:] = 1.0e9
+    second = fit_token_normalization(changed, dataset.token_mask, train)
+    np.testing.assert_allclose(first.x_mean, second.x_mean)
+    np.testing.assert_allclose(first.x_std, second.x_std)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Run within-subject fusion matrix evaluation.")
-    parser.add_argument("--config", default="configs/fusion_matrix.yaml")
-    parser.add_argument("--out-dir", default="outputs/reports/fusion_matrix_within_subject_120s10s")
-    parser.add_argument("--model-dir", default="outputs/models/fusion_matrix_within_subject_120s10s")
-    parser.add_argument("--epochs", type=int, default=200)
-    parser.add_argument("--hidden-dim", type=int, default=128)
-    parser.add_argument("--learning-rate", type=float, default=1e-3)
-    parser.add_argument("--seed", type=int, default=17)
-    parser.add_argument("--device")
-    parser.add_argument("--max-experiments", type=int)
-    parser.add_argument("--max-subjects", type=int)
-    parser.add_argument("--dry-run", action="store_true")
-    args = parser.parse_args()
-
-    config = load_fusion_matrix_config(args.config)
-    specs = matrix_experiment_specs(config)
-    if args.max_experiments is not None:
-        specs = specs[: max(0, int(args.max_experiments))]
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    model_dir = Path(args.model_dir)
-    manifest = {
-        "config": str(args.config),
-        "target_label": config.target_label,
-        "model": "learnable_cross_attention",
-        "strategy": "within_subject_event_grouped_5fold",
-        "n_splits": 5,
-        "epochs": args.epochs,
-        "hidden_dim": args.hidden_dim,
-        "learning_rate": args.learning_rate,
-        "seed": args.seed,
-        "experiment_count": len(specs),
-        "experiments": [
-            {
-                "name": spec.name,
-                "enabled_modalities": list(spec.enabled_modalities),
-                "min_available_modalities": spec.min_available_modalities,
-            }
-            for spec in specs
-        ],
-    }
-    (out_dir / "fusion_matrix_within_subject_manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    if args.dry_run:
-        print(f"experiment_count={len(specs)}")
-        return 0
-
-    model_dir.mkdir(parents=True, exist_ok=True)
-    results = []
-    paired_ids: dict[str, np.ndarray] = {}
-    for experiment_index, spec in enumerate(specs):
-        dataset = build_fusion_dataset(
-            branches=branches_for_experiment(config, spec.name),
-            experiment=spec,
-            base_sample_ids=paired_ids.get(spec.name),
-            metadata_source=config.metadata_source,
-        )
-        if spec.name.endswith("_full"):
-            paired_ids[spec.name.replace("_full", "_no_audio")] = dataset.sample_id
-        result = _run_experiment(
-            dataset,
-            epochs=args.epochs,
-            hidden_dim=args.hidden_dim,
-            learning_rate=args.learning_rate,
-            seed=args.seed + experiment_index,
-            device=args.device,
-            model_dir=model_dir / spec.name,
-            max_subjects=args.max_subjects,
-        )
-        result.update(
-            {
-                "experiment": spec.name,
-                "modalities": list(dataset.modalities),
-                "branch_profiles": dataset.branch_profiles,
-                "row_count": int(len(dataset.sample_id)),
-                "target_label": config.target_label,
-            }
-        )
-        (out_dir / f"{spec.name}_metrics.json").write_text(
-            json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        (out_dir / f"{spec.name}_table.md").write_text(
-            _experiment_table(result), encoding="utf-8"
-        )
-        results.append(result)
-        print(
-            f"completed={spec.name} valid_subjects={result['valid_subject_count']} "
-            f"macro_rmse={_fmt(result['macro']['rmse_mean'])}"
-        )
-
-    summary = {
-        "config": str(args.config),
-        "target_label": config.target_label,
-        "model": "learnable_cross_attention",
-        "strategy": "within_subject_event_grouped_5fold",
-        "experiment_count": len(results),
-        "experiments": [
-            {
-                "experiment": row["experiment"],
-                "modalities": row["modalities"],
-                "branch_profiles": row["branch_profiles"],
-                "row_count": row["row_count"],
-                "valid_subject_count": row["valid_subject_count"],
-                "skipped_subject_count": row["skipped_subject_count"],
-                "macro": row["macro"],
-                "pooled": row["pooled"],
-            }
-            for row in results
-        ],
-    }
-    (out_dir / "fusion_matrix_within_subject_summary.json").write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    (out_dir / "fusion_matrix_within_subject_summary.md").write_text(
-        _summary_table(summary), encoding="utf-8"
-    )
-    return 0
+def test_attention_fit_records_training_only_normalization_hash():
+    model = fit_learnable_cross_attention(dataset, train_indices=train, val_indices=val, config=config)
+    audit = audit_model_normalization(model, dataset, train)
+    assert audit["fit_scope"] == "train_only"
+    assert audit["fit_sample_count"] == len(train)
+    assert audit["verified"] is True
 ```
 
-Continue the same file with the complete per-subject loop and report helpers:
+- [ ] **Step 2: Verify RED**
+
+```powershell
+python -m pytest tests/test_within_subject_normalization.py -q
+```
+
+Expected: collection fails because the normalization API does not exist.
+
+- [ ] **Step 3: Refactor normalization without changing model behavior**
+
+Add a frozen `TokenNormalization` dataclass containing `x_mean`, `x_std`,
+`fit_count`, and `fit_index_sha256`. Move the current
+`_token_normalization(dataset.tokens[train], dataset.token_mask[train])`
+calculation into `fit_token_normalization(tokens, mask, train_indices)`.
+Store its hash and count on `LearnableAttentionModel`.
+
+`audit_model_normalization` must recompute from train indices, compare model
+statistics with `np.testing.assert_allclose`, and return:
 
 ```python
-def _run_experiment(
-    dataset,
-    *,
-    epochs: int,
-    hidden_dim: int,
-    learning_rate: float,
-    seed: int,
-    device: str | None,
-    model_dir: Path,
-    max_subjects: int | None,
-) -> dict:
-    folds, skipped = build_within_subject_event_folds(
-        dataset.subject_id, dataset.event_id, n_splits=5, seed=seed
-    )
-    subjects = list(dict.fromkeys(dataset.subject_id.astype(str).tolist()))
-    valid_subjects = [
-        subject for subject in subjects
-        if any(fold.subject_id == subject for fold in folds)
-    ]
-    if max_subjects is not None:
-        selected = set(valid_subjects[: max(0, int(max_subjects))])
-        folds = [fold for fold in folds if fold.subject_id in selected]
-        skipped = [row for row in skipped if row["subject_id"] in selected]
-        valid_subjects = [subject for subject in valid_subjects if subject in selected]
-
-    subject_results = []
-    for subject_index, subject in enumerate(valid_subjects):
-        subject_rows = np.flatnonzero(dataset.subject_id.astype(str) == subject)
-        subject_folds = [fold for fold in folds if fold.subject_id == subject]
-        fold_results = []
-        for fold_index, fold in enumerate(subject_folds):
-            model = fit_learnable_cross_attention(
-                dataset,
-                train_indices=fold.train,
-                val_indices=fold.val,
-                config=LearnableAttentionConfig(
-                    token_dim=int(hidden_dim),
-                    epochs=int(epochs),
-                    learning_rate=float(learning_rate),
-                    seed=int(seed) + subject_index * 100 + fold_index,
-                    device=device,
-                ),
-            )
-            checkpoint = model_dir / subject / f"{fold.name}.pt"
-            save_learnable_cross_attention_model(model, checkpoint)
-            train_pred, _ = predict_with_learnable_cross_attention(
-                model, dataset, indices=fold.train
-            )
-            val_pred, _ = predict_with_learnable_cross_attention(
-                model, dataset, indices=fold.val
-            )
-            test_pred, attention = predict_with_learnable_cross_attention(
-                model, dataset, indices=fold.test
-            )
-            fold_results.append(
-                {
-                    "fold": fold.name,
-                    "train_events": list(fold.train_events),
-                    "val_events": list(fold.val_events),
-                    "test_events": list(fold.test_events),
-                    "sample_counts": {
-                        "train": len(fold.train),
-                        "val": len(fold.val),
-                        "test": len(fold.test),
-                    },
-                    "event_counts": {
-                        "train": len(fold.train_events),
-                        "val": len(fold.val_events),
-                        "test": len(fold.test_events),
-                    },
-                    "train": regression_metrics(train_pred, dataset.target[fold.train]),
-                    "val": regression_metrics(val_pred, dataset.target[fold.val]),
-                    "test": regression_metrics(test_pred, dataset.target[fold.test]),
-                    "attention_summary": {
-                        modality: float(np.mean(attention[:, index]))
-                        for index, modality in enumerate(dataset.modalities)
-                    },
-                    "checkpoint": str(checkpoint),
-                    "test_sample_id": dataset.sample_id[fold.test].astype(str).tolist(),
-                    "test_prediction": test_pred.astype(float).tolist(),
-                    "test_target": dataset.target[fold.test].astype(float).tolist(),
-                }
-            )
-        subject_results.append(
-            summarize_subject(
-                subject,
-                event_count=len(set(dataset.event_id[subject_rows].astype(str))),
-                window_count=len(subject_rows),
-                folds=fold_results,
-            )
-        )
-    return summarize_experiment(subject_results, skipped_subjects=skipped)
-
-
-def _experiment_table(result: dict) -> str:
-    rows = [
-        "| subject | status | events | windows | folds | rmse_mean | rmse_std | mae_mean | r_mean | r_std |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for subject in result["subjects"]:
-        rows.append(
-            f"| {subject['subject_id']} | completed | {subject['event_count']} | "
-            f"{subject['window_count']} | {subject['fold_count']} | "
-            f"{_fmt(subject['rmse_mean'])} | {_fmt(subject['rmse_std'])} | "
-            f"{_fmt(subject['mae_mean'])} | {_fmt(subject['pearson_r_mean'])} | "
-            f"{_fmt(subject['pearson_r_std'])} |"
-        )
-    for subject in result["skipped_subjects"]:
-        rows.append(
-            f"| {subject['subject_id']} | {subject['status']} | {subject['event_count']} | "
-            f"{subject['window_count']} | 0 | NA | NA | NA | NA | NA |"
-        )
-    rows.append(
-        f"| macro | completed | NA | NA | {result['valid_subject_count'] * 5} | "
-        f"{_fmt(result['macro']['rmse_mean'])} | {_fmt(result['macro']['rmse_std'])} | "
-        f"{_fmt(result['macro']['mae_mean'])} | "
-        f"{_fmt(result['macro']['pearson_r_mean'])} | "
-        f"{_fmt(result['macro']['pearson_r_std'])} |"
-    )
-    rows.append(
-        f"| pooled | completed | NA | {result['pooled_prediction_count']} | NA | "
-        f"{_fmt(result['pooled']['rmse'])} | NA | {_fmt(result['pooled']['mae'])} | "
-        f"{_fmt(result['pooled']['pearson'])} | NA |"
-    )
-    return "\n".join(rows) + "\n"
-
-
-def _summary_table(summary: dict) -> str:
-    rows = [
-        "| experiment | modalities | subjects | skipped | macro_rmse | macro_r | pooled_rmse | pooled_r |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for row in summary["experiments"]:
-        rows.append(
-            f"| {row['experiment']} | {','.join(row['modalities'])} | "
-            f"{row['valid_subject_count']} | {row['skipped_subject_count']} | "
-            f"{_fmt(row['macro']['rmse_mean'])} | "
-            f"{_fmt(row['macro']['pearson_r_mean'])} | "
-            f"{_fmt(row['pooled']['rmse'])} | {_fmt(row['pooled']['pearson'])} |"
-        )
-    return "\n".join(rows) + "\n"
-
-
-def _fmt(value: float | None) -> str:
-    return "NA" if value is None else f"{float(value):.4f}"
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+{
+    "fit_scope": "train_only",
+    "fit_sample_count": int(len(train_indices)),
+    "fit_sample_id_sha256": sha256_lines(dataset.sample_id[train_indices]),
+    "statistics_sha256": sha256_arrays(model.x_mean, model.x_std),
+    "verified": True,
+}
 ```
 
-- [ ] **Step 4: Run focused tests and dry-run**
-
-Run:
+- [ ] **Step 4: Verify normalization and existing fusion tests**
 
 ```powershell
-python -m pytest tests/test_within_subject_fusion.py tests/test_cross_attention_fusion.py -q
-python scripts/44_run_within_subject_fusion_matrix.py --config configs/fusion_matrix.yaml --dry-run --out-dir outputs/reports/fusion_matrix_within_subject_dry_run
+python -m pytest tests/test_within_subject_normalization.py tests/test_cross_attention_fusion.py -q
 ```
 
-Expected: all focused tests pass and dry-run prints `experiment_count=12`.
+Expected: all tests pass and existing attention predictions remain valid.
 
-- [ ] **Step 5: Compile the affected Python tree**
-
-Run:
+- [ ] **Step 5: Commit**
 
 ```powershell
+git add -- src/daily_multimodal/training/cross_attention_fusion.py tests/test_cross_attention_fusion.py tests/test_within_subject_normalization.py
+git commit -m "feat: audit train-only fusion normalization"
+```
+
+---
+
+### Task 4: OOF metrics, event aggregation, centered pooled r, and baselines
+
+**Files:**
+- Create: `src/daily_multimodal/training/within_subject_metrics.py`
+- Create: `tests/test_within_subject_metrics.py`
+
+**Interfaces:**
+- `regression_metrics(prediction, target) -> dict`
+- `aggregate_event_predictions(records) -> PredictionRecords`
+- `summarize_subject_oof(records) -> dict`
+- `summarize_pooled_oof(records) -> dict`
+- `fit_predict_train_mean(...)`
+- `fit_predict_concat_ridge(...)`
+- `save_prediction_shard(path, records, metadata)`
+
+- [ ] **Step 1: Write failing complete-OOF and centered-r tests**
+
+```python
+def test_subject_metrics_are_recomputed_from_complete_oof_not_fold_mean():
+    records = make_records(
+        subjects=["sub-01"] * 4,
+        events=["e1", "e2", "e3", "e4"],
+        folds=[0, 1, 2, 3],
+        target=[0.0, 0.0, 10.0, 10.0],
+        prediction=[0.0, 0.0, 0.0, 0.0],
+    )
+    result = summarize_subject_oof(records)
+    assert result["window"]["rmse"] == pytest.approx(np.sqrt(50.0))
+    assert "fold_rmse_mean" not in result["window"]
+
+
+def test_pooled_pearson_is_centered_within_subject():
+    records = make_records(
+        subjects=["sub-01", "sub-01", "sub-02", "sub-02"],
+        events=["a", "b", "c", "d"],
+        folds=[0, 1, 0, 1],
+        target=[0.0, 1.0, 100.0, 101.0],
+        prediction=[0.0, 1.0, 200.0, 201.0],
+    )
+    result = summarize_pooled_oof(records)
+    assert result["within_subject_centered_pearson"] == pytest.approx(1.0)
+    assert result["pearson_definition"] == "center prediction and target by subject OOF mean"
+```
+
+- [ ] **Step 2: Write failing event and baseline tests**
+
+```python
+def test_event_oof_averages_window_predictions():
+    records = make_records(
+        subjects=["sub-01"] * 4,
+        events=["e1", "e1", "e2", "e2"],
+        folds=[0, 0, 1, 1],
+        target=[1.0, 1.0, 3.0, 3.0],
+        prediction=[0.0, 2.0, 2.0, 4.0],
+    )
+    event_records = aggregate_event_predictions(records)
+    assert event_records.prediction.tolist() == [1.0, 3.0]
+    assert regression_metrics(event_records.prediction, event_records.target)["rmse"] == 0.0
+
+
+def test_baselines_fit_only_training_rows():
+    mean_prediction = fit_predict_train_mean(target, train, test)
+    ridge_prediction, audit = fit_predict_concat_ridge(tokens, mask, target, train, test, alpha=10.0)
+    assert np.all(mean_prediction == np.mean(target[train]))
+    assert audit["normalization_fit_scope"] == "train_only"
+    assert audit["alpha"] == 10.0
+```
+
+- [ ] **Step 3: Verify RED**
+
+```powershell
+python -m pytest tests/test_within_subject_metrics.py -q
+```
+
+Expected: collection fails because `within_subject_metrics` does not exist.
+
+- [ ] **Step 4: Implement metrics and prediction contracts**
+
+Define `PredictionRecords` with aligned arrays:
+
+```python
+sample_id, event_id, subject_id, session_id, fold_id,
+target, prediction, attention, model_name, experiment, protocol
+```
+
+`summarize_subject_oof` must assert each eligible sample occurs exactly once,
+then recompute window metrics from all subject records and event metrics from
+event-mean records. `summarize_pooled_oof` must report raw pooled RMSE/MAE and
+compute Pearson after subtracting each subject's OOF prediction mean and OOF
+target mean.
+
+The Ridge baseline concatenates enabled tokens after zero-filling masked
+modalities and appending the modality mask, standardizes using training rows
+only, and fits `sklearn.linear_model.Ridge(alpha=10.0)`.
+
+`save_prediction_shard` writes compressed NPZ plus a sidecar JSON containing
+cohort hash, split hash, job fingerprint, schema version, and NPZ SHA-256.
+
+- [ ] **Step 5: Verify GREEN**
+
+```powershell
+python -m pytest tests/test_within_subject_metrics.py -q
+```
+
+Expected: all metric and baseline tests pass.
+
+- [ ] **Step 6: Commit**
+
+```powershell
+git add -- src/daily_multimodal/training/within_subject_metrics.py tests/test_within_subject_metrics.py
+git commit -m "feat: add leakage-safe within-subject OOF metrics"
+```
+
+---
+
+### Task 5: Resumable experiment-subject execution
+
+**Files:**
+- Create: `src/daily_multimodal/training/within_subject_runner.py`
+- Create: `tests/test_within_subject_runner.py`
+- Create: `scripts/45_run_within_subject_fusion_matrix.py`
+
+**Interfaces:**
+- `JobSpec(protocol, experiment, subject_id, model_name, model_seed, ...)`
+- `derive_job_seed(model_seed, protocol, experiment, subject, fold) -> int`
+- `run_job(job) -> JobResult`
+- `validate_resume_state(job, state_path) -> bool`
+- CLI options include `--workers`, `--device`, `--resume`, `--screen`, and `--production`
+
+- [ ] **Step 1: Write failing seed, resume, and no-train-prediction tests**
+
+```python
+def test_job_seed_depends_on_model_seed_not_split_seed_or_worker_order():
+    first = derive_job_seed(1701, "event_grouped_5fold", "exp", "sub-01", "fold-00")
+    second = derive_job_seed(1701, "event_grouped_5fold", "exp", "sub-01", "fold-00")
+    changed = derive_job_seed(1702, "event_grouped_5fold", "exp", "sub-01", "fold-00")
+    assert first == second
+    assert first != changed
+
+
+def test_resume_requires_matching_prediction_and_manifest_hashes(tmp_path):
+    job, state = write_completed_job(tmp_path)
+    assert validate_resume_state(job, state) is True
+    job.prediction_path.write_bytes(b"changed")
+    assert validate_resume_state(job, state) is False
+
+
+def test_production_attention_job_never_predicts_train_indices(monkeypatch):
+    calls = []
+    monkeypatch.setattr(runner, "predict_with_learnable_cross_attention", lambda model, data, indices: calls.append(indices.copy()) or fake_prediction(indices))
+    run_attention_fold(fake_job(), fake_fold(), production=True)
+    assert len(calls) == 2
+    assert np.array_equal(calls[0], fake_fold().val)
+    assert np.array_equal(calls[1], fake_fold().test)
+```
+
+- [ ] **Step 2: Write failing parallel determinism test**
+
+```python
+def test_job_results_are_identical_for_one_and_two_workers(tmp_path):
+    serial = run_jobs(fake_jobs(tmp_path / "serial"), workers=1)
+    parallel = run_jobs(fake_jobs(tmp_path / "parallel"), workers=2)
+    assert [(row.job_id, row.prediction_sha256) for row in serial] == [
+        (row.job_id, row.prediction_sha256) for row in parallel
+    ]
+```
+
+- [ ] **Step 3: Verify RED**
+
+```powershell
+python -m pytest tests/test_within_subject_runner.py -q
+```
+
+Expected: collection fails because `within_subject_runner` does not exist.
+
+- [ ] **Step 4: Implement deterministic jobs and atomic resume**
+
+Derive the fold seed from the first eight bytes of:
+
+```python
+sha256(f"{model_seed}|{protocol}|{experiment}|{subject}|{fold}".encode()).digest()
+```
+
+Each job writes only under:
+
+```text
+predictions/<protocol>/<experiment>/<model>/<subject>.npz
+run_state/<protocol>/<experiment>/<model>/<subject>.json
+models/<protocol>/<experiment>/<subject>/<fold>.pt
+```
+
+Write prediction and state files to sibling `.tmp` paths, fsync, then replace.
+A resume hit requires matching schema version, cohort SHA-256, split SHA-256,
+model config SHA-256, all checkpoint SHA-256 values, and prediction SHA-256.
+
+Production attention jobs call prediction only for validation (early-stopping
+audit) and test. They use model training losses already returned by
+`fit_learnable_cross_attention` instead of predicting training rows.
+
+- [ ] **Step 5: Implement experiment-subject process parallelism**
+
+Use `concurrent.futures.ProcessPoolExecutor(max_workers=workers)` for CPU.
+Sort `JobResult` by immutable `job_id` before aggregation so output does not
+depend on completion order. For CUDA, require `workers <= visible_device_count`
+and bind one process to one device; default to one CUDA worker on the current
+single-GPU server.
+
+- [ ] **Step 6: Implement the matrix CLI**
+
+`scripts/45_run_within_subject_fusion_matrix.py` must:
+
+1. Require and validate frozen cohort/split manifests.
+2. Build each of the 12 datasets using the exact global cohort.
+3. Expand both protocols, all subjects, and three models.
+4. Support `--screen-subjects sub-02,sub-03`, reduced epochs/dimension, and
+   all 12 experiments without pruning.
+5. Support `--resume`, `--workers`, and `--device`.
+6. Merge independent shards into per-experiment protocol NPZ files.
+7. Write per-subject window/event OOF JSON rows and aggregate Markdown/JSON.
+8. Fail the command if any required job is failed or missing.
+
+- [ ] **Step 7: Verify runner and regression tests**
+
+```powershell
+python -m pytest tests/test_within_subject_runner.py tests/test_within_subject_metrics.py tests/test_within_subject_splits.py tests/test_cross_attention_fusion.py -q
 python -m compileall -q src scripts tests
 ```
 
-Expected: exit code `0` with no syntax errors.
+Expected: all tests pass and compileall exits `0`.
 
-- [ ] **Step 6: Commit the runner**
+- [ ] **Step 8: Commit**
 
 ```powershell
-git add -- scripts/44_run_within_subject_fusion_matrix.py tests/test_within_subject_fusion.py
-git commit -m "feat: run within-subject fusion matrix"
+git add -- src/daily_multimodal/training/within_subject_runner.py tests/test_within_subject_runner.py scripts/45_run_within_subject_fusion_matrix.py
+git commit -m "feat: run resumable within-subject fusion jobs"
 ```
 
 ---
 
-### Task 4: Server smoke, full run, verification, and living docs
+### Task 6: Cheap screening, backend benchmark, and full matrix
+
+**Files:**
+- Generated: `outputs/reports/fusion_matrix_within_subject_screen/`
+- Generated: `outputs/reports/fusion_matrix_within_subject_benchmark/`
+- Generated: `outputs/reports/fusion_matrix_within_subject_120s10s/`
+
+**Interfaces:**
+- Consumes the frozen manifests and production runner
+- Produces a backend decision, complete OOF predictions, metrics, checkpoints, and resume state
+
+- [ ] **Step 1: Sync implementation to the server**
+
+Use explicit `scp` commands for the new/modified config, scripts, modules, and
+tests. Do not copy the dirty repository wholesale.
+
+- [ ] **Step 2: Build and verify frozen manifests**
+
+```powershell
+ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/44_prepare_within_subject_fusion_splits.py --config configs/within_subject_fusion.yaml'
+```
+
+Then run safe piped Python asserting:
+
+- 12 native experiments are represented
+- all 12 strict datasets have identical ordered sample IDs
+- the cohort is non-empty
+- `split_seed == 17` and no `model_seed` appears in the split manifest
+- both protocols exist
+- every fold has zero event, session, and raw-time cross-partition overlap
+- the known server audit reports the `sub-09/ses-01` overlap component rather
+  than splitting its two events
+
+- [ ] **Step 3: Run cheap screening across every branch**
+
+```powershell
+ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/45_run_within_subject_fusion_matrix.py --config configs/within_subject_fusion.yaml --out-dir outputs/reports/fusion_matrix_within_subject_screen --model-dir outputs/models/fusion_matrix_within_subject_screen --screen-subjects sub-02,sub-03 --epochs 5 --hidden-dim 32 --workers 1 --device cpu'
+```
+
+Gate conditions:
+
+- all 12 experiments complete for both protocols where subjects are eligible
+- all three models produce prediction shards
+- normalization audits pass
+- every eligible OOF sample appears exactly once
+- resume rerun reports all jobs as reused
+
+No experiment is dropped based on screening accuracy.
+
+- [ ] **Step 4: Benchmark CPU parallelism versus CUDA**
+
+Run the identical subset `fusion_WphysioPre_B1_full`, subjects `sub-02,sub-03`,
+event protocol, 10 epochs, hidden dimension 32 under:
+
+- CPU workers 1
+- CPU workers 2
+- CPU workers 4
+- CUDA workers 1
+
+Each benchmark starts from an empty benchmark output directory and records wall
+time, completed fold count, windows/second, peak host memory, peak GPU memory,
+and prediction SHA-256. Select the fastest configuration whose metrics and
+predictions match the single-worker reference within `atol=1e-6`; if CUDA
+kernels are nondeterministic beyond tolerance, select the fastest CPU setting.
+Write the decision to
+`outputs/reports/fusion_matrix_within_subject_benchmark/backend_decision.json`.
+
+- [ ] **Step 5: Run the full event-grouped matrix with resume enabled**
+
+Use the selected backend and worker count:
+
+```powershell
+ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/45_run_within_subject_fusion_matrix.py --config configs/within_subject_fusion.yaml --protocol event_grouped_5fold --out-dir outputs/reports/fusion_matrix_within_subject_120s10s --model-dir outputs/models/fusion_matrix_within_subject_120s10s --production --resume'
+```
+
+- [ ] **Step 6: Run the full session-held-out matrix**
+
+```powershell
+ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/45_run_within_subject_fusion_matrix.py --config configs/within_subject_fusion.yaml --protocol session_held_out --out-dir outputs/reports/fusion_matrix_within_subject_120s10s --model-dir outputs/models/fusion_matrix_within_subject_120s10s --production --resume'
+```
+
+- [ ] **Step 7: Verify full-run invariants**
+
+Run a piped server audit that exits non-zero unless:
+
+- all 12 experiments and all three models have complete state
+- every valid subject has complete OOF coverage
+- prediction artifacts are separate from metric JSON
+- event and window metrics are both present
+- all attention normalization audits are `verified=true`
+- no production job records train predictions
+- pooled correlation field is `within_subject_centered_pearson`
+- all result rows carry the same cohort and protocol split hashes
+- paired experiment comparisons use identical subject/sample cohorts
+
+Print each experiment's window/event macro metrics and centered pooled
+correlations for the final report.
+
+---
+
+### Task 7: Update living documentation with methods and actual results
 
 **Files:**
 - Modify: `fushion plan.md`
@@ -886,151 +722,44 @@ git commit -m "feat: run within-subject fusion matrix"
 - Modify: `repo-docs/references/commands-and-artifacts.md`
 - Modify: `repo-docs/change-log.md`
 
-**Interfaces:**
-- Consumes: the new runner and server branch embeddings
-- Produces: complete reports under `outputs/reports/fusion_matrix_within_subject_120s10s/` and checkpoints under `outputs/models/fusion_matrix_within_subject_120s10s/`
+- [ ] **Step 1: Update the fusion plan**
 
-- [ ] **Step 1: Sync only the new implementation files to the server**
+Document:
 
-Run:
+- the global paired cohort count and hash
+- both frozen protocols and seeds
+- temporal-overlap audit count and handling
+- train-only normalization evidence
+- baseline, window OOF, event OOF, macro, and centered pooled results
+- screening and backend benchmark decision
+- resume and prediction artifact locations
 
-```powershell
-scp 'src/daily_multimodal/training/within_subject_fusion.py' 'ncc_serve_4090:/mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding/src/daily_multimodal/training/within_subject_fusion.py'
-scp 'scripts/44_run_within_subject_fusion_matrix.py' 'ncc_serve_4090:/mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding/scripts/44_run_within_subject_fusion_matrix.py'
-scp 'tests/test_within_subject_fusion.py' 'ncc_serve_4090:/mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding/tests/test_within_subject_fusion.py'
-```
+- [ ] **Step 2: Update repo-doc ownership pages**
 
-Expected: all three transfers exit `0`.
+Add the split/cohort/prediction contracts to
+`repo-docs/modules/embedding-contract.md`; add exact preparation, screening,
+benchmark, event-production, and session-production commands to
+`repo-docs/references/commands-and-artifacts.md`.
 
-- [ ] **Step 2: Run server tests and one-subject smoke**
+Prepend a `repo-docs/change-log.md` entry with exact verification commands,
+counts, hashes, best configurations, and a clear distinction between
+within-subject and LOSO conclusions.
 
-Run:
-
-```powershell
-ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python -m pytest tests/test_within_subject_fusion.py tests/test_cross_attention_fusion.py -q'
-ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/44_run_within_subject_fusion_matrix.py --config configs/fusion_matrix.yaml --out-dir outputs/reports/fusion_matrix_within_subject_smoke --model-dir outputs/models/fusion_matrix_within_subject_smoke --max-experiments 1 --max-subjects 1 --epochs 2 --hidden-dim 32 --learning-rate 0.001 --device cpu'
-```
-
-Expected: tests pass; smoke writes one experiment with one completed subject,
-five folds, and five checkpoints.
-
-- [ ] **Step 3: Verify smoke invariants**
-
-Run the following safely piped Python:
+- [ ] **Step 3: Run final verification**
 
 ```powershell
-@'
-import json
-from pathlib import Path
-
-root = Path("outputs/reports/fusion_matrix_within_subject_smoke")
-files = list(root.glob("*_metrics.json"))
-assert len(files) == 1, files
-data = json.loads(files[0].read_text())
-assert data["valid_subject_count"] == 1, data["valid_subject_count"]
-assert len(data["subjects"]) == 1
-assert data["subjects"][0]["fold_count"] == 5
-test_ids = [
-    sample
-    for fold in data["subjects"][0]["folds"]
-    for sample in fold["test_sample_id"]
-]
-assert len(test_ids) == len(set(test_ids))
-for fold in data["subjects"][0]["folds"]:
-    train = set(fold["train_events"])
-    val = set(fold["val_events"])
-    test = set(fold["test_events"])
-    assert not train & val
-    assert not train & test
-    assert not val & test
-print("smoke_invariants=ok")
-'@ | ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python -'
-```
-
-Expected: `smoke_invariants=ok`.
-
-- [ ] **Step 4: Run all 12 experiments for every valid subject**
-
-Run:
-
-```powershell
-ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/44_run_within_subject_fusion_matrix.py --config configs/fusion_matrix.yaml --out-dir outputs/reports/fusion_matrix_within_subject_120s10s --model-dir outputs/models/fusion_matrix_within_subject_120s10s --epochs 200 --hidden-dim 128 --learning-rate 0.001 --seed 17 --device cpu'
-```
-
-Expected: the command exits `0`, prints 12 `completed=` lines, and writes
-`fusion_matrix_within_subject_summary.json`.
-
-- [ ] **Step 5: Verify full-run coverage and report the actual metrics**
-
-Run:
-
-```powershell
-@'
-import json
-from pathlib import Path
-
-root = Path("outputs/reports/fusion_matrix_within_subject_120s10s")
-summary = json.loads((root / "fusion_matrix_within_subject_summary.json").read_text())
-assert summary["experiment_count"] == 12
-assert len(summary["experiments"]) == 12
-for row in summary["experiments"]:
-    metrics = json.loads((root / f"{row['experiment']}_metrics.json").read_text())
-    assert metrics["valid_subject_count"] + metrics["skipped_subject_count"] == metrics["subject_count"]
-    for subject in metrics["subjects"]:
-        assert subject["fold_count"] == 5
-        test_ids = [
-            sample
-            for fold in subject["folds"]
-            for sample in fold["test_sample_id"]
-        ]
-        assert len(test_ids) == len(set(test_ids))
-    print(
-        row["experiment"],
-        "subjects=", row["valid_subject_count"],
-        "macro_rmse=", row["macro"]["rmse_mean"],
-        "macro_r=", row["macro"]["pearson_r_mean"],
-        "pooled_rmse=", row["pooled"]["rmse"],
-        "pooled_r=", row["pooled"]["pearson"],
-    )
-'@ | ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python -'
-```
-
-Expected: 12 result lines and no assertion failures. Preserve these printed
-values for the user-facing result summary and documentation.
-
-- [ ] **Step 6: Update the fusion plan and repo docs with actual behavior and results**
-
-Use `apply_patch` to:
-
-- add the within-subject command, split contract, output paths, and the 12
-  actual macro/pooled results to `fushion plan.md`
-- add the within-subject event-grouping contract to
-  `repo-docs/modules/embedding-contract.md`
-- add the production command and artifact locations to
-  `repo-docs/references/commands-and-artifacts.md`
-- prepend a dated entry to `repo-docs/change-log.md` with exact tests,
-  smoke/full-run verification, subject counts, and best experiment
-
-The changelog entry must state that same-event windows never cross partitions
-and distinguish within-subject metrics from the existing LOSO metrics.
-
-- [ ] **Step 7: Run final local verification**
-
-Run:
-
-```powershell
-python -m pytest tests/test_within_subject_fusion.py tests/test_cross_attention_fusion.py tests/test_subject_cv.py tests/test_fair_embedding_ablation.py -q
+python -m pytest tests/test_within_subject_splits.py tests/test_within_subject_normalization.py tests/test_within_subject_metrics.py tests/test_within_subject_runner.py tests/test_cross_attention_fusion.py tests/test_subject_cv.py tests/test_fair_embedding_ablation.py -q
 python -m compileall -q src scripts tests
 python C:\Users\28303\.codex\skills\repo-docs\scripts\validate_repo_docs.py repo-docs --repo-root .
 git diff --check
 ```
 
-Expected: tests pass, compileall exits `0`, repo-doc validation reports `0`
-errors, and `git diff --check` reports no whitespace errors.
+Expected: all tests pass, compileall exits `0`, repo-doc validation reports
+zero errors, and `git diff --check` reports no whitespace errors.
 
-- [ ] **Step 8: Commit implementation documentation**
+- [ ] **Step 4: Commit documentation**
 
 ```powershell
 git add -- 'fushion plan.md' repo-docs/modules/embedding-contract.md repo-docs/references/commands-and-artifacts.md repo-docs/change-log.md
-git commit -m "docs: record within-subject fusion results"
+git commit -m "docs: record leakage-audited within-subject fusion results"
 ```
