@@ -17,14 +17,18 @@
 - Treat overlap-connected events from the same subject/session as one split unit.
 - Primary protocol: event-grouped five-fold OOF with three groups train, one validation, one test.
 - Secondary protocol: within-subject session-held-out OOF with one session test, one validation, and the remainder train.
-- Fit feature and target normalization only on training indices and audit it for every attention fold.
+- Fit feature and target normalization only on training indices and audit both for every attention fold.
+- Reject or explicitly mark folds with degenerate training targets before model fitting.
 - Recompute subject metrics from complete OOF predictions, not fold-metric averages.
+- Verify complete OOF coverage against the expected subject sample set before computing subject metrics.
 - Report window-level and event-level OOF metrics.
+- Verify each event has one consistent target before event-level aggregation.
 - Headline pooled Pearson must be within-subject centered.
 - Run `train_mean` and `concat_ridge_alpha10` baselines on the same cohort and splits.
 - Production mode must not compute train-set predictions.
 - Resume only from artifacts whose cohort, split, configuration, and prediction hashes match.
 - Parallelism unit is `protocol x experiment x subject`; CUDA uses one worker per visible device.
+- Production uses the frozen backend benchmark decision unless `--device` and `--workers` are explicitly supplied.
 - Preserve all existing cross-subject code paths and outputs.
 
 ## Review Incorporation
@@ -48,6 +52,20 @@
 | P2-15 | No production train prediction | Task 5 predicts validation and test only |
 | P2-16 | Experiment-subject parallelism | Task 5 uses deterministic process jobs with isolated paths |
 
+## Final Fix Incorporation
+
+| Fix item | Planned implementation |
+| --- | --- |
+| Feature and target normalization audit | Task 3 adds public feature and target normalization fit APIs, hashes both statistic sets, and tests validation/test outlier isolation |
+| Expected OOF completeness | Task 4 changes `summarize_subject_oof(records, expected_sample_ids)` to fail on missing, duplicate, or unexpected samples |
+| Target degeneracy | Task 4 records train/val/test target variance per fold, rejects degenerate training targets, and returns `pearson=null` for constant held-out targets |
+| Event-target consistency | Task 4 validates one target per subject/event before event aggregation |
+| Unified output paths | Task 5 writes prediction shards, run state, and attention checkpoints using protocol/experiment/model/subject-safe paths |
+| Benchmark decision consumed by production | Task 5 adds `--backend-decision`; Task 6 writes and passes `backend_decision.json` into production commands |
+| Collision-safe overlap keys | Task 1 uses `(subject_id, session_id, event_id)` component keys and tests reused local event IDs |
+| Protocol-specific acceptance | Task 2 and Task 7 document five event folds for eligible event subjects and one held-out fold per eligible session |
+| Efficiency fixes | Task 5 caches train-mean by protocol/subject/fold and avoids submitting full datasets per CPU job; Task 6 keeps the full matrix to one seed then reruns only the top attention configs with extra seeds |
+
 ---
 
 ### Task 1: Build the global paired cohort and temporal-overlap audit
@@ -60,7 +78,7 @@
 **Interfaces:**
 - `build_global_paired_cohort(sample_ids_by_experiment, reference_order) -> np.ndarray`
 - `load_window_metadata(path, required_sample_ids) -> list[WindowMetadata]`
-- `build_overlap_components(rows) -> tuple[dict[str, str], list[dict]]`
+- `build_overlap_components(rows) -> tuple[dict[tuple[str, str, str], str], list[dict]]`
 - `write_cohort_manifest(...) -> dict`
 
 - [ ] **Step 1: Write failing tests for global pairing and raw-time overlap**
@@ -92,8 +110,8 @@ def test_overlapping_events_form_one_connected_split_unit():
         WindowMetadata("w3", "e3", "sub-01", "ses-01", datetime.fromisoformat("2026-01-01 11:00:00"), datetime.fromisoformat("2026-01-01 11:02:00")),
     ]
     component_by_event, overlaps = build_overlap_components(rows)
-    assert component_by_event["e1"] == component_by_event["e2"]
-    assert component_by_event["e1"] != component_by_event["e3"]
+    assert component_by_event[("sub-01", "ses-01", "e1")] == component_by_event[("sub-01", "ses-01", "e2")]
+    assert component_by_event[("sub-01", "ses-01", "e1")] != component_by_event[("sub-01", "ses-01", "e3")]
     assert overlaps == [{
         "subject_id": "sub-01",
         "session_id": "ses-01",
@@ -101,6 +119,18 @@ def test_overlapping_events_form_one_connected_split_unit():
         "event_b": "e2",
         "overlap_seconds": 60.0,
     }]
+
+
+def test_overlap_components_use_collision_safe_event_keys():
+    rows = [
+        WindowMetadata("w1", "local-1", "sub-01", "ses-01", datetime.fromisoformat("2026-01-01 10:00:00"), datetime.fromisoformat("2026-01-01 10:02:00")),
+        WindowMetadata("w2", "local-1", "sub-02", "ses-01", datetime.fromisoformat("2026-01-01 10:01:00"), datetime.fromisoformat("2026-01-01 10:03:00")),
+        WindowMetadata("w3", "local-1", "sub-01", "ses-02", datetime.fromisoformat("2026-01-01 10:01:00"), datetime.fromisoformat("2026-01-01 10:03:00")),
+    ]
+    component_by_event, overlaps = build_overlap_components(rows)
+    assert len(component_by_event) == 3
+    assert len(set(component_by_event.values())) == 3
+    assert overlaps == []
 ```
 
 - [ ] **Step 2: Verify RED**
@@ -149,7 +179,8 @@ def build_global_paired_cohort(
 
 `load_window_metadata` must read the JSONL once, require exactly one row for
 each cohort sample, parse `window_start_time`/`window_end_time`, and use the
-JSONL `session_id`. `build_overlap_components` must union events when
+JSONL `session_id`. `build_overlap_components` must key components by
+`(subject_id, session_id, event_id)` and union events when
 `max(start_a, start_b) < min(end_a, end_b)` within the same subject/session.
 
 - [ ] **Step 4: Add the evaluation configuration**
@@ -254,8 +285,8 @@ index. For fold `i`, test session `i`, validation session `(i+1) mod S`, and
 remaining sessions train. Record `insufficient_split_units` or
 `insufficient_sessions` rather than silently dropping a subject.
 
-Every fold must store sample IDs, event IDs, split-unit IDs, session IDs,
-counts, and `cross_partition_time_overlap_count=0`.
+Every fold must store sample IDs, collision-safe event keys, split-unit IDs,
+session IDs, counts, and `cross_partition_time_overlap_count=0`.
 
 - [ ] **Step 4: Implement the preparation CLI**
 
@@ -304,10 +335,11 @@ git commit -m "feat: freeze within-subject split manifests"
 
 **Interfaces:**
 - `fit_token_normalization(tokens, mask, indices) -> TokenNormalization`
+- `fit_target_normalization(target, indices) -> TargetNormalization`
 - `audit_model_normalization(model, dataset, train_indices) -> dict`
 - Existing `fit_learnable_cross_attention` must call the public fit function
 
-- [ ] **Step 1: Write a failing outlier-isolation test**
+- [ ] **Step 1: Write failing feature and target outlier-isolation tests**
 
 ```python
 def test_normalization_is_unchanged_by_validation_and_test_outliers():
@@ -321,11 +353,25 @@ def test_normalization_is_unchanged_by_validation_and_test_outliers():
     np.testing.assert_allclose(first.x_std, second.x_std)
 
 
+def test_target_normalization_is_unchanged_by_validation_and_test_outliers():
+    dataset = make_dataset_with_train_rows_and_outlier_holdout()
+    train = np.asarray([0, 1, 2, 3])
+    first = fit_target_normalization(dataset.target, train)
+    changed = dataset.target.copy()
+    changed[4:] = 1.0e9
+    second = fit_target_normalization(changed, train)
+    assert first.y_mean == pytest.approx(second.y_mean)
+    assert first.y_std == pytest.approx(second.y_std)
+
+
 def test_attention_fit_records_training_only_normalization_hash():
     model = fit_learnable_cross_attention(dataset, train_indices=train, val_indices=val, config=config)
     audit = audit_model_normalization(model, dataset, train)
     assert audit["fit_scope"] == "train_only"
     assert audit["fit_sample_count"] == len(train)
+    assert audit["target_fit_sample_count"] == len(train)
+    assert audit["feature_statistics_sha256"]
+    assert audit["target_statistics_sha256"]
     assert audit["verified"] is True
 ```
 
@@ -339,11 +385,15 @@ Expected: collection fails because the normalization API does not exist.
 
 - [ ] **Step 3: Refactor normalization without changing model behavior**
 
-Add a frozen `TokenNormalization` dataclass containing `x_mean`, `x_std`,
+Add frozen `TokenNormalization` and `TargetNormalization` dataclasses.
+`TokenNormalization` contains `x_mean`, `x_std`, `fit_count`, and
+`fit_index_sha256`. `TargetNormalization` contains `y_mean`, `y_std`,
 `fit_count`, and `fit_index_sha256`. Move the current
 `_token_normalization(dataset.tokens[train], dataset.token_mask[train])`
 calculation into `fit_token_normalization(tokens, mask, train_indices)`.
-Store its hash and count on `LearnableAttentionModel`.
+Move the current `dataset.target[train].mean()` and `.std()` calculation into
+`fit_target_normalization(target, train_indices)`. Store both statistic hashes
+and counts on `LearnableAttentionModel`.
 
 `audit_model_normalization` must recompute from train indices, compare model
 statistics with `np.testing.assert_allclose`, and return:
@@ -353,7 +403,9 @@ statistics with `np.testing.assert_allclose`, and return:
     "fit_scope": "train_only",
     "fit_sample_count": int(len(train_indices)),
     "fit_sample_id_sha256": sha256_lines(dataset.sample_id[train_indices]),
-    "statistics_sha256": sha256_arrays(model.x_mean, model.x_std),
+    "feature_statistics_sha256": sha256_arrays(model.x_mean, model.x_std),
+    "target_fit_sample_count": int(len(train_indices)),
+    "target_statistics_sha256": sha256_arrays(np.asarray([model.y_mean, model.y_std], dtype=np.float32)),
     "verified": True,
 }
 ```
@@ -384,8 +436,9 @@ git commit -m "feat: audit train-only fusion normalization"
 **Interfaces:**
 - `regression_metrics(prediction, target) -> dict`
 - `aggregate_event_predictions(records) -> PredictionRecords`
-- `summarize_subject_oof(records) -> dict`
+- `summarize_subject_oof(records, expected_sample_ids) -> dict`
 - `summarize_pooled_oof(records) -> dict`
+- `audit_fold_target_variance(target, train, val, test, tolerance=1e-8) -> dict`
 - `fit_predict_train_mean(...)`
 - `fit_predict_concat_ridge(...)`
 - `save_prediction_shard(path, records, metadata)`
@@ -401,9 +454,10 @@ def test_subject_metrics_are_recomputed_from_complete_oof_not_fold_mean():
         target=[0.0, 0.0, 10.0, 10.0],
         prediction=[0.0, 0.0, 0.0, 0.0],
     )
-    result = summarize_subject_oof(records)
+    result = summarize_subject_oof(records, expected_sample_ids=["s0", "s1", "s2", "s3"])
     assert result["window"]["rmse"] == pytest.approx(np.sqrt(50.0))
     assert "fold_rmse_mean" not in result["window"]
+    assert result["oof_complete"] is True
 
 
 def test_pooled_pearson_is_centered_within_subject():
@@ -417,9 +471,24 @@ def test_pooled_pearson_is_centered_within_subject():
     result = summarize_pooled_oof(records)
     assert result["within_subject_centered_pearson"] == pytest.approx(1.0)
     assert result["pearson_definition"] == "center prediction and target by subject OOF mean"
+
+
+def test_subject_oof_fails_when_expected_samples_are_missing_or_duplicated():
+    records = make_records(sample_ids=["s0", "s1"], target=[0.0, 1.0], prediction=[0.0, 1.0])
+    with pytest.raises(ValueError, match="expected OOF sample coverage"):
+        summarize_subject_oof(records, expected_sample_ids=["s0", "s1", "s2"])
+    duplicated = make_records(sample_ids=["s0", "s0"], target=[0.0, 1.0], prediction=[0.0, 1.0])
+    with pytest.raises(ValueError, match="duplicate OOF sample"):
+        summarize_subject_oof(duplicated, expected_sample_ids=["s0", "s1"])
+
+
+def test_subject_oof_fails_when_unexpected_sample_appears():
+    records = make_records(sample_ids=["s0", "unexpected"], target=[0.0, 1.0], prediction=[0.0, 1.0])
+    with pytest.raises(ValueError, match="unexpected OOF sample"):
+        summarize_subject_oof(records, expected_sample_ids=["s0", "s1"])
 ```
 
-- [ ] **Step 2: Write failing event and baseline tests**
+- [ ] **Step 2: Write failing event, target-degeneracy, and baseline tests**
 
 ```python
 def test_event_oof_averages_window_predictions():
@@ -433,6 +502,26 @@ def test_event_oof_averages_window_predictions():
     event_records = aggregate_event_predictions(records)
     assert event_records.prediction.tolist() == [1.0, 3.0]
     assert regression_metrics(event_records.prediction, event_records.target)["rmse"] == 0.0
+
+
+def test_event_aggregation_rejects_inconsistent_event_targets():
+    records = make_records(
+        subjects=["sub-01", "sub-01"],
+        events=["e1", "e1"],
+        folds=[0, 0],
+        target=[1.0, 2.0],
+        prediction=[1.0, 2.0],
+    )
+    with pytest.raises(ValueError, match="inconsistent target"):
+        aggregate_event_predictions(records)
+
+
+def test_degenerate_training_target_is_rejected_and_constant_test_pearson_is_null():
+    target = np.asarray([1.0, 1.0, 1.0, 2.0, 2.0])
+    with pytest.raises(ValueError, match="degenerate_train_target"):
+        audit_fold_target_variance(target, train=np.asarray([0, 1, 2]), val=np.asarray([3]), test=np.asarray([4]))
+    metrics = regression_metrics(prediction=np.asarray([0.5, 0.5]), target=np.asarray([2.0, 2.0]))
+    assert metrics["pearson"] is None
 
 
 def test_baselines_fit_only_training_rows():
@@ -473,6 +562,19 @@ only, and fits `sklearn.linear_model.Ridge(alpha=10.0)`.
 `save_prediction_shard` writes compressed NPZ plus a sidecar JSON containing
 cohort hash, split hash, job fingerprint, schema version, and NPZ SHA-256.
 
+`audit_fold_target_variance` records `train_unique_target_count`,
+`train_target_std`, `val_unique_target_count`, `val_target_std`,
+`test_unique_target_count`, and `test_target_std` for every fold. Training
+targets with standard deviation below tolerance raise
+`ValueError("degenerate_train_target")`. Constant validation or test targets
+remain valid for RMSE and MAE, with Pearson reported as `None`.
+
+`summarize_subject_oof(records, expected_sample_ids)` must cast actual and
+expected sample IDs to strings, assert equal lengths, reject duplicate actual
+IDs, require exact set equality, and store `expected_sample_count`,
+`actual_sample_count`, `expected_sample_id_sha256`,
+`actual_sample_id_sha256`, and `oof_complete=True` before computing metrics.
+
 - [ ] **Step 5: Verify GREEN**
 
 ```powershell
@@ -502,7 +604,8 @@ git commit -m "feat: add leakage-safe within-subject OOF metrics"
 - `derive_job_seed(model_seed, protocol, experiment, subject, fold) -> int`
 - `run_job(job) -> JobResult`
 - `validate_resume_state(job, state_path) -> bool`
-- CLI options include `--workers`, `--device`, `--resume`, `--screen`, and `--production`
+- `load_backend_decision(path) -> dict`
+- CLI options include `--workers`, `--device`, `--backend-decision`, `--resume`, `--screen`, and `--production`
 
 - [ ] **Step 1: Write failing seed, resume, and no-train-prediction tests**
 
@@ -561,14 +664,16 @@ sha256(f"{model_seed}|{protocol}|{experiment}|{subject}|{fold}".encode()).digest
 Each job writes only under:
 
 ```text
-predictions/<protocol>/<experiment>/<model>/<subject>.npz
-run_state/<protocol>/<experiment>/<model>/<subject>.json
-models/<protocol>/<experiment>/<subject>/<fold>.pt
+<out-dir>/predictions/<protocol>/<experiment>/<model>/<subject>.npz
+<out-dir>/run_state/<protocol>/<experiment>/<model>/<subject>.json
+<model-dir>/<protocol>/<experiment>/<subject>/<fold>.pt
 ```
 
 Write prediction and state files to sibling `.tmp` paths, fsync, then replace.
 A resume hit requires matching schema version, cohort SHA-256, split SHA-256,
 model config SHA-256, all checkpoint SHA-256 values, and prediction SHA-256.
+Baselines do not write checkpoints unless an existing baseline implementation
+already saves model artifacts.
 
 Production attention jobs call prediction only for validation (early-stopping
 audit) and test. They use model training losses already returned by
@@ -582,6 +687,12 @@ depend on completion order. For CUDA, require `workers <= visible_device_count`
 and bind one process to one device; default to one CUDA worker on the current
 single-GPU server.
 
+Do not pass a full `FusionDataset` through every `ProcessPoolExecutor.submit`.
+CPU workers must either load the selected experiment data once in a worker
+initializer or use memory-mapped arrays where practical. Cache `train_mean`
+baseline predictions by `(protocol, subject_id, fold_id, target_sha256)` and
+reuse them across the 12 experiments when cohort and splits are identical.
+
 - [ ] **Step 6: Implement the matrix CLI**
 
 `scripts/45_run_within_subject_fusion_matrix.py` must:
@@ -591,10 +702,16 @@ single-GPU server.
 3. Expand both protocols, all subjects, and three models.
 4. Support `--screen-subjects sub-02,sub-03`, reduced epochs/dimension, and
    all 12 experiments without pruning.
-5. Support `--resume`, `--workers`, and `--device`.
+5. Support `--resume`, `--workers`, `--device`, and `--backend-decision`.
 6. Merge independent shards into per-experiment protocol NPZ files.
 7. Write per-subject window/event OOF JSON rows and aggregate Markdown/JSON.
 8. Fail the command if any required job is failed or missing.
+
+If `--backend-decision outputs/reports/fusion_matrix_within_subject_benchmark/backend_decision.json`
+is provided, production mode loads `device` and `workers` from that file unless
+the user explicitly supplies both `--device` and `--workers`. The report records
+selected device, selected worker count, benchmark decision SHA-256, and the
+effective runtime configuration.
 
 - [ ] **Step 7: Verify runner and regression tests**
 
@@ -680,22 +797,39 @@ predictions match the single-worker reference within `atol=1e-6`; if CUDA
 kernels are nondeterministic beyond tolerance, select the fastest CPU setting.
 Write the decision to
 `outputs/reports/fusion_matrix_within_subject_benchmark/backend_decision.json`.
+The JSON must contain at least:
+
+```json
+{
+  "device": "cpu",
+  "workers": 4
+}
+```
 
 - [ ] **Step 5: Run the full event-grouped matrix with resume enabled**
 
-Use the selected backend and worker count:
+Use the selected backend decision file:
 
 ```powershell
-ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/45_run_within_subject_fusion_matrix.py --config configs/within_subject_fusion.yaml --protocol event_grouped_5fold --out-dir outputs/reports/fusion_matrix_within_subject_120s10s --model-dir outputs/models/fusion_matrix_within_subject_120s10s --production --resume'
+ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/45_run_within_subject_fusion_matrix.py --config configs/within_subject_fusion.yaml --protocol event_grouped_5fold --out-dir outputs/reports/fusion_matrix_within_subject_120s10s --model-dir outputs/models/fusion_matrix_within_subject_120s10s --backend-decision outputs/reports/fusion_matrix_within_subject_benchmark/backend_decision.json --production --resume'
 ```
 
 - [ ] **Step 6: Run the full session-held-out matrix**
 
 ```powershell
-ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/45_run_within_subject_fusion_matrix.py --config configs/within_subject_fusion.yaml --protocol session_held_out --out-dir outputs/reports/fusion_matrix_within_subject_120s10s --model-dir outputs/models/fusion_matrix_within_subject_120s10s --production --resume'
+ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/45_run_within_subject_fusion_matrix.py --config configs/within_subject_fusion.yaml --protocol session_held_out --out-dir outputs/reports/fusion_matrix_within_subject_120s10s --model-dir outputs/models/fusion_matrix_within_subject_120s10s --backend-decision outputs/reports/fusion_matrix_within_subject_benchmark/backend_decision.json --production --resume'
 ```
 
-- [ ] **Step 7: Verify full-run invariants**
+- [ ] **Step 7: Run initialization-sensitivity follow-up for top attention configs**
+
+Keep the primary 12-experiment matrix at fixed `model_seed=1701`. After both
+primary protocols complete, select the top two or three
+`learnable_cross_attention` configurations by the prespecified primary metric
+and rerun only those attention configurations with additional model seeds.
+Use the same frozen cohort and split manifests; do not rerun all 12
+experiments for multi-seed sensitivity.
+
+- [ ] **Step 8: Verify full-run invariants**
 
 Run a piped server audit that exits non-zero unless:
 
@@ -704,13 +838,41 @@ Run a piped server audit that exits non-zero unless:
 - prediction artifacts are separate from metric JSON
 - event and window metrics are both present
 - all attention normalization audits are `verified=true`
+- target normalization audits are present for attention jobs
+- no fold with a degenerate training target was silently trained
 - no production job records train predictions
+- production reports include selected device, selected worker count, benchmark decision hash, and effective runtime configuration
 - pooled correlation field is `within_subject_centered_pearson`
 - all result rows carry the same cohort and protocol split hashes
 - paired experiment comparisons use identical subject/sample cohorts
 
 Print each experiment's window/event macro metrics and centered pooled
 correlations for the final report.
+
+---
+
+## Required Test Coverage Checklist
+
+Before full production, focused tests must cover:
+
+1. shared cohort is identical across all 12 experiments
+2. split manifest is independent of model seed
+3. overlap-connected events never cross partitions
+4. composite event keys do not collide
+5. feature normalization is train-only
+6. target normalization is train-only
+7. constant training target is rejected
+8. constant test target returns null Pearson
+9. OOF aggregation fails on a missing sample
+10. OOF aggregation fails on a duplicate sample
+11. complete subject OOF metrics are recomputed from held-out predictions
+12. event aggregation rejects inconsistent event targets
+13. centered pooled Pearson is computed after subject-wise centering
+14. run-state paths include protocol, experiment, model, and subject
+15. checkpoint paths include protocol
+16. production does not predict train indices
+17. benchmark decision is consumed by production runtime
+18. serial and parallel execution preserve deterministic job outputs
 
 ---
 

@@ -34,8 +34,9 @@ This work does not alter embedding extraction or the cross-subject results.
 
 Each subject is evaluated independently. A model trained for one subject must
 only see that subject's samples during training, validation, and testing.
-Normalization statistics and early-stopping decisions are computed from that
-subject's training and validation partitions only.
+Normalization statistics are fitted from training partitions only. Validation
+partitions are used only for model selection and early stopping. Test
+partitions are used only for final evaluation.
 
 ### Frozen split and cohort manifests
 
@@ -59,8 +60,10 @@ recover `window_start_time`, `window_end_time`, and session metadata that are
 not stored in the B1 embedding bundle. Events from the same subject/session
 whose raw time intervals overlap are placed in the same connected component.
 The component, rather than the individual event, is the indivisible split
-unit. The manifest records every overlap pair and duration. A post-build audit
-must show no raw-time overlap between train, validation, and test.
+unit. Components use collision-safe `(subject_id, session_id, event_id)` keys,
+because local event IDs may repeat across subjects or sessions. The manifest
+records every overlap pair and duration. A post-build audit must show no
+raw-time overlap between train, validation, and test.
 
 ### Event-grouped five-fold cross-validation
 
@@ -98,9 +101,11 @@ of model seed, protocol, experiment, subject, and fold derives each training
 seed without depending on execution order or worker count.
 
 The existing attention model's feature and target normalization must be fitted
-only on training indices. Every fold records the training sample-ID hash,
-normalization-statistics hash, and a successful recomputation audit. Validation
-or test outliers must not change fitted normalization statistics.
+only on training indices. Every fold records the training-only fit scope, fit
+sample count, training sample-ID hash, feature-statistics hash,
+target-statistics hash, and a successful recomputation audit. Validation or
+test feature and target outliers must not change fitted normalization
+statistics.
 
 ## Metrics
 
@@ -108,10 +113,17 @@ Each fold reports:
 
 - train, validation, and test window counts
 - train, validation, and test event counts
+- train, validation, and test target unique counts
+- train, validation, and test target standard deviations
 - test RMSE
 - test MAE
 - test Pearson correlation
 - mean final pooling attention weight for each enabled modality
+
+Training targets that are constant or effectively constant within a numerical
+tolerance are rejected or marked as `degenerate_train_target`; the fold is not
+silently trained. Constant validation or test targets remain valid for RMSE
+and MAE, with Pearson correlation set to `null`.
 
 Pearson correlation is `null` when either prediction or target has zero
 variance. Such folds remain valid for RMSE and MAE but do not contribute to
@@ -119,7 +131,10 @@ Pearson mean or standard deviation.
 
 Each subject's primary metrics are recomputed from its complete concatenated
 OOF predictions, not averaged from fold metrics. Fold mean and standard
-deviation remain diagnostics only.
+deviation remain diagnostics only. Subject aggregation receives the expected
+subject sample IDs from the frozen split manifest and fails unless the OOF
+records cover that exact set once and only once; metric outputs store expected
+and actual sample counts plus both sample-ID hashes with `oof_complete=true`.
 
 Metrics are reported at two levels:
 
@@ -176,24 +191,34 @@ The directory contains:
 - `fusion_matrix_within_subject_summary.md`: comparison table for all 12
   experiments
 - `split_manifest.json` and `cohort_manifest.json`, including source hashes
-- `predictions/<protocol>/<experiment>/<model>.npz`, containing independent
-  OOF sample IDs, event IDs, subjects, sessions, folds, targets, predictions,
-  and attention weights when available
-- `run_state/<protocol>/<experiment>/<subject>.json`, atomically written for
-  resume
+- `predictions/<protocol>/<experiment>/<model>/<subject>.npz`, containing
+  independent OOF sample IDs, event IDs, subjects, sessions, folds, targets,
+  predictions, and attention weights when available
+- `run_state/<protocol>/<experiment>/<model>/<subject>.json`, atomically
+  written for resume
 
 Model checkpoints are written below:
 
 ```text
 outputs/models/fusion_matrix_within_subject_120s10s/
-  <experiment>/<subject>/fold-00.pt
+  <protocol>/<experiment>/<subject>/fold-00.pt
 ```
+
+Baselines do not need model checkpoints unless the current baseline
+implementation explicitly saves them.
 
 No existing cross-subject report or checkpoint is overwritten.
 
 Production mode does not compute train-set predictions. A completed
 experiment-subject job is reused only when its state file, checkpoint hashes,
 prediction shard, cohort hash, split hash, and model configuration all match.
+
+The backend benchmark writes
+`outputs/reports/fusion_matrix_within_subject_benchmark/backend_decision.json`
+with the selected device and worker count. Production runs load this file
+unless `--device` and `--workers` are both explicitly supplied, and the final
+report records the selected device, selected worker count, benchmark decision
+hash, and effective runtime configuration.
 
 ## Implementation Boundaries
 
@@ -217,6 +242,12 @@ The existing cross-subject runner remains behaviorally unchanged.
   dataset contract.
 - Event overlap across partitions raises an error before model training.
 - Empty train, validation, or test partitions raise an error.
+- Degenerate training targets raise an error or mark the fold/subject as
+  `degenerate_train_target`; they are never silently trained.
+- Incomplete, duplicate, or unexpected OOF sample coverage raises an error
+  before subject metrics are computed.
+- Event-level aggregation raises an error if one subject/event has inconsistent
+  target values across its windows.
 - Subjects with fewer than five overlap-connected split units are recorded and skipped.
 - Subjects with too few sessions are skipped only for session-held-out.
 - Missing or stale resume artifacts are recomputed rather than trusted.
@@ -242,14 +273,21 @@ Automated tests cover:
 - frozen split reuse across all 12 experiments
 - split/model seed independence
 - overlap-connected events never cross partitions
-- train-only normalization with validation/test outliers
+- composite event keys do not collide across subjects or sessions
+- train-only feature and target normalization with validation/test outliers
+- constant training targets are rejected
+- constant held-out targets report `pearson=null`
 - subject metrics recomputed from complete OOF predictions
+- OOF aggregation fails on missing, duplicate, or unexpected samples
+- event aggregation rejects inconsistent event targets
 - subject-centered pooled Pearson
 - global paired cohort equality across all experiments
 - window-level and event-level OOF metrics
 - session-held-out coverage and skip rules
 - train-mean and Ridge baselines
 - resume validation and independent prediction artifacts
+- output paths include protocol, experiment, model, and subject where required
+- production consumes the backend decision file and avoids train predictions
 - deterministic results across worker counts
 
 Server execution has three gates:
@@ -260,16 +298,28 @@ Server execution has three gates:
    jobs, selecting the fastest valid backend.
 3. Full production runs for all 12 experiments and both protocols.
 
+The full 12-experiment production matrix uses one fixed `model_seed`. After
+the primary matrix is complete, only the top two or three attention
+configurations are rerun with additional model seeds to estimate initialization
+sensitivity.
+
 ## Acceptance Criteria
 
 - All 12 experiments complete or explicitly report a failure.
-- Every subject has either five completed folds or an explicit skip reason.
-- No event ID crosses partitions within any fold.
+- For event-grouped evaluation, every eligible subject has exactly five
+  completed test folds.
+- For session-held-out evaluation, every eligible subject has exactly one
+  completed test fold per session.
+- Subjects that do not meet protocol eligibility requirements have explicit
+  skip reasons.
+- No collision-safe event key crosses partitions within any fold.
 - Per-subject JSON and Markdown results are available for every experiment.
 - Summary files contain both macro and pooled metrics.
 - Headline pooled correlation is within-subject centered.
 - Both window-level and event-level OOF results are present.
 - Event and session protocols use frozen manifests.
 - All primary ablations use the same global paired cohort.
-- Production reports confirm train-only normalization and no train prediction.
+- Production reports confirm train-only feature and target normalization,
+  exact OOF coverage, no train prediction, and the consumed backend benchmark
+  decision.
 - The existing cross-subject test suite remains green.
