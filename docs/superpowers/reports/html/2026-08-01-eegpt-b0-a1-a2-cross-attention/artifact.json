@@ -1,0 +1,1643 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "EEGPT B0/A1/A2 EEG 对齐多模态交叉注意力完整结果报告",
+    "description": "Portable HTML technical report for the EEGPT B0/A1/A2 multimodal fusion results.",
+    "generatedAt": "2026-08-05T05:17:59.075Z",
+    "cards": [
+      {
+        "id": "card_windows",
+        "dataset": "headline",
+        "sourceId": "eegpt_fusion_report_md",
+        "filter": {
+          "id": "scope"
+        },
+        "metrics": [
+          {
+            "label": "Canonical windows",
+            "field": "canonical_windows",
+            "format": "compact"
+          }
+        ]
+      },
+      {
+        "id": "card_metrics",
+        "dataset": "headline",
+        "sourceId": "eegpt_fusion_report_md",
+        "filter": {
+          "id": "scope"
+        },
+        "metrics": [
+          {
+            "label": "Metrics files",
+            "field": "metrics_files",
+            "format": "compact"
+          }
+        ]
+      },
+      {
+        "id": "card_cross_day",
+        "dataset": "headline",
+        "sourceId": "eegpt_fusion_report_md",
+        "filter": {
+          "id": "best"
+        },
+        "metrics": [
+          {
+            "label": "Best cross_day RMSE",
+            "field": "cross_day_rmse",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "card_within_rmse",
+        "dataset": "headline",
+        "sourceId": "eegpt_fusion_report_md",
+        "filter": {
+          "id": "best"
+        },
+        "metrics": [
+          {
+            "label": "Best within_subject_day RMSE",
+            "field": "within_subject_day_rmse",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "card_within_raw",
+        "dataset": "headline",
+        "sourceId": "eegpt_fusion_report_md",
+        "filter": {
+          "id": "best"
+        },
+        "metrics": [
+          {
+            "label": "Best within raw r",
+            "field": "within_subject_raw_r_best",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "card_centered",
+        "dataset": "headline",
+        "sourceId": "eegpt_fusion_report_md",
+        "filter": {
+          "id": "best"
+        },
+        "metrics": [
+          {
+            "label": "Best cross_day centered r",
+            "field": "cross_day_centered_r_best",
+            "format": "number"
+          }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "protocol_best_rmse_chart",
+        "title": "Best RMSE by protocol",
+        "subtitle": "Lower is better; best rows differ by generalization protocol.",
+        "type": "bar",
+        "dataset": "protocol_best",
+        "sourceId": "eegpt_fusion_report_md",
+        "valueFormat": "number",
+        "options": {
+          "orientation": "horizontal",
+          "grouping": "single"
+        },
+        "encodings": {
+          "x": {
+            "field": "protocol",
+            "type": "nominal",
+            "label": "Protocol"
+          },
+          "y": {
+            "field": "best_rmse",
+            "type": "quantitative",
+            "label": "Best RMSE"
+          },
+          "tooltip": [
+            {
+              "field": "best_rmse_experiment",
+              "type": "nominal",
+              "label": "Best RMSE experiment"
+            },
+            {
+              "field": "raw_r",
+              "type": "quantitative",
+              "label": "Raw r"
+            },
+            {
+              "field": "centered_r",
+              "type": "quantitative",
+              "label": "Centered r"
+            }
+          ]
+        }
+      },
+      {
+        "id": "branch_coverage_chart",
+        "title": "Embedding coverage by branch",
+        "subtitle": "EEG covers every window; video/audio/wear coverage is carried through masks.",
+        "type": "bar",
+        "dataset": "branch_coverage",
+        "sourceId": "eegpt_fusion_report_md",
+        "valueFormat": "percent",
+        "options": {
+          "orientation": "horizontal",
+          "grouping": "single"
+        },
+        "encodings": {
+          "x": {
+            "field": "branch",
+            "type": "nominal",
+            "label": "Branch"
+          },
+          "y": {
+            "field": "coverage_rate",
+            "type": "quantitative",
+            "label": "Coverage rate"
+          },
+          "tooltip": [
+            {
+              "field": "mask_sum",
+              "type": "quantitative",
+              "label": "Mask sum"
+            },
+            {
+              "field": "rows",
+              "type": "quantitative",
+              "label": "Rows"
+            },
+            {
+              "field": "embedding_shape",
+              "type": "nominal",
+              "label": "Embedding shape"
+            }
+          ]
+        }
+      },
+      {
+        "id": "route_avg_rmse_chart",
+        "title": "Average RMSE for video-using rows",
+        "subtitle": "A2 has the lowest average RMSE in cross_day and within_subject_day video rows.",
+        "type": "bar",
+        "dataset": "route_comparison",
+        "sourceId": "eegpt_fusion_report_md",
+        "valueFormat": "number",
+        "options": {
+          "orientation": "vertical",
+          "grouping": "grouped"
+        },
+        "encodings": {
+          "x": {
+            "field": "protocol",
+            "type": "nominal",
+            "label": "Protocol"
+          },
+          "y": {
+            "field": "avg_rmse",
+            "type": "quantitative",
+            "label": "Average RMSE"
+          },
+          "color": {
+            "field": "route",
+            "type": "nominal",
+            "label": "Video route"
+          },
+          "tooltip": [
+            {
+              "field": "route",
+              "type": "nominal",
+              "label": "Route"
+            },
+            {
+              "field": "best_row",
+              "type": "nominal",
+              "label": "Best row"
+            },
+            {
+              "field": "best_rmse",
+              "type": "quantitative",
+              "label": "Best RMSE"
+            },
+            {
+              "field": "avg_raw_r",
+              "type": "quantitative",
+              "label": "Average raw r"
+            }
+          ]
+        }
+      }
+    ],
+    "tables": [
+      {
+        "id": "protocol_best_table",
+        "title": "Protocol-level best results",
+        "subtitle": "Best RMSE and best raw r rows for each protocol.",
+        "dataset": "protocol_best",
+        "sourceId": "eegpt_fusion_report_md",
+        "defaultSort": {
+          "field": "best_rmse",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "protocol",
+            "label": "Protocol",
+            "type": "text"
+          },
+          {
+            "field": "best_rmse_experiment",
+            "label": "Best RMSE experiment",
+            "type": "text"
+          },
+          {
+            "field": "best_rmse",
+            "label": "RMSE",
+            "format": "number"
+          },
+          {
+            "field": "mae",
+            "label": "MAE",
+            "format": "number"
+          },
+          {
+            "field": "raw_r",
+            "label": "Raw r",
+            "format": "number"
+          },
+          {
+            "field": "centered_r",
+            "label": "Centered r",
+            "format": "number"
+          },
+          {
+            "field": "raw_r_best_experiment",
+            "label": "Raw r best experiment",
+            "type": "text"
+          },
+          {
+            "field": "raw_r_best",
+            "label": "Best raw r",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "centered_top_table",
+        "title": "Top centered r rows",
+        "subtitle": "Top rows for cross_day and within_subject_day after subject-wise test centering.",
+        "dataset": "centered_top",
+        "sourceId": "eegpt_fusion_report_md",
+        "defaultSort": {
+          "field": "centered_r",
+          "direction": "desc"
+        },
+        "columns": [
+          {
+            "field": "protocol",
+            "label": "Protocol",
+            "type": "text"
+          },
+          {
+            "field": "experiment",
+            "label": "Experiment",
+            "type": "text"
+          },
+          {
+            "field": "rmse",
+            "label": "RMSE",
+            "format": "number"
+          },
+          {
+            "field": "raw_r",
+            "label": "Raw r",
+            "format": "number"
+          },
+          {
+            "field": "centered_r",
+            "label": "Centered r",
+            "format": "number"
+          },
+          {
+            "field": "per_subject_r_mean",
+            "label": "Per-subject r mean",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "split_counts_table",
+        "title": "Dataset split counts",
+        "subtitle": "Train is pretrain plus finetune; validation and test are fixed split files.",
+        "dataset": "split_counts",
+        "sourceId": "eegpt_fusion_report_md",
+        "defaultSort": {
+          "field": "protocol",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "protocol",
+            "label": "Protocol",
+            "type": "text"
+          },
+          {
+            "field": "split_meaning",
+            "label": "Meaning",
+            "type": "text"
+          },
+          {
+            "field": "pretrain",
+            "label": "Pretrain",
+            "format": "compact"
+          },
+          {
+            "field": "finetune",
+            "label": "Finetune",
+            "format": "compact"
+          },
+          {
+            "field": "train_total",
+            "label": "Train total",
+            "format": "compact"
+          },
+          {
+            "field": "val",
+            "label": "Val",
+            "format": "compact"
+          },
+          {
+            "field": "test",
+            "label": "Test",
+            "format": "compact"
+          }
+        ]
+      },
+      {
+        "id": "definitions_table",
+        "title": "Experiment abbreviations and modality branches",
+        "subtitle": "Route, wear branch, and modality-combination meanings used in experiment names.",
+        "dataset": "definitions",
+        "sourceId": "eegpt_fusion_report_md",
+        "defaultSort": {
+          "field": "category",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "term",
+            "label": "Term",
+            "type": "text"
+          },
+          {
+            "field": "category",
+            "label": "Category",
+            "type": "text"
+          },
+          {
+            "field": "meaning",
+            "label": "Meaning",
+            "type": "text"
+          },
+          {
+            "field": "artifact",
+            "label": "Artifact",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "all_results_error_table",
+        "title": "All 48 test rows: error metrics",
+        "subtitle": "RMSE and MAE for every protocol x experiment row.",
+        "dataset": "all_results",
+        "sourceId": "eegpt_fusion_report_md",
+        "defaultSort": {
+          "field": "rank",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "rank",
+            "label": "#",
+            "format": "compact"
+          },
+          {
+            "field": "protocol",
+            "label": "Protocol",
+            "type": "text"
+          },
+          {
+            "field": "experiment",
+            "label": "Experiment",
+            "type": "text"
+          },
+          {
+            "field": "modalities",
+            "label": "Modalities",
+            "type": "text"
+          },
+          {
+            "field": "rmse",
+            "label": "RMSE",
+            "format": "number"
+          },
+          {
+            "field": "mae",
+            "label": "MAE",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "all_results_corr_table",
+        "title": "All 48 test rows: correlation metrics",
+        "subtitle": "Raw r, centered r, and per-subject r diagnostics for every row.",
+        "dataset": "all_results",
+        "sourceId": "eegpt_fusion_report_md",
+        "defaultSort": {
+          "field": "rank",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "rank",
+            "label": "#",
+            "format": "compact"
+          },
+          {
+            "field": "protocol",
+            "label": "Protocol",
+            "type": "text"
+          },
+          {
+            "field": "experiment",
+            "label": "Experiment",
+            "type": "text"
+          },
+          {
+            "field": "raw_r",
+            "label": "Raw r",
+            "format": "number"
+          },
+          {
+            "field": "centered_r",
+            "label": "Centered r",
+            "format": "number"
+          },
+          {
+            "field": "per_subject_r_mean",
+            "label": "Per-subject r mean",
+            "format": "number"
+          },
+          {
+            "field": "per_subject_r_std",
+            "label": "Per-subject r std",
+            "format": "number"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "eegpt_fusion_report_md",
+        "label": "Parsed EEGPT fusion report snapshot",
+        "path": "docs/superpowers/reports/html/2026-08-01-eegpt-b0-a1-a2-cross-attention/source_query.sql",
+        "query": {
+          "engine": "artifact_snapshot",
+          "sql": "SELECT * FROM eegpt_b0_a1_a2_report_snapshot",
+          "description": "Represents reviewed tables parsed from the source Markdown report and checked against synced JSON summaries."
+        }
+      },
+      {
+        "id": "eegpt_fusion_summary_json",
+        "label": "Synced fusion summary JSON",
+        "path": "outputs/server_sync/eegpt_allvideo_fusion/eegpt_allvideo_fusion_matrix_all_protocols_summary.json"
+      },
+      {
+        "id": "eegpt_alignment_preflight",
+        "label": "Synced alignment preflight JSON",
+        "path": "outputs/server_sync/eegpt_allvideo_fusion/eegpt_allvideo_alignment_preflight.json"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# EEGPT B0/A1/A2 EEG 对齐多模态交叉注意力完整结果报告"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "sourceId": "eegpt_fusion_report_md",
+        "body": "## 技术摘要\n\n本报告汇总 EEGPT EEG 分支接入后的 EEG 对齐多模态 cross-attention 矩阵结果。实验基于 28,819 行 canonical EEG window index，默认预测 `fatigue`，在 `cross_subject`、`cross_day`、`within_​subject_​day` 三个 `splits_new` 协议下训练和测试。\n\n- **全量 route-aware 结果已经完成。** 本轮共有 48 个 metrics 文件：3 个协议 x 16 个实验。16 个实验由原 B0 的 8 个控制组合，加上 A1/​A2 各 4 个真正使用视频的组合构成；`no_video` 和 `bio_only` 是路线无关控制项，只在 B0 名下保留一次。\n- **最佳 RMSE 随泛化协议变化。** `cross_subject` 最优为 `B0_​Wphysio_​bio_​only`，RMSE `0.9012`，raw r `-0.0207`；`cross_day` 和 `within_​subject_​day` 都由 `A1_​Wphysio_​no_​audio` 取得最佳 RMSE，分别为 `0.9298` 和 `0.9348`，raw r 分别为 `0.2594` 和 `0.3032`。\n- **A1 是当前跨天和被试内跨天的主候选视频路线。** 两个协议的最佳 RMSE 都来自 A1 + Wphysio + no_​audio。A2 在 `within_subject_day` 中很接近，并给出最高 raw r 行：`A2_Wdeep_full`，raw r `0.3161`。\n- **音频分支在当前矩阵中整体拉高误差。** 18 个 full-vs-no-audio 配对中，加入音频后 RMSE 平均增加 `0.0151`，raw r 平均变化 `-0.0271`。`cross_day` 和 `within_​subject_​day` 的顶部候选主要来自 `no_audio`。\n- **centered r 显示模型的个体内波动追踪能力弱于总体排序能力。** `cross_day` 的 centered r 最优为 `A1_Wphysio_no_audio`（`0.1107`）；`within_​subject_​day` 的 centered r 最优为 `B0_​Wdeep_​no_​audio`（`0.1026`）。二者明显低于对应协议的 raw r 前排结果，说明当前模型更擅长总体 fatigue 水平排序，个体内相对波动仍是后续改进重点。\n- **跨被试场景更像校准问题，排序信号仍弱。** `cross_subject` 的最低 RMSE 来自 bio-only 控制项，但 raw Pearson r 接近 0；因此它适合作为当前跨被试 RMSE 基线，暂不宜当作跨被试 fatigue ranking 已经有效的证据。"
+      },
+      {
+        "id": "headline_metrics",
+        "type": "metric-strip",
+        "cardIds": [
+          "card_windows",
+          "card_metrics",
+          "card_cross_day",
+          "card_within_rmse",
+          "card_within_raw",
+          "card_centered"
+        ]
+      },
+      {
+        "id": "protocol_best_intro",
+        "type": "markdown",
+        "sourceId": "eegpt_fusion_report_md",
+        "body": "## 协议级最佳结果\n\n**解读。** RMSE 衡量预测尺度和校准，raw r 衡量样本排序。`cross_subject` 的 RMSE 最优行和 raw r 最优行并不一致，且相关系数都偏弱；`cross_day` 的 RMSE 和 raw r 最优都集中在 `A1_Wphysio_no_audio`；`within_​subject_​day` 中 A1 拿到最低 RMSE，A2/Wdeep/full 拿到最高 raw r。后续如果主目标是误差，优先追 A1/​Wphysio/​no_​audio；如果主目标是排序，也要保留 A2/Wdeep 作为比较对象。"
+      },
+      {
+        "id": "protocol_best_chart_block",
+        "type": "chart",
+        "chartId": "protocol_best_rmse_chart"
+      },
+      {
+        "id": "protocol_best_table_block",
+        "type": "table",
+        "tableId": "protocol_best_table"
+      },
+      {
+        "id": "centered_r_interpretation",
+        "type": "markdown",
+        "sourceId": "eegpt_fusion_report_md",
+        "body": "## Raw r 与 centered r 的计算和解释\n\n对某个协议的 test split，设第 `i` 个测试样本属于被试 `s_i`，真实 fatigue 为 `y_i`，模型预测为 `ŷ_i`。raw r 直接在全部测试样本上计算：\n\n```text\nraw_​r = corr({ŷ_​i}, {y_​i}), i in test\n```\n\nwithin-subject centered r 先在测试集内部按被试去均值：\n\n```text\nŷ_​i_​centered = ŷ_​i - mean(ŷ_​j | s_​j = s_​i, j in test)\ny_​i_​centered = y_​i - mean(y_​j | s_​j = s_​i, j in test)\n```\n\n然后把所有 centered 后的测试样本 pooled 到一起计算 Pearson r：\n\n```text\nwithin_​subject_​centered_​r =\n  corr({ŷ_​i_​centered}, {y_​i_​centered}), i in test\n```\n\n这个指标和 `per_​subject_​r_​mean` 不同。`per_​subject_​r_​mean` 是每个被试单独算 r 后再对被试取平均；centered r 是每个被试内先去均值，再把全部样本 pooled 起来算一个总体相关。它回答的问题是：**去掉每个被试自己的平均 fatigue 水平后，模型还能不能追踪同一被试内部的相对升降。**\n\n**本轮结果的读法。** Raw r 明显高于 centered r，说明模型捕捉到的主要信号包含被试间或天级整体 fatigue 差异；当这些 subject-level baseline 被扣除后，个体内部波动仍能被部分追踪，但强度较弱。因此主性能结论应使用 RMSE、MAE、raw r；centered r 应作为更严格的动态追踪诊断指标。\n\n## Cross-day 和 within-subject-day 的 centered r 结果\n\n`cross_day` 中，`A1_​Wphysio_​no_​audio` 同时取得最低 RMSE、最高 raw r 和最高 centered r，是当前最均衡的跨天候选。\n\n`within_​subject_​day` 中，centered r 最优是 `B0_​Wdeep_​no_​audio`，而 RMSE 最优是 `A1_​Wphysio_​no_​audio`，raw r 最优是 `A2_Wdeep_full`。这说明被试内跨天场景存在一个清晰取舍：A1/Wphysio/no-audio 更适合低误差主候选，B0/Wdeep/no-audio 更适合个体内波动追踪诊断，A2/Wdeep/full 更适合总体排序对照。"
+      },
+      {
+        "id": "centered_top_table_block",
+        "type": "table",
+        "tableId": "centered_top_table"
+      },
+      {
+        "id": "scope_and_alignment",
+        "type": "markdown",
+        "sourceId": "eegpt_fusion_report_md",
+        "body": "## 数据范围与指标定义\n\n### 分窗方式\n\n本轮实验使用 EEG 对齐后的 canonical window index，而不是重新从原始多模态文件中临时切窗。索引文件包含 `28819` 行，对应 `1253` 个评分事件；每个事件固定展开为 `23` 个窗口，`event_window_id` 为 `0..22`。每个窗口长度为 `10s`，相邻窗口起点间隔 `5s`，因此每个事件形成一个 5 秒步长的重叠窗口序列。\n\n每一行窗口都有稳定的 `sample_id` 和 `eeg_​sample_​index`：`sample_id` 从 `eeg_000000` 到 `eeg_028818`，`eeg_​sample_​index` 严格等于 `0..28818`。所有模态 embedding 都按这 28,819 行的同一顺序保存，后续训练直接按行读取 embedding 与 mask，不再改变窗口数量或顺序。\n\n### 数据集划分方式\n\n训练、验证和测试划分完全使用 `/​vePFS-0x0d/​DailyEEG/​splits_​new/​` 下的三个 EEG 协议：`cross_subject`、`cross_day`、`within_​subject_​day`。每个协议目录都包含 `pretrain.json`、`finetune.json`、`val.json`、`test.json` 和 `split_info.json`。监督训练时只把 `pretrain + finetune` 合并为 train，`val` 用于早停/模型选择，`test` 只用于最终报告指标。\n\n这三个协议不是重新抽样得到的实验内随机划分，而是固定的 EEG 官方划分；本轮训练不重写、不过滤、不重排这些 split index。远端复核确认每个协议的 train、val、test 互不重叠，所有 index 都在 `0..28818` 范围内，并且 `train = pretrain + finetune`。\n\n### 实验缩写和模态分支含义\n\n本报告中的实验名采用 `视频路线_​Wear分支_​模态组合` 的形式。例如 `A1_​Wphysio_​no_​audio` 表示：视频使用 A1 路线，wear 使用 Wphysio 分支，启用 EEG + wear + video，不启用 audio。\n\n视频路线 B0/A1/A2 都基于同一套 EEG 对齐 2x face ROI 视频窗口，并输出 256 维 `video_emb`。区别在于视频 embedding 生成时的视觉扰动策略：\n\nWear 的 `physio` 和 `deep` 是两条不同的 PPG/​GSR/​ACC wearable 表征路线，二者都输出 256 维 `wear_emb`，并且都已经对齐到同一批 28,819 个 EEG 窗口：\n\n模态组合后缀表示启用哪些 token：`full` = EEG + wear + video + audio；`no_audio` = EEG + wear + video；`no_video` = EEG + wear + audio；`bio_only` = EEG + wear。A1/​A2 只出现在实际使用视频的组合中；`no_video` 和 `bio_only` 是路线无关控制项，因此只在 B0 名下报告一次。"
+      },
+      {
+        "id": "split_counts_table_block",
+        "type": "table",
+        "tableId": "split_counts_table"
+      },
+      {
+        "id": "branch_coverage_intro",
+        "type": "markdown",
+        "sourceId": "eegpt_fusion_report_md",
+        "body": "## 分支覆盖率\n\n**校验说明。** 远端 preflight 返回 `ok=True`，已经检查 sample order、embedding shape、mask、canonical labels、EEG sample index 和 split range。EEGPT EEG 分支 100% 覆盖，所以所有 28,819 行至少有一个有效 token。"
+      },
+      {
+        "id": "branch_coverage_chart_block",
+        "type": "chart",
+        "chartId": "branch_coverage_chart"
+      },
+      {
+        "id": "definitions_table_block",
+        "type": "table",
+        "tableId": "definitions_table"
+      },
+      {
+        "id": "route_and_ablation",
+        "type": "markdown",
+        "sourceId": "eegpt_fusion_report_md",
+        "body": "## 视频路线比较\n\n**解读。** `cross_subject` 中三条视频路线的均值接近，最低整体 RMSE 仍由 bio-only 控制项给出。`cross_day` 中 A2 的视频使用行平均 RMSE 最低，但单行最佳仍是 `A1_Wphysio_no_audio`；两条路线都优于 B0 均值。`within_​subject_​day` 中 A2 的路线均值和最高 raw r 最突出，A1 仍保持最低单行 RMSE。整体上，A1 更适合做低误差主候选，A2 更适合保留为排序信号和路线鲁棒性的比较候选。\n\n## 消融解读\n\n**音频。** 18 个 full-vs-no-audio 配对中，full 相对 no-audio 的平均 ΔRMSE 为 `+0.0151`，平均 Δraw r 为 `-0.0271`。这说明当前 openSMILE 音频 token 在这个 fusion 设置下整体拖累前排候选，尤其影响 `cross_day` 和 `within_​subject_​day`。下一轮主候选建议采用 `no_audio`，同时单独重审音频 encoder、音频质量门控和缺失模态建模。\n\n**视频。** 以共享 `no_video` / `bio_only` 作为控制项时，视频收益主要出现在 `cross_day` 和 `within_​subject_​day` 的无音频设置。A1/A2 都能在若干配对中低于 bio-only 控制项；带音频设置的收益更不稳定。`cross_subject` 中视频常常提高 RMSE，所以视频路线优势应按协议分别陈述。\n\n**Wear。** Wphysio 是当前更稳的低 RMSE 选择，特别是 `cross_day` 和 `within_​subject_​day` 的主候选 `A1_​Wphysio_​no_​audio`。Wdeep 在部分 within-subject 排序指标上有价值，例如 A2 相关行 raw r 更高。下一轮保留两条 wear 分支更合适：Wphysio 支撑主 RMSE 候选，Wdeep 检查序列特征对排序的贡献。"
+      },
+      {
+        "id": "route_avg_rmse_chart_block",
+        "type": "chart",
+        "chartId": "route_avg_rmse_chart"
+      },
+      {
+        "id": "all_results_intro",
+        "type": "markdown",
+        "sourceId": "eegpt_fusion_report_md",
+        "body": "## 全部 48 个测试结果"
+      },
+      {
+        "id": "all_results_error_table_block",
+        "type": "table",
+        "tableId": "all_results_error_table"
+      },
+      {
+        "id": "all_results_corr_table_block",
+        "type": "table",
+        "tableId": "all_results_corr_table"
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "sourceId": "eegpt_fusion_report_md",
+        "body": "## 方法与验证细节\n\n- **模型结构。** 每个启用模态堆叠为一个 256 维 token；模型包含 `Linear(256 -> hidden_​dim)`、learnable modality embedding、1-head `MultiheadAttention`、learnable query pooling、`LayerNorm + Linear + ReLU + Dropout + Linear` 回归头。\n- **训练设置。** AdamW；hidden dim 128；dropout 0.1；learning rate 1e-3；weight decay 1e-4；batch size 256；最多 80 epochs；patience 15；seed 240729；远端 NVIDIA H20 上使用 CUDA。\n- **归一化。** 特征归一化只在 train token 上拟合；target 只用 train 统计量标准化后进入 MSE loss，报告指标再反变换到原始尺度。\n- **centered r 计算。** 对 `cross_day` 和 `within_​subject_​day`，报告使用 test split 内的 subject-wise mean centering：先分别对 prediction 和 target 按测试被试去均值，再 pooled 计算 Pearson r。该指标用于诊断个体内相对波动，不作为单独的冠军选择标准。\n- **验证结果。** 完整性脚本检查了 3 个 protocol summary、48 个 metrics 文件、`fatigue` target、测试指标字段、train/​val/​test mask coverage、per-subject r 字段，以及每个 metrics JSON 中的 EEGPT EEG branch path；结果 `errors=0`。\n- **路线矩阵定义。** A1/​A2 只加入真实使用视频的组合；`no_video` 和 `bio_only` 作为共享路线无关控制项保留在 B0 下。"
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "sourceId": "eegpt_fusion_report_md",
+        "body": "## 限制与不确定性\n\n- **跨被试排序信号偏弱。** `cross_subject` 最低 RMSE 行的 raw r 接近 0；因此当前结果更支持跨被试误差基线，而对 fatigue ranking 的跨被试推广仍需多 seed 和更强个体差异建模验证。\n- **centered r 显示个体内动态仍有改进空间。** `cross_day` 和 `within_​subject_​day` 的 centered r 最高值分别为 `0.1107` 和 `0.1026`，明显低于对应 raw r 前排结果；论文表述应区分“总体 fatigue 水平排序”和“个体内相对波动追踪”。\n- **配对消融包含训练随机性。** 为避免重复无视频行，A1/​A2 没有各自复制 `no_video` / `bio_only` 控制项；视频贡献表使用共享控制项，因此适合判断方向，不适合当作严格同 seed 因果消融。\n- **音频结论依赖当前 openSMILE 分支。** 当前结果说明这个音频 token 在该 fusion 设置下整体帮助有限；更强音频 encoder、音频质量门控或更细的缺失模态建模可能改变结论。\n- **本报告是模型比较证据。** 它适合用于选择下一轮候选路线和论文叙事重点，不直接证明某一模态对 fatigue 的因果作用。"
+      },
+      {
+        "id": "next_steps",
+        "type": "markdown",
+        "sourceId": "eegpt_fusion_report_md",
+        "body": "## 建议下一步\n\n1. 将 `A1_​Wphysio_​no_​audio` 作为 `cross_day` 和 `within_​subject_​day` 的主候选，围绕它做多 seed 稳定性验证。\n2. 保留 `A2_Wdeep_full`、`A2_​Wdeep_​no_​audio` 作为排序指标对照，因为 A2 在 `within_​subject_​day` 中给出最高 raw r。\n3. 将 `B0_​Wphysio_​bio_​only` 作为当前 `cross_subject` RMSE 基线，同时持续报告 raw r，避免把低 RMSE 误读成强排序能力。\n4. 在 `cross_day` 和 `within_​subject_​day` 的后续报告中保留 centered r；将它作为个体内动态追踪诊断，与 RMSE/raw r 分开解释。\n5. 单独重审音频分支：优先做 audio encoder 替换、audio mask sensitivity，或更强 fusion regularization，再决定 full multimodal 是否进入主结论。\n6. 论文叙事建议围绕协议特异性组织：A1/A2 视频路线在跨天和被试内跨天设置下更有价值；跨被试设置当前以 EEG+wear 的 bio-only 校准基线为主。"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-05T05:17:59.075Z",
+    "status": "ready",
+    "datasets": {
+      "headline": [
+        {
+          "id": "scope",
+          "canonical_windows": 28819,
+          "metrics_files": 48,
+          "protocols": 3,
+          "experiments_per_protocol": 16
+        },
+        {
+          "id": "best",
+          "cross_subject_rmse": 0.9012,
+          "cross_day_rmse": 0.9298,
+          "within_subject_day_rmse": 0.9348,
+          "within_subject_raw_r_best": 0.3161,
+          "cross_day_centered_r_best": 0.1107,
+          "within_centered_r_best": 0.1026
+        }
+      ],
+      "protocol_best": [
+        {
+          "protocol": "cross_subject",
+          "best_rmse_experiment": "B0_Wphysio_bio_only",
+          "best_rmse": 0.9012,
+          "mae": 0.6861,
+          "raw_r": -0.0207,
+          "centered_r": -0.0415,
+          "per_subject_r_mean": -0.0336,
+          "raw_r_best_experiment": "B0_Wdeep_bio_only",
+          "raw_r_best": 0.0835,
+          "raw_r_best_rmse": 0.906
+        },
+        {
+          "protocol": "cross_day",
+          "best_rmse_experiment": "A1_Wphysio_no_audio",
+          "best_rmse": 0.9298,
+          "mae": 0.7055,
+          "raw_r": 0.2594,
+          "centered_r": 0.1107,
+          "per_subject_r_mean": 0.0687,
+          "raw_r_best_experiment": "A1_Wphysio_no_audio",
+          "raw_r_best": 0.2594,
+          "raw_r_best_rmse": 0.9298
+        },
+        {
+          "protocol": "within_subject_day",
+          "best_rmse_experiment": "A1_Wphysio_no_audio",
+          "best_rmse": 0.9348,
+          "mae": 0.7255,
+          "raw_r": 0.3032,
+          "centered_r": 0.0778,
+          "per_subject_r_mean": 0.0555,
+          "raw_r_best_experiment": "A2_Wdeep_full",
+          "raw_r_best": 0.3161,
+          "raw_r_best_rmse": 0.9382
+        }
+      ],
+      "centered_top": [
+        {
+          "protocol": "cross_day",
+          "experiment": "A1_Wphysio_no_audio",
+          "rmse": 0.9298,
+          "raw_r": 0.2594,
+          "centered_r": 0.1107,
+          "per_subject_r_mean": 0.0687
+        },
+        {
+          "protocol": "cross_day",
+          "experiment": "B0_Wdeep_bio_only",
+          "rmse": 0.964,
+          "raw_r": 0.1521,
+          "centered_r": 0.1022,
+          "per_subject_r_mean": 0.0833
+        },
+        {
+          "protocol": "cross_day",
+          "experiment": "B0_Wphysio_bio_only",
+          "rmse": 0.9751,
+          "raw_r": -0.0199,
+          "centered_r": 0.0997,
+          "per_subject_r_mean": 0.0933
+        },
+        {
+          "protocol": "cross_day",
+          "experiment": "B0_Wphysio_no_video",
+          "rmse": 0.9603,
+          "raw_r": 0.1651,
+          "centered_r": 0.09,
+          "per_subject_r_mean": 0.056
+        },
+        {
+          "protocol": "cross_day",
+          "experiment": "B0_Wdeep_no_video",
+          "rmse": 0.9722,
+          "raw_r": 0.1362,
+          "centered_r": 0.0781,
+          "per_subject_r_mean": 0.0431
+        },
+        {
+          "protocol": "within_subject_day",
+          "experiment": "B0_Wdeep_no_audio",
+          "rmse": 0.9577,
+          "raw_r": 0.2838,
+          "centered_r": 0.1026,
+          "per_subject_r_mean": 0.1038
+        },
+        {
+          "protocol": "within_subject_day",
+          "experiment": "A1_Wphysio_full",
+          "rmse": 0.9755,
+          "raw_r": 0.1489,
+          "centered_r": 0.1004,
+          "per_subject_r_mean": 0.0898
+        },
+        {
+          "protocol": "within_subject_day",
+          "experiment": "A2_Wdeep_full",
+          "rmse": 0.9382,
+          "raw_r": 0.3161,
+          "centered_r": 0.0794,
+          "per_subject_r_mean": 0.0679
+        },
+        {
+          "protocol": "within_subject_day",
+          "experiment": "A1_Wphysio_no_audio",
+          "rmse": 0.9348,
+          "raw_r": 0.3032,
+          "centered_r": 0.0778,
+          "per_subject_r_mean": 0.0555
+        },
+        {
+          "protocol": "within_subject_day",
+          "experiment": "A1_Wdeep_no_audio",
+          "rmse": 0.9481,
+          "raw_r": 0.3067,
+          "centered_r": 0.0765,
+          "per_subject_r_mean": 0.0844
+        }
+      ],
+      "split_counts": [
+        {
+          "protocol": "cross_subject",
+          "split_meaning": "cross-subject generalization",
+          "pretrain": 6122,
+          "finetune": 11519,
+          "train_total": 17641,
+          "val": 5106,
+          "test": 6072
+        },
+        {
+          "protocol": "cross_day",
+          "split_meaning": "cross-day generalization",
+          "pretrain": 6122,
+          "finetune": 10691,
+          "train_total": 16813,
+          "val": 6187,
+          "test": 5819
+        },
+        {
+          "protocol": "within_subject_day",
+          "split_meaning": "within-subject cross-day generalization",
+          "pretrain": 6122,
+          "finetune": 11121,
+          "train_total": 17243,
+          "val": 5708,
+          "test": 5868
+        }
+      ],
+      "branch_coverage": [
+        {
+          "branch": "eeg",
+          "rows": 28819,
+          "embedding_shape": "(28819, 256)",
+          "mask_sum": 28819,
+          "coverage_rate": 1
+        },
+        {
+          "branch": "video_B0",
+          "rows": 28819,
+          "embedding_shape": "(28819, 256)",
+          "mask_sum": 18017,
+          "coverage_rate": 0.625
+        },
+        {
+          "branch": "video_A1",
+          "rows": 28819,
+          "embedding_shape": "(28819, 256)",
+          "mask_sum": 18021,
+          "coverage_rate": 0.625
+        },
+        {
+          "branch": "video_A2",
+          "rows": 28819,
+          "embedding_shape": "(28819, 256)",
+          "mask_sum": 17992,
+          "coverage_rate": 0.624
+        },
+        {
+          "branch": "audio",
+          "rows": 28819,
+          "embedding_shape": "(28819, 256)",
+          "mask_sum": 17924,
+          "coverage_rate": 0.622
+        },
+        {
+          "branch": "wear_physio",
+          "rows": 28819,
+          "embedding_shape": "(28819, 256)",
+          "mask_sum": 24127,
+          "coverage_rate": 0.837
+        },
+        {
+          "branch": "wear_deep",
+          "rows": 28819,
+          "embedding_shape": "(28819, 256)",
+          "mask_sum": 24127,
+          "coverage_rate": 0.837
+        }
+      ],
+      "route_comparison": [
+        {
+          "protocol": "cross_subject",
+          "route": "B0",
+          "video_experiments": 4,
+          "avg_rmse": 0.9337,
+          "avg_raw_r": 0.0222,
+          "best_row": "B0_Wdeep_no_audio",
+          "best_rmse": 0.9154,
+          "best_raw_r": 0.066
+        },
+        {
+          "protocol": "cross_subject",
+          "route": "A1",
+          "video_experiments": 4,
+          "avg_rmse": 0.9395,
+          "avg_raw_r": -0.0205,
+          "best_row": "A1_Wdeep_no_audio",
+          "best_rmse": 0.9198,
+          "best_raw_r": 0.0092
+        },
+        {
+          "protocol": "cross_subject",
+          "route": "A2",
+          "video_experiments": 4,
+          "avg_rmse": 0.9373,
+          "avg_raw_r": 0.008,
+          "best_row": "A2_Wphysio_no_audio",
+          "best_rmse": 0.9163,
+          "best_raw_r": 0.0526
+        },
+        {
+          "protocol": "cross_day",
+          "route": "B0",
+          "video_experiments": 4,
+          "avg_rmse": 0.9581,
+          "avg_raw_r": 0.2097,
+          "best_row": "B0_Wphysio_no_audio",
+          "best_rmse": 0.941,
+          "best_raw_r": 0.1967
+        },
+        {
+          "protocol": "cross_day",
+          "route": "A1",
+          "video_experiments": 4,
+          "avg_rmse": 0.955,
+          "avg_raw_r": 0.2101,
+          "best_row": "A1_Wphysio_no_audio",
+          "best_rmse": 0.9298,
+          "best_raw_r": 0.2594
+        },
+        {
+          "protocol": "cross_day",
+          "route": "A2",
+          "video_experiments": 4,
+          "avg_rmse": 0.9526,
+          "avg_raw_r": 0.2047,
+          "best_row": "A2_Wphysio_no_audio",
+          "best_rmse": 0.9339,
+          "best_raw_r": 0.2359
+        },
+        {
+          "protocol": "within_subject_day",
+          "route": "B0",
+          "video_experiments": 4,
+          "avg_rmse": 0.9531,
+          "avg_raw_r": 0.2622,
+          "best_row": "B0_Wphysio_no_audio",
+          "best_rmse": 0.9434,
+          "best_raw_r": 0.2879
+        },
+        {
+          "protocol": "within_subject_day",
+          "route": "A1",
+          "video_experiments": 4,
+          "avg_rmse": 0.9538,
+          "avg_raw_r": 0.2529,
+          "best_row": "A1_Wphysio_no_audio",
+          "best_rmse": 0.9348,
+          "best_raw_r": 0.3032
+        },
+        {
+          "protocol": "within_subject_day",
+          "route": "A2",
+          "video_experiments": 4,
+          "avg_rmse": 0.9465,
+          "avg_raw_r": 0.2888,
+          "best_row": "A2_Wdeep_full",
+          "best_rmse": 0.9382,
+          "best_raw_r": 0.3161
+        }
+      ],
+      "definitions": [
+        {
+          "term": "B0",
+          "category": "video route",
+          "meaning": "baseline 2x face ROI DINOv2 embedding without extra visual augmentation",
+          "artifact": "video_B0_2xroi_eeg23win_embeddings.npz"
+        },
+        {
+          "term": "A1",
+          "category": "video route",
+          "meaning": "2x face ROI frames with mild color / brightness augmentation before DINOv2 embedding",
+          "artifact": "video_A1_2xroi_eeg23win_embeddings.npz"
+        },
+        {
+          "term": "A2",
+          "category": "video route",
+          "meaning": "A1 plus grayscale perturbation before DINOv2 embedding",
+          "artifact": "video_A2_2xroi_eeg23win_embeddings.npz"
+        },
+        {
+          "term": "Wphysio / wear_physio",
+          "category": "wear branch",
+          "meaning": "interpretable PPG/GSR/ACC physiological feature branch projected to 256D",
+          "artifact": "wear_physio_preprocessed_eeg23win_embeddings.npz"
+        },
+        {
+          "term": "Wdeep / wear_deep",
+          "category": "wear branch",
+          "meaning": "sequence wearable branch using fixed sequence encoder / TCN-like pooling projected to 256D",
+          "artifact": "wear_deep_sequence_preprocessed_eeg23win_embeddings.npz"
+        },
+        {
+          "term": "full",
+          "category": "modality suffix",
+          "meaning": "EEG + wear + video + audio",
+          "artifact": "experiment name suffix"
+        },
+        {
+          "term": "no_audio",
+          "category": "modality suffix",
+          "meaning": "EEG + wear + video",
+          "artifact": "experiment name suffix"
+        },
+        {
+          "term": "no_video",
+          "category": "modality suffix",
+          "meaning": "EEG + wear + audio",
+          "artifact": "experiment name suffix"
+        },
+        {
+          "term": "bio_only",
+          "category": "modality suffix",
+          "meaning": "EEG + wear",
+          "artifact": "experiment name suffix"
+        }
+      ],
+      "all_results": [
+        {
+          "rank": 1,
+          "protocol": "cross_day",
+          "experiment": "A1_Wphysio_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9298,
+          "mae": 0.7055,
+          "raw_r": 0.2594,
+          "centered_r": 0.1107,
+          "per_subject_r_mean": 0.0687,
+          "per_subject_r_std": 0.229
+        },
+        {
+          "rank": 2,
+          "protocol": "cross_day",
+          "experiment": "A2_Wphysio_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9339,
+          "mae": 0.7205,
+          "raw_r": 0.2359,
+          "centered_r": 0.0652,
+          "per_subject_r_mean": 0.0402,
+          "per_subject_r_std": 0.1999
+        },
+        {
+          "rank": 3,
+          "protocol": "cross_day",
+          "experiment": "B0_Wphysio_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.941,
+          "mae": 0.7127,
+          "raw_r": 0.1967,
+          "centered_r": 0.0245,
+          "per_subject_r_mean": 0.0089,
+          "per_subject_r_std": 0.1908
+        },
+        {
+          "rank": 4,
+          "protocol": "cross_day",
+          "experiment": "A2_Wdeep_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9428,
+          "mae": 0.7125,
+          "raw_r": 0.1619,
+          "centered_r": 0.0608,
+          "per_subject_r_mean": 0.0469,
+          "per_subject_r_std": 0.2073
+        },
+        {
+          "rank": 5,
+          "protocol": "cross_day",
+          "experiment": "B0_Wdeep_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9508,
+          "mae": 0.747,
+          "raw_r": 0.2366,
+          "centered_r": 0.0681,
+          "per_subject_r_mean": 0.06,
+          "per_subject_r_std": 0.206
+        },
+        {
+          "rank": 6,
+          "protocol": "cross_day",
+          "experiment": "A1_Wphysio_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9551,
+          "mae": 0.7333,
+          "raw_r": 0.1886,
+          "centered_r": 0.0567,
+          "per_subject_r_mean": 0.031,
+          "per_subject_r_std": 0.2069
+        },
+        {
+          "rank": 7,
+          "protocol": "cross_day",
+          "experiment": "A1_Wdeep_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9558,
+          "mae": 0.7558,
+          "raw_r": 0.2216,
+          "centered_r": 0.0437,
+          "per_subject_r_mean": 0.0224,
+          "per_subject_r_std": 0.1747
+        },
+        {
+          "rank": 8,
+          "protocol": "cross_day",
+          "experiment": "A2_Wphysio_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.96,
+          "mae": 0.7307,
+          "raw_r": 0.1964,
+          "centered_r": 0.0668,
+          "per_subject_r_mean": 0.0308,
+          "per_subject_r_std": 0.2137
+        },
+        {
+          "rank": 9,
+          "protocol": "cross_day",
+          "experiment": "B0_Wphysio_no_video",
+          "modalities": "eeg+wear+audio",
+          "rmse": 0.9603,
+          "mae": 0.7389,
+          "raw_r": 0.1651,
+          "centered_r": 0.09,
+          "per_subject_r_mean": 0.056,
+          "per_subject_r_std": 0.2852
+        },
+        {
+          "rank": 10,
+          "protocol": "cross_day",
+          "experiment": "B0_Wdeep_bio_only",
+          "modalities": "eeg+wear",
+          "rmse": 0.964,
+          "mae": 0.7306,
+          "raw_r": 0.1521,
+          "centered_r": 0.1022,
+          "per_subject_r_mean": 0.0833,
+          "per_subject_r_std": 0.1654
+        },
+        {
+          "rank": 11,
+          "protocol": "cross_day",
+          "experiment": "B0_Wphysio_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9687,
+          "mae": 0.7536,
+          "raw_r": 0.1975,
+          "centered_r": 0.0445,
+          "per_subject_r_mean": 0.0287,
+          "per_subject_r_std": 0.1861
+        },
+        {
+          "rank": 12,
+          "protocol": "cross_day",
+          "experiment": "B0_Wdeep_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9719,
+          "mae": 0.7695,
+          "raw_r": 0.2082,
+          "centered_r": 0.0448,
+          "per_subject_r_mean": -0.0013,
+          "per_subject_r_std": 0.2015
+        },
+        {
+          "rank": 13,
+          "protocol": "cross_day",
+          "experiment": "B0_Wdeep_no_video",
+          "modalities": "eeg+wear+audio",
+          "rmse": 0.9722,
+          "mae": 0.7384,
+          "raw_r": 0.1362,
+          "centered_r": 0.0781,
+          "per_subject_r_mean": 0.0431,
+          "per_subject_r_std": 0.1899
+        },
+        {
+          "rank": 14,
+          "protocol": "cross_day",
+          "experiment": "A2_Wdeep_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9736,
+          "mae": 0.7698,
+          "raw_r": 0.2245,
+          "centered_r": 0.0524,
+          "per_subject_r_mean": 0.0326,
+          "per_subject_r_std": 0.1712
+        },
+        {
+          "rank": 15,
+          "protocol": "cross_day",
+          "experiment": "B0_Wphysio_bio_only",
+          "modalities": "eeg+wear",
+          "rmse": 0.9751,
+          "mae": 0.724,
+          "raw_r": -0.0199,
+          "centered_r": 0.0997,
+          "per_subject_r_mean": 0.0933,
+          "per_subject_r_std": 0.1969
+        },
+        {
+          "rank": 16,
+          "protocol": "cross_day",
+          "experiment": "A1_Wdeep_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9793,
+          "mae": 0.7641,
+          "raw_r": 0.1708,
+          "centered_r": 0.0367,
+          "per_subject_r_mean": 0.0287,
+          "per_subject_r_std": 0.2162
+        },
+        {
+          "rank": 17,
+          "protocol": "cross_subject",
+          "experiment": "B0_Wphysio_bio_only",
+          "modalities": "eeg+wear",
+          "rmse": 0.9012,
+          "mae": 0.6861,
+          "raw_r": -0.0207,
+          "centered_r": -0.0415,
+          "per_subject_r_mean": -0.0336,
+          "per_subject_r_std": 0.0417
+        },
+        {
+          "rank": 18,
+          "protocol": "cross_subject",
+          "experiment": "B0_Wdeep_bio_only",
+          "modalities": "eeg+wear",
+          "rmse": 0.906,
+          "mae": 0.7257,
+          "raw_r": 0.0835,
+          "centered_r": -0.0065,
+          "per_subject_r_mean": -0.0277,
+          "per_subject_r_std": 0.1843
+        },
+        {
+          "rank": 19,
+          "protocol": "cross_subject",
+          "experiment": "B0_Wdeep_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9154,
+          "mae": 0.7401,
+          "raw_r": 0.066,
+          "centered_r": 0.0681,
+          "per_subject_r_mean": 0.0451,
+          "per_subject_r_std": 0.1793
+        },
+        {
+          "rank": 20,
+          "protocol": "cross_subject",
+          "experiment": "A2_Wphysio_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9163,
+          "mae": 0.7361,
+          "raw_r": 0.0526,
+          "centered_r": 0.0515,
+          "per_subject_r_mean": 0.0537,
+          "per_subject_r_std": 0.0031
+        },
+        {
+          "rank": 21,
+          "protocol": "cross_subject",
+          "experiment": "A1_Wdeep_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9198,
+          "mae": 0.7317,
+          "raw_r": 0.0092,
+          "centered_r": 0.0064,
+          "per_subject_r_mean": -0.0368,
+          "per_subject_r_std": 0.1495
+        },
+        {
+          "rank": 22,
+          "protocol": "cross_subject",
+          "experiment": "A2_Wdeep_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9259,
+          "mae": 0.7453,
+          "raw_r": 0.0171,
+          "centered_r": 0.0167,
+          "per_subject_r_mean": 0.019,
+          "per_subject_r_std": 0.089
+        },
+        {
+          "rank": 23,
+          "protocol": "cross_subject",
+          "experiment": "B0_Wdeep_no_video",
+          "modalities": "eeg+wear+audio",
+          "rmse": 0.9277,
+          "mae": 0.7489,
+          "raw_r": 0.0315,
+          "centered_r": 0.0155,
+          "per_subject_r_mean": -0.0241,
+          "per_subject_r_std": 0.0958
+        },
+        {
+          "rank": 24,
+          "protocol": "cross_subject",
+          "experiment": "B0_Wphysio_no_video",
+          "modalities": "eeg+wear+audio",
+          "rmse": 0.9338,
+          "mae": 0.7401,
+          "raw_r": -0.0479,
+          "centered_r": -0.0012,
+          "per_subject_r_mean": -0.0144,
+          "per_subject_r_std": 0.0737
+        },
+        {
+          "rank": 25,
+          "protocol": "cross_subject",
+          "experiment": "A1_Wphysio_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9369,
+          "mae": 0.7458,
+          "raw_r": -0.0598,
+          "centered_r": -0.0093,
+          "per_subject_r_mean": -0.0096,
+          "per_subject_r_std": 0.0116
+        },
+        {
+          "rank": 26,
+          "protocol": "cross_subject",
+          "experiment": "B0_Wphysio_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.937,
+          "mae": 0.7428,
+          "raw_r": 0.0282,
+          "centered_r": 0.0269,
+          "per_subject_r_mean": 0.0351,
+          "per_subject_r_std": 0.0555
+        },
+        {
+          "rank": 27,
+          "protocol": "cross_subject",
+          "experiment": "B0_Wphysio_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9385,
+          "mae": 0.7463,
+          "raw_r": -0.0722,
+          "centered_r": -0.0056,
+          "per_subject_r_mean": -0.0092,
+          "per_subject_r_std": 0.0312
+        },
+        {
+          "rank": 28,
+          "protocol": "cross_subject",
+          "experiment": "A1_Wdeep_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9417,
+          "mae": 0.7613,
+          "raw_r": 0.0574,
+          "centered_r": 0.0387,
+          "per_subject_r_mean": 0.0168,
+          "per_subject_r_std": 0.1002
+        },
+        {
+          "rank": 29,
+          "protocol": "cross_subject",
+          "experiment": "B0_Wdeep_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9437,
+          "mae": 0.7624,
+          "raw_r": 0.0668,
+          "centered_r": 0.088,
+          "per_subject_r_mean": 0.0764,
+          "per_subject_r_std": 0.0972
+        },
+        {
+          "rank": 30,
+          "protocol": "cross_subject",
+          "experiment": "A2_Wdeep_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9465,
+          "mae": 0.7679,
+          "raw_r": 0.0226,
+          "centered_r": 0.0269,
+          "per_subject_r_mean": 0.0108,
+          "per_subject_r_std": 0.0947
+        },
+        {
+          "rank": 31,
+          "protocol": "cross_subject",
+          "experiment": "A1_Wphysio_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9596,
+          "mae": 0.777,
+          "raw_r": -0.0887,
+          "centered_r": -0.0416,
+          "per_subject_r_mean": -0.0463,
+          "per_subject_r_std": 0.0558
+        },
+        {
+          "rank": 32,
+          "protocol": "cross_subject",
+          "experiment": "A2_Wphysio_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9604,
+          "mae": 0.7735,
+          "raw_r": -0.0603,
+          "centered_r": -0.0125,
+          "per_subject_r_mean": -0.0159,
+          "per_subject_r_std": 0.0312
+        },
+        {
+          "rank": 33,
+          "protocol": "within_subject_day",
+          "experiment": "A1_Wphysio_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9348,
+          "mae": 0.7255,
+          "raw_r": 0.3032,
+          "centered_r": 0.0778,
+          "per_subject_r_mean": 0.0555,
+          "per_subject_r_std": 0.209
+        },
+        {
+          "rank": 34,
+          "protocol": "within_subject_day",
+          "experiment": "A2_Wdeep_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9382,
+          "mae": 0.7421,
+          "raw_r": 0.3161,
+          "centered_r": 0.0794,
+          "per_subject_r_mean": 0.0679,
+          "per_subject_r_std": 0.218
+        },
+        {
+          "rank": 35,
+          "protocol": "within_subject_day",
+          "experiment": "A2_Wdeep_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9392,
+          "mae": 0.7495,
+          "raw_r": 0.3071,
+          "centered_r": 0.0721,
+          "per_subject_r_mean": 0.068,
+          "per_subject_r_std": 0.2298
+        },
+        {
+          "rank": 36,
+          "protocol": "within_subject_day",
+          "experiment": "B0_Wphysio_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9434,
+          "mae": 0.7235,
+          "raw_r": 0.2879,
+          "centered_r": 0.0664,
+          "per_subject_r_mean": 0.0847,
+          "per_subject_r_std": 0.2155
+        },
+        {
+          "rank": 37,
+          "protocol": "within_subject_day",
+          "experiment": "A1_Wdeep_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9481,
+          "mae": 0.7365,
+          "raw_r": 0.3067,
+          "centered_r": 0.0765,
+          "per_subject_r_mean": 0.0844,
+          "per_subject_r_std": 0.1909
+        },
+        {
+          "rank": 38,
+          "protocol": "within_subject_day",
+          "experiment": "A2_Wphysio_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9488,
+          "mae": 0.7374,
+          "raw_r": 0.2852,
+          "centered_r": 0.0629,
+          "per_subject_r_mean": 0.0543,
+          "per_subject_r_std": 0.2203
+        },
+        {
+          "rank": 39,
+          "protocol": "within_subject_day",
+          "experiment": "B0_Wdeep_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9546,
+          "mae": 0.7374,
+          "raw_r": 0.2317,
+          "centered_r": 0.0643,
+          "per_subject_r_mean": 0.0547,
+          "per_subject_r_std": 0.1951
+        },
+        {
+          "rank": 40,
+          "protocol": "within_subject_day",
+          "experiment": "B0_Wphysio_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9568,
+          "mae": 0.7337,
+          "raw_r": 0.2453,
+          "centered_r": 0.0704,
+          "per_subject_r_mean": 0.0575,
+          "per_subject_r_std": 0.2092
+        },
+        {
+          "rank": 41,
+          "protocol": "within_subject_day",
+          "experiment": "A1_Wdeep_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9568,
+          "mae": 0.7472,
+          "raw_r": 0.2527,
+          "centered_r": 0.062,
+          "per_subject_r_mean": 0.0594,
+          "per_subject_r_std": 0.2006
+        },
+        {
+          "rank": 42,
+          "protocol": "within_subject_day",
+          "experiment": "B0_Wdeep_no_video",
+          "modalities": "eeg+wear+audio",
+          "rmse": 0.9575,
+          "mae": 0.7322,
+          "raw_r": 0.2493,
+          "centered_r": 0.0367,
+          "per_subject_r_mean": 0.0216,
+          "per_subject_r_std": 0.187
+        },
+        {
+          "rank": 43,
+          "protocol": "within_subject_day",
+          "experiment": "B0_Wdeep_no_audio",
+          "modalities": "eeg+wear+video",
+          "rmse": 0.9577,
+          "mae": 0.7596,
+          "raw_r": 0.2838,
+          "centered_r": 0.1026,
+          "per_subject_r_mean": 0.1038,
+          "per_subject_r_std": 0.1777
+        },
+        {
+          "rank": 44,
+          "protocol": "within_subject_day",
+          "experiment": "A2_Wphysio_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9599,
+          "mae": 0.7334,
+          "raw_r": 0.2468,
+          "centered_r": 0.0462,
+          "per_subject_r_mean": 0.0247,
+          "per_subject_r_std": 0.2077
+        },
+        {
+          "rank": 45,
+          "protocol": "within_subject_day",
+          "experiment": "B0_Wdeep_bio_only",
+          "modalities": "eeg+wear",
+          "rmse": 0.9602,
+          "mae": 0.7236,
+          "raw_r": 0.2263,
+          "centered_r": -0.0349,
+          "per_subject_r_mean": -0.0393,
+          "per_subject_r_std": 0.1627
+        },
+        {
+          "rank": 46,
+          "protocol": "within_subject_day",
+          "experiment": "B0_Wphysio_no_video",
+          "modalities": "eeg+wear+audio",
+          "rmse": 0.9619,
+          "mae": 0.7375,
+          "raw_r": 0.2361,
+          "centered_r": 0.0701,
+          "per_subject_r_mean": 0.0524,
+          "per_subject_r_std": 0.1909
+        },
+        {
+          "rank": 47,
+          "protocol": "within_subject_day",
+          "experiment": "A1_Wphysio_full",
+          "modalities": "eeg+wear+video+audio",
+          "rmse": 0.9755,
+          "mae": 0.7357,
+          "raw_r": 0.1489,
+          "centered_r": 0.1004,
+          "per_subject_r_mean": 0.0898,
+          "per_subject_r_std": 0.1801
+        },
+        {
+          "rank": 48,
+          "protocol": "within_subject_day",
+          "experiment": "B0_Wphysio_bio_only",
+          "modalities": "eeg+wear",
+          "rmse": 0.9983,
+          "mae": 0.7239,
+          "raw_r": -0.0181,
+          "centered_r": -0.0281,
+          "per_subject_r_mean": -0.0183,
+          "per_subject_r_std": 0.161
+        }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "eegpt_fusion_report_md",
+      "query": {
+        "engine": "artifact_snapshot",
+        "sql": "SELECT * FROM eegpt_b0_a1_a2_report_snapshot",
+        "description": "Represents reviewed tables parsed from the source Markdown report and checked against synced JSON summaries."
+      },
+      "document": {
+        "title": "EEGPT B0/A1/A2 EEG 对齐多模态交叉注意力完整结果报告",
+        "type": "markdown",
+        "path": "docs/superpowers/reports/2026-08-01-eegpt-b0-a1-a2-cross-attention-results.md",
+        "description": "Source Markdown report for this HTML delivery."
+      }
+    },
+    {
+      "id": "eegpt_fusion_summary_json",
+      "dataset": {
+        "name": "eegpt_allvideo_fusion_matrix_all_protocols_summary.json",
+        "path": "outputs/server_sync/eegpt_allvideo_fusion/eegpt_allvideo_fusion_matrix_all_protocols_summary.json",
+        "description": "Synced metrics summary JSON for the EEGPT fusion matrix."
+      }
+    },
+    {
+      "id": "eegpt_alignment_preflight",
+      "dataset": {
+        "name": "eegpt_allvideo_alignment_preflight.json",
+        "path": "outputs/server_sync/eegpt_allvideo_fusion/eegpt_allvideo_alignment_preflight.json",
+        "description": "Synced alignment preflight for shape, mask, sample order, and split validation."
+      }
+    }
+  ],
+  "package_info": {
+    "created_by": "Codex",
+    "source_markdown": "docs/superpowers/reports/2026-08-01-eegpt-b0-a1-a2-cross-attention-results.md"
+  }
+}

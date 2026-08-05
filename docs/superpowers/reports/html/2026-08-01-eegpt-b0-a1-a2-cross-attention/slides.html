@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EEGPT B0/A1/A2 多模态融合汇报</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #111827;
+      --muted: #5b6475;
+      --line: #d9dee8;
+      --paper: #fbfcff;
+      --panel: #ffffff;
+      --blue: #2563eb;
+      --teal: #0f766e;
+      --gold: #b7791f;
+      --coral: #d95f3f;
+      --violet: #6d5bd0;
+      --green: #2f855a;
+      --shadow: 0 24px 70px rgba(15, 23, 42, .15);
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background: #e8edf5;
+      color: var(--ink);
+      font-family: Inter, "Segoe UI", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+    }
+
+    body {
+      overflow: hidden;
+    }
+
+    .deck-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: 1fr auto;
+      align-items: center;
+      justify-items: center;
+      padding: 24px;
+      gap: 14px;
+    }
+
+    .slide-frame {
+      width: min(1280px, calc(100vw - 48px));
+      aspect-ratio: 16 / 9;
+      position: relative;
+      background: var(--paper);
+      border: 1px solid rgba(17, 24, 39, .08);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: none;
+      padding: 52px 64px 46px;
+      background:
+        linear-gradient(90deg, rgba(37, 99, 235, .05), transparent 35%),
+        linear-gradient(180deg, #fff, #f8fafc);
+    }
+
+    .slide.active {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 10px;
+      height: 100%;
+      background: linear-gradient(180deg, var(--blue), var(--teal), var(--gold));
+    }
+
+    .eyebrow {
+      margin: 0 0 14px;
+      color: var(--teal);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      max-width: 980px;
+      font-size: clamp(36px, 5.2vw, 66px);
+      line-height: 1.06;
+      letter-spacing: 0;
+      font-weight: 780;
+    }
+
+    h2 {
+      max-width: 1000px;
+      font-size: clamp(28px, 3.2vw, 44px);
+      line-height: 1.12;
+      letter-spacing: 0;
+      font-weight: 760;
+    }
+
+    h3 {
+      font-size: 18px;
+      line-height: 1.25;
+      font-weight: 720;
+    }
+
+    .lead {
+      max-width: 880px;
+      margin-top: 20px;
+      color: var(--muted);
+      font-size: clamp(17px, 1.7vw, 22px);
+      line-height: 1.55;
+    }
+
+    .slide-body {
+      flex: 1;
+      display: grid;
+      gap: 24px;
+      align-content: center;
+      padding-top: 24px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1.04fr .96fr;
+      gap: 28px;
+      align-items: stretch;
+    }
+
+    .three-col {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 34px;
+      max-width: 980px;
+    }
+
+    .metric,
+    .panel,
+    .callout {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, .06);
+    }
+
+    .metric {
+      padding: 18px 18px 16px;
+      min-height: 112px;
+    }
+
+    .metric .label {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.3;
+    }
+
+    .metric .value {
+      margin-top: 10px;
+      font-size: clamp(25px, 3vw, 38px);
+      line-height: 1;
+      font-weight: 780;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric .note {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.3;
+    }
+
+    .panel {
+      padding: 22px;
+    }
+
+    .callout {
+      padding: 22px 24px;
+      border-left: 6px solid var(--blue);
+    }
+
+    .callout.teal { border-left-color: var(--teal); }
+    .callout.gold { border-left-color: var(--gold); }
+    .callout.coral { border-left-color: var(--coral); }
+
+    .bullets {
+      display: grid;
+      gap: 14px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      color: #243044;
+      font-size: clamp(15px, 1.45vw, 18px);
+      line-height: 1.48;
+    }
+
+    .bullets li {
+      position: relative;
+      padding-left: 20px;
+    }
+
+    .bullets li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: .62em;
+      width: 8px;
+      height: 8px;
+      background: var(--blue);
+      border-radius: 2px;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    code {
+      font-family: "Cascadia Mono", Consolas, monospace;
+      font-size: .92em;
+      background: #eef2f7;
+      border: 1px solid #dfe5ee;
+      border-radius: 5px;
+      padding: 1px 5px;
+      overflow-wrap: anywhere;
+    }
+
+    .chart {
+      display: grid;
+      gap: 13px;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 190px 1fr 72px;
+      align-items: center;
+      gap: 12px;
+      font-size: 14px;
+    }
+
+    .bar-label {
+      overflow-wrap: anywhere;
+      color: #253047;
+      font-weight: 650;
+    }
+
+    .bar-track {
+      height: 20px;
+      background: #e9eef6;
+      border-radius: 5px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .bar {
+      height: 100%;
+      border-radius: 5px;
+      background: var(--blue);
+    }
+
+    .bar.teal { background: var(--teal); }
+    .bar.gold { background: var(--gold); }
+    .bar.coral { background: var(--coral); }
+    .bar.violet { background: var(--violet); }
+
+    .bar-value {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      font-weight: 720;
+    }
+
+    .mini-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .mini-table th,
+    .mini-table td {
+      padding: 10px 9px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .mini-table th {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 720;
+      text-transform: uppercase;
+    }
+
+    .mini-table td.num {
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 9px;
+      border: 1px solid #d7dfeb;
+      border-radius: 999px;
+      color: #243044;
+      background: #f5f7fb;
+      font-size: 13px;
+      font-weight: 620;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .node {
+      min-height: 112px;
+      display: grid;
+      align-content: center;
+      gap: 8px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .node strong {
+      font-size: 17px;
+    }
+
+    .node span {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .arrow {
+      color: var(--muted);
+      font-size: 26px;
+      font-weight: 700;
+    }
+
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .step {
+      border-top: 5px solid var(--blue);
+      padding: 18px 18px 20px;
+      background: #fff;
+      border-radius: 8px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      border-left: 1px solid var(--line);
+    }
+
+    .step:nth-child(2) { border-top-color: var(--teal); }
+    .step:nth-child(3) { border-top-color: var(--gold); }
+
+    .step .kicker {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    .step p {
+      margin-top: 10px;
+      color: #253047;
+      font-size: 15px;
+      line-height: 1.42;
+    }
+
+    .footer {
+      position: absolute;
+      left: 64px;
+      right: 64px;
+      bottom: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #7a8495;
+      font-size: 12px;
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: #3f4858;
+      user-select: none;
+    }
+
+    .nav button {
+      width: 36px;
+      height: 36px;
+      border: 1px solid #c9d2e1;
+      border-radius: 999px;
+      background: #fff;
+      color: #253047;
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .dots {
+      display: flex;
+      gap: 7px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #b7c1d1;
+    }
+
+    .dot.active {
+      width: 22px;
+      background: var(--blue);
+    }
+
+    .slide-count {
+      min-width: 64px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+      font-size: 13px;
+    }
+
+    @media (max-width: 860px) {
+      body { overflow: auto; }
+      .deck-shell { padding: 0; }
+      .slide-frame {
+        width: 100vw;
+        min-height: 100vh;
+        aspect-ratio: auto;
+        box-shadow: none;
+        border: 0;
+      }
+      .slide {
+        position: relative;
+        min-height: 100vh;
+        padding: 32px 24px 72px 32px;
+      }
+      .two-col,
+      .three-col,
+      .metric-grid,
+      .timeline,
+      .flow {
+        grid-template-columns: 1fr;
+      }
+      .arrow { display: none; }
+      .bar-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+      .bar-value { text-align: left; }
+      .mini-table { font-size: 12px; }
+      .footer { left: 32px; right: 24px; }
+    }
+
+    @media print {
+      body { overflow: visible; background: #fff; }
+      .deck-shell { display: block; padding: 0; }
+      .slide-frame { width: 100%; aspect-ratio: auto; border: 0; box-shadow: none; }
+      .slide {
+        display: flex !important;
+        position: relative;
+        width: 100%;
+        min-height: 100vh;
+        page-break-after: always;
+      }
+      .nav { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck-shell">
+    <section class="slide-frame" aria-live="polite">
+      <article class="slide active">
+        <p class="eyebrow">EEGPT Multimodal Fusion</p>
+        <h1>EEGPT B0/A1/A2 多模态融合结果汇报</h1>
+        <p class="lead">基于 28,819 个 EEG 对齐窗口，比较 EEGPT EEG、视频 B0/A1/A2、audio、wear physio/deep 在三种 EEG 协议下的 cross-attention 融合表现。</p>
+        <div class="metric-grid">
+          <div class="metric"><div class="label">Canonical windows</div><div class="value">28,819</div><div class="note">1253 events x 23 windows</div></div>
+          <div class="metric"><div class="label">Completed metrics</div><div class="value">48</div><div class="note">3 protocols x 16 experiments</div></div>
+          <div class="metric"><div class="label">Best within raw r</div><div class="value">0.3161</div><div class="note">A2_Wdeep_full</div></div>
+        </div>
+        <div class="footer"><span>Daily Multimodal EEG</span><span>2026-08-05</span></div>
+      </article>
+
+      <article class="slide">
+        <p class="eyebrow">Main message</p>
+        <h2>当前模型更擅长总体疲劳水平排序，个体内波动追踪仍偏弱</h2>
+        <div class="slide-body two-col">
+          <div class="callout teal">
+            <h3>可以作为主结论的部分</h3>
+            <ul class="bullets">
+              <li><strong>A1_Wphysio_no_audio</strong> 是 cross_day 和 within_subject_day 的低误差主候选。</li>
+              <li>视频路线在跨天和被试内跨天设置中更有价值，跨被试设置仍以 EEG+wear 的 bio-only RMSE 基线为主。</li>
+              <li>音频分支在当前 openSMILE token 和 fusion 设置下整体拉高 RMSE。</li>
+            </ul>
+          </div>
+          <div class="callout coral">
+            <h3>需要谨慎表述的部分</h3>
+            <ul class="bullets">
+              <li>raw r 高于 centered r，说明 subject-level baseline 或天级差异贡献明显。</li>
+              <li>centered r 最高约 0.10，个体内疲劳相对升降仍未被稳定捕捉。</li>
+              <li>不能把低 RMSE 直接解释为强跨被试 fatigue ranking。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer"><span>结论先行</span><span>02 / 10</span></div>
+      </article>
+
+      <article class="slide">
+        <p class="eyebrow">Protocol winners</p>
+        <h2>最佳 RMSE 随泛化协议变化</h2>
+        <div class="slide-body two-col">
+          <div class="panel">
+            <h3>Best RMSE by protocol</h3>
+            <div class="chart" style="margin-top:18px">
+              <div class="bar-row"><span class="bar-label">cross_subject</span><span class="bar-track"><span class="bar coral" style="width:90.1%"></span></span><span class="bar-value">0.9012</span></div>
+              <div class="bar-row"><span class="bar-label">cross_day</span><span class="bar-track"><span class="bar teal" style="width:93.0%"></span></span><span class="bar-value">0.9298</span></div>
+              <div class="bar-row"><span class="bar-label">within_subject_day</span><span class="bar-track"><span class="bar gold" style="width:93.5%"></span></span><span class="bar-value">0.9348</span></div>
+            </div>
+          </div>
+          <div class="panel">
+            <table class="mini-table">
+              <thead><tr><th>Protocol</th><th>RMSE best</th><th>Raw r best</th></tr></thead>
+              <tbody>
+                <tr><td>cross_subject</td><td><code>B0_Wphysio_bio_only</code></td><td><code>B0_Wdeep_bio_only</code></td></tr>
+                <tr><td>cross_day</td><td><code>A1_Wphysio_no_audio</code></td><td><code>A1_Wphysio_no_audio</code></td></tr>
+                <tr><td>within_subject_day</td><td><code>A1_Wphysio_no_audio</code></td><td><code>A2_Wdeep_full</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="footer"><span>误差和排序不总是同一冠军</span><span>03 / 10</span></div>
+      </article>
+
+      <article class="slide">
+        <p class="eyebrow">Raw r vs centered r</p>
+        <h2>raw r 看总体排序，centered r 看个体内动态</h2>
+        <div class="slide-body two-col">
+          <div class="panel">
+            <h3>计算方式</h3>
+            <ul class="bullets" style="margin-top:16px">
+              <li><code>raw_r = corr(pred, target)</code>，在全部测试窗口上直接计算。</li>
+              <li>centered r 先按测试被试分别对 prediction 和 target 去均值，再 pooled 计算 Pearson r。</li>
+              <li>centered r 回答：扣掉每个被试自己的平均疲劳水平后，还能否追踪相对升降。</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>本轮诊断</h3>
+            <div class="chart" style="margin-top:18px">
+              <div class="bar-row"><span class="bar-label">cross_day centered r</span><span class="bar-track"><span class="bar teal" style="width:55%"></span></span><span class="bar-value">0.1107</span></div>
+              <div class="bar-row"><span class="bar-label">within centered r</span><span class="bar-track"><span class="bar gold" style="width:51%"></span></span><span class="bar-value">0.1026</span></div>
+              <div class="bar-row"><span class="bar-label">within raw r best</span><span class="bar-track"><span class="bar blue" style="width:100%"></span></span><span class="bar-value">0.3161</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="footer"><span>指标解释</span><span>04 / 10</span></div>
+      </article>
+
+      <article class="slide">
+        <p class="eyebrow">Data alignment</p>
+        <h2>三种 EEG 协议、分窗方式和所有模态 embedding 行级对齐</h2>
+        <div class="slide-body">
+          <div class="timeline">
+            <div class="step">
+              <div class="kicker">Windowing</div>
+              <h3>1253 个评分事件</h3>
+              <p>每个事件固定 23 个窗口；单窗 10 秒，stride 5 秒，总计 28,819 行。</p>
+            </div>
+            <div class="step">
+              <div class="kicker">Index</div>
+              <h3>sample_id 稳定</h3>
+              <p><code>eeg_000000</code> 到 <code>eeg_028818</code>，所有模态按同一顺序保存。</p>
+            </div>
+            <div class="step">
+              <div class="kicker">Split</div>
+              <h3>固定 splits_new</h3>
+              <p>使用 cross_subject、cross_day、within_subject_day；train = pretrain + finetune。</p>
+            </div>
+          </div>
+          <table class="mini-table">
+            <thead><tr><th>Protocol</th><th>Train</th><th>Val</th><th>Test</th><th>含义</th></tr></thead>
+            <tbody>
+              <tr><td>cross_subject</td><td class="num">17,641</td><td class="num">5,106</td><td class="num">6,072</td><td>跨被试泛化</td></tr>
+              <tr><td>cross_day</td><td class="num">16,813</td><td class="num">6,187</td><td class="num">5,819</td><td>跨日期泛化</td></tr>
+              <tr><td>within_subject_day</td><td class="num">17,243</td><td class="num">5,708</td><td class="num">5,868</td><td>同一被试内跨天泛化</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="footer"><span>数据和划分</span><span>05 / 10</span></div>
+      </article>
+
+      <article class="slide">
+        <p class="eyebrow">Fusion design</p>
+        <h2>多模态 embedding 以 token 形式进入 cross-attention</h2>
+        <div class="slide-body">
+          <div class="flow">
+            <div class="node"><strong>Modality tokens</strong><span>EEGPT EEG, video, audio, wear<br>每个 token 256 维</span></div>
+            <div class="arrow">→</div>
+            <div class="node"><strong>Cross-attention</strong><span>Linear projection + modality embedding + 1-head attention</span></div>
+            <div class="arrow">→</div>
+            <div class="node"><strong>Regression head</strong><span>query pooling + LayerNorm + MLP<br>输出 fatigue</span></div>
+          </div>
+          <div class="three-col">
+            <div class="callout"><h3>Mask 保留缺失信息</h3><p class="lead" style="font-size:15px">缺失模态通过 mask 控制，不删除窗口。</p></div>
+            <div class="callout teal"><h3>Train-only normalization</h3><p class="lead" style="font-size:15px">特征和 target 标准化只在 train 上拟合。</p></div>
+            <div class="callout gold"><h3>协议复用同一行索引</h3><p class="lead" style="font-size:15px">三种 split 不改变 embedding 顺序。</p></div>
+          </div>
+        </div>
+        <div class="footer"><span>融合机制</span><span>06 / 10</span></div>
+      </article>
+
+      <article class="slide">
+        <p class="eyebrow">Branch definitions</p>
+        <h2>B0/A1/A2 是视频路线，Wphysio/Wdeep 是两条 wear 表征路线</h2>
+        <div class="slide-body">
+          <div class="three-col">
+            <div class="panel"><h3>B0</h3><p class="lead" style="font-size:15px">baseline 2x face ROI DINOv2 embedding，无额外视觉增强。</p></div>
+            <div class="panel"><h3>A1</h3><p class="lead" style="font-size:15px">2x face ROI 帧加入 mild color / brightness 增强。</p></div>
+            <div class="panel"><h3>A2</h3><p class="lead" style="font-size:15px">在 A1 基础上加入 grayscale 扰动。</p></div>
+          </div>
+          <div class="two-col">
+            <div class="callout teal"><h3>Wphysio</h3><p class="lead" style="font-size:15px">PPG/GSR/ACC 预处理后提取 HR/HRV、GSR slope/SCR、ACC motion 等可解释生理特征。</p></div>
+            <div class="callout gold"><h3>Wdeep</h3><p class="lead" style="font-size:15px">PPG/GSR/ACC 预处理序列进入固定序列 encoder / TCN-like pooling。</p></div>
+          </div>
+          <div class="tag-row">
+            <span class="tag">full = EEG + wear + video + audio</span>
+            <span class="tag">no_audio = EEG + wear + video</span>
+            <span class="tag">no_video = EEG + wear + audio</span>
+            <span class="tag">bio_only = EEG + wear</span>
+          </div>
+        </div>
+        <div class="footer"><span>缩写定义</span><span>07 / 10</span></div>
+      </article>
+
+      <article class="slide">
+        <p class="eyebrow">Ablation reading</p>
+        <h2>A1 更适合作为低误差主候选，A2/Wdeep 保留为排序对照</h2>
+        <div class="slide-body two-col">
+          <div class="panel">
+            <h3>Video route average RMSE</h3>
+            <div class="chart" style="margin-top:18px">
+              <div class="bar-row"><span class="bar-label">cross_day B0</span><span class="bar-track"><span class="bar" style="width:95.8%"></span></span><span class="bar-value">0.9581</span></div>
+              <div class="bar-row"><span class="bar-label">cross_day A1</span><span class="bar-track"><span class="bar teal" style="width:95.5%"></span></span><span class="bar-value">0.9550</span></div>
+              <div class="bar-row"><span class="bar-label">cross_day A2</span><span class="bar-track"><span class="bar gold" style="width:95.3%"></span></span><span class="bar-value">0.9526</span></div>
+              <div class="bar-row"><span class="bar-label">within A2</span><span class="bar-track"><span class="bar coral" style="width:94.7%"></span></span><span class="bar-value">0.9465</span></div>
+            </div>
+          </div>
+          <div class="callout coral">
+            <h3>音频分支当前不进入主候选</h3>
+            <ul class="bullets" style="margin-top:16px">
+              <li>18 个 full-vs-no-audio 配对中，加入音频后平均 ΔRMSE = +0.0151。</li>
+              <li>平均 Δraw r = -0.0271。</li>
+              <li>下一轮优先做 audio encoder、质量门控和缺失模态建模复查。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer"><span>路线比较</span><span>08 / 10</span></div>
+      </article>
+
+      <article class="slide">
+        <p class="eyebrow">Result snapshot</p>
+        <h2>完整 48 行结果保留在审计表，汇报时重点看前排候选</h2>
+        <div class="slide-body">
+          <table class="mini-table">
+            <thead><tr><th>Protocol</th><th>Experiment</th><th>Modalities</th><th>RMSE</th><th>Raw r</th><th>Centered r</th></tr></thead>
+            <tbody>
+              <tr><td>cross_day</td><td><code>A1_Wphysio_no_audio</code></td><td>eeg+wear+video</td><td class="num">0.9298</td><td class="num">0.2594</td><td class="num">0.1107</td></tr>
+              <tr><td>within_subject_day</td><td><code>A1_Wphysio_no_audio</code></td><td>eeg+wear+video</td><td class="num">0.9348</td><td class="num">0.3032</td><td class="num">0.0778</td></tr>
+              <tr><td>within_subject_day</td><td><code>A2_Wdeep_full</code></td><td>eeg+wear+video+audio</td><td class="num">0.9382</td><td class="num">0.3161</td><td class="num">0.0794</td></tr>
+              <tr><td>within_subject_day</td><td><code>B0_Wdeep_no_audio</code></td><td>eeg+wear+video</td><td class="num">0.9577</td><td class="num">0.2838</td><td class="num">0.1026</td></tr>
+              <tr><td>cross_subject</td><td><code>B0_Wphysio_bio_only</code></td><td>eeg+wear</td><td class="num">0.9012</td><td class="num">-0.0207</td><td class="num">-0.0415</td></tr>
+            </tbody>
+          </table>
+          <div class="callout teal">
+            <h3>讲解顺序建议</h3>
+            <p class="lead" style="font-size:16px">先说明协议冠军，再解释 raw r / centered r 的差异，最后落到下一轮路线选择：A1/Wphysio/no-audio 做主候选，A2/Wdeep 做排序对照，音频单独复查。</p>
+          </div>
+        </div>
+        <div class="footer"><span>关键结果表</span><span>09 / 10</span></div>
+      </article>
+
+      <article class="slide">
+        <p class="eyebrow">Next steps</p>
+        <h2>下一轮验证围绕主候选稳定性和个体内动态能力展开</h2>
+        <div class="slide-body">
+          <div class="three-col">
+            <div class="step">
+              <div class="kicker">Priority 1</div>
+              <h3>多 seed 稳定性</h3>
+              <p>围绕 <code>A1_Wphysio_no_audio</code> 在 cross_day 和 within_subject_day 下复跑。</p>
+            </div>
+            <div class="step">
+              <div class="kicker">Priority 2</div>
+              <h3>个体内动态追踪</h3>
+              <p>持续报告 centered r，并用它诊断是否超越 subject baseline。</p>
+            </div>
+            <div class="step">
+              <div class="kicker">Priority 3</div>
+              <h3>音频分支复查</h3>
+              <p>重审 audio encoder、音频质量门控和缺失模态建模。</p>
+            </div>
+          </div>
+          <div class="callout gold">
+            <h3>论文叙事方向</h3>
+            <p class="lead" style="font-size:17px">按协议特异性组织结果：跨天和被试内跨天强调 A1/A2 视频路线价值；跨被试设置以 EEG+wear 的 bio-only 校准基线为主，避免把低 RMSE 过度解释成强排序能力。</p>
+          </div>
+        </div>
+        <div class="footer"><span>行动项</span><span>10 / 10</span></div>
+      </article>
+    </section>
+
+    <nav class="nav" aria-label="Slide navigation">
+      <button type="button" id="prev" aria-label="Previous slide">‹</button>
+      <div class="slide-count" id="count">01 / 10</div>
+      <div class="dots" id="dots" aria-hidden="true"></div>
+      <button type="button" id="next" aria-label="Next slide">›</button>
+    </nav>
+  </main>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll(".slide"));
+    const dots = document.getElementById("dots");
+    const count = document.getElementById("count");
+    let index = 0;
+
+    slides.forEach((_, i) => {
+      const dot = document.createElement("span");
+      dot.className = "dot" + (i === 0 ? " active" : "");
+      dot.addEventListener("click", () => show(i));
+      dots.appendChild(dot);
+    });
+
+    function show(nextIndex) {
+      index = Math.max(0, Math.min(slides.length - 1, nextIndex));
+      slides.forEach((slide, i) => slide.classList.toggle("active", i === index));
+      Array.from(dots.children).forEach((dot, i) => dot.classList.toggle("active", i === index));
+      count.textContent = `${String(index + 1).padStart(2, "0")} / ${String(slides.length).padStart(2, "0")}`;
+    }
+
+    document.getElementById("prev").addEventListener("click", () => show(index - 1));
+    document.getElementById("next").addEventListener("click", () => show(index + 1));
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") show(index + 1);
+      if (event.key === "ArrowLeft" || event.key === "PageUp") show(index - 1);
+      if (event.key === "Home") show(0);
+      if (event.key === "End") show(slides.length - 1);
+    });
+  </script>
+</body>
+</html>

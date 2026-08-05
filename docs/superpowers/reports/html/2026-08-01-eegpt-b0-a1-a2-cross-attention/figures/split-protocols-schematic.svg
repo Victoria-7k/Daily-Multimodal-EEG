@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">三种数据划分协议示意图</title>
+  <desc id="desc">用五个被试和五天数据示意 cross_subject、cross_day、within_subject_day 的训练集、验证集和测试集构成。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#f0fdf4"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <rect x="64" y="54" width="1472" height="792" rx="34" fill="#ffffff" stroke="#dbe4ef" filter="url(#shadow)"/>
+
+  <text x="106" y="126" font-family="Microsoft YaHei, Arial, sans-serif" font-size="43" font-weight="700" fill="#0f172a">三种数据划分协议</text>
+  <text x="106" y="170" font-family="Microsoft YaHei, Arial, sans-serif" font-size="24" fill="#475569">示例：sub1-sub5 每人都有 day1-day5 数据；颜色表示 train / val / test 的归属</text>
+
+  <g transform="translate(108,210)" font-family="Microsoft YaHei, Arial, sans-serif">
+    <rect x="0" y="0" width="122" height="34" rx="17" fill="#dbeafe"/>
+    <text x="30" y="24" font-size="18" fill="#1e3a8a">train</text>
+    <rect x="146" y="0" width="122" height="34" rx="17" fill="#fef3c7"/>
+    <text x="186" y="24" font-size="18" fill="#78350f">val</text>
+    <rect x="292" y="0" width="122" height="34" rx="17" fill="#fee2e2"/>
+    <text x="332" y="24" font-size="18" fill="#7f1d1d">test</text>
+  </g>
+
+  <g transform="translate(88,285)" font-family="Microsoft YaHei, Arial, sans-serif">
+    <rect x="0" y="0" width="455" height="500" rx="24" fill="#f8fafc" stroke="#dbe4ef"/>
+    <text x="28" y="48" font-size="28" font-weight="700" fill="#0f172a">cross_subject</text>
+    <text x="28" y="82" font-size="20" fill="#475569">按被试划分：测试被试整体保留</text>
+
+    <g transform="translate(40,122)">
+      <text x="66" y="-22" font-size="17" fill="#64748b">day1</text>
+      <text x="136" y="-22" font-size="17" fill="#64748b">day2</text>
+      <text x="206" y="-22" font-size="17" fill="#64748b">day3</text>
+      <text x="276" y="-22" font-size="17" fill="#64748b">day4</text>
+      <text x="346" y="-22" font-size="17" fill="#64748b">day5</text>
+      <g font-size="18" fill="#334155">
+        <text x="0" y="30">sub1</text>
+        <text x="0" y="86">sub2</text>
+        <text x="0" y="142">sub3</text>
+        <text x="0" y="198">sub4</text>
+        <text x="0" y="254">sub5</text>
+      </g>
+      <g stroke="#ffffff" stroke-width="2">
+        <rect x="62" y="0" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="132" y="0" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="202" y="0" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="272" y="0" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="342" y="0" width="54" height="42" rx="8" fill="#dbeafe"/>
+        <rect x="62" y="56" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="132" y="56" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="202" y="56" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="272" y="56" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="342" y="56" width="54" height="42" rx="8" fill="#dbeafe"/>
+        <rect x="62" y="112" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="132" y="112" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="202" y="112" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="272" y="112" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="342" y="112" width="54" height="42" rx="8" fill="#dbeafe"/>
+        <rect x="62" y="168" width="54" height="42" rx="8" fill="#fef3c7"/><rect x="132" y="168" width="54" height="42" rx="8" fill="#fef3c7"/><rect x="202" y="168" width="54" height="42" rx="8" fill="#fef3c7"/><rect x="272" y="168" width="54" height="42" rx="8" fill="#fef3c7"/><rect x="342" y="168" width="54" height="42" rx="8" fill="#fef3c7"/>
+        <rect x="62" y="224" width="54" height="42" rx="8" fill="#fee2e2"/><rect x="132" y="224" width="54" height="42" rx="8" fill="#fee2e2"/><rect x="202" y="224" width="54" height="42" rx="8" fill="#fee2e2"/><rect x="272" y="224" width="54" height="42" rx="8" fill="#fee2e2"/><rect x="342" y="224" width="54" height="42" rx="8" fill="#fee2e2"/>
+      </g>
+    </g>
+    <text x="28" y="442" font-size="20" fill="#334155">预测 sub5 任意 day：训练来自 sub1-sub3</text>
+  </g>
+
+  <g transform="translate(572,285)" font-family="Microsoft YaHei, Arial, sans-serif">
+    <rect x="0" y="0" width="455" height="500" rx="24" fill="#f8fafc" stroke="#dbe4ef"/>
+    <text x="28" y="48" font-size="28" font-weight="700" fill="#0f172a">cross_day</text>
+    <text x="28" y="82" font-size="20" fill="#475569">按日期划分：被试池共享，日期分开</text>
+
+    <g transform="translate(40,122)">
+      <text x="66" y="-22" font-size="17" fill="#64748b">day1</text>
+      <text x="136" y="-22" font-size="17" fill="#64748b">day2</text>
+      <text x="206" y="-22" font-size="17" fill="#64748b">day3</text>
+      <text x="276" y="-22" font-size="17" fill="#64748b">day4</text>
+      <text x="346" y="-22" font-size="17" fill="#64748b">day5</text>
+      <g font-size="18" fill="#334155">
+        <text x="0" y="30">sub1</text>
+        <text x="0" y="86">sub2</text>
+        <text x="0" y="142">sub3</text>
+        <text x="0" y="198">sub4</text>
+        <text x="0" y="254">sub5</text>
+      </g>
+      <g stroke="#ffffff" stroke-width="2">
+        <rect x="62" y="0" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="132" y="0" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="202" y="0" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="272" y="0" width="54" height="42" rx="8" fill="#fef3c7"/><rect x="342" y="0" width="54" height="42" rx="8" fill="#fee2e2"/>
+        <rect x="62" y="56" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="132" y="56" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="202" y="56" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="272" y="56" width="54" height="42" rx="8" fill="#fef3c7"/><rect x="342" y="56" width="54" height="42" rx="8" fill="#fee2e2"/>
+        <rect x="62" y="112" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="132" y="112" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="202" y="112" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="272" y="112" width="54" height="42" rx="8" fill="#fef3c7"/><rect x="342" y="112" width="54" height="42" rx="8" fill="#fee2e2"/>
+        <rect x="62" y="168" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="132" y="168" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="202" y="168" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="272" y="168" width="54" height="42" rx="8" fill="#fef3c7"/><rect x="342" y="168" width="54" height="42" rx="8" fill="#fee2e2"/>
+        <rect x="62" y="224" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="132" y="224" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="202" y="224" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="272" y="224" width="54" height="42" rx="8" fill="#fef3c7"/><rect x="342" y="224" width="54" height="42" rx="8" fill="#fee2e2"/>
+      </g>
+    </g>
+    <text x="28" y="442" font-size="20" fill="#334155">预测 sub1 day5：训练来自 sub1-sub5 day1-day3</text>
+  </g>
+
+  <g transform="translate(1056,285)" font-family="Microsoft YaHei, Arial, sans-serif">
+    <rect x="0" y="0" width="455" height="500" rx="24" fill="#f8fafc" stroke="#dbe4ef"/>
+    <text x="28" y="48" font-size="28" font-weight="700" fill="#0f172a">within_subject_day</text>
+    <text x="28" y="82" font-size="20" fill="#475569">每个被试内部按天划分</text>
+
+    <g transform="translate(40,122)">
+      <text x="66" y="-22" font-size="17" fill="#64748b">day1</text>
+      <text x="136" y="-22" font-size="17" fill="#64748b">day2</text>
+      <text x="206" y="-22" font-size="17" fill="#64748b">day3</text>
+      <text x="276" y="-22" font-size="17" fill="#64748b">day4</text>
+      <text x="346" y="-22" font-size="17" fill="#64748b">day5</text>
+      <g font-size="18" fill="#334155">
+        <text x="0" y="30">sub1</text>
+        <text x="0" y="86">sub2</text>
+        <text x="0" y="142">sub3</text>
+        <text x="0" y="198">sub4</text>
+        <text x="0" y="254">sub5</text>
+      </g>
+      <g stroke="#ffffff" stroke-width="2" opacity="0.36">
+        <rect x="62" y="56" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="132" y="56" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="202" y="56" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="272" y="56" width="54" height="42" rx="8" fill="#fef3c7"/><rect x="342" y="56" width="54" height="42" rx="8" fill="#fee2e2"/>
+        <rect x="62" y="112" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="132" y="112" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="202" y="112" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="272" y="112" width="54" height="42" rx="8" fill="#fef3c7"/><rect x="342" y="112" width="54" height="42" rx="8" fill="#fee2e2"/>
+        <rect x="62" y="168" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="132" y="168" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="202" y="168" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="272" y="168" width="54" height="42" rx="8" fill="#fef3c7"/><rect x="342" y="168" width="54" height="42" rx="8" fill="#fee2e2"/>
+        <rect x="62" y="224" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="132" y="224" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="202" y="224" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="272" y="224" width="54" height="42" rx="8" fill="#fef3c7"/><rect x="342" y="224" width="54" height="42" rx="8" fill="#fee2e2"/>
+      </g>
+      <g stroke="#ffffff" stroke-width="2">
+        <rect x="62" y="0" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="132" y="0" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="202" y="0" width="54" height="42" rx="8" fill="#dbeafe"/><rect x="272" y="0" width="54" height="42" rx="8" fill="#fef3c7"/><rect x="342" y="0" width="54" height="42" rx="8" fill="#fee2e2"/>
+      </g>
+      <rect x="54" y="-8" width="350" height="58" rx="12" fill="none" stroke="#2563eb" stroke-width="3"/>
+    </g>
+    <text x="28" y="442" font-size="20" fill="#334155">预测 sub1 day5：训练主要来自 sub1 day1-day3</text>
+  </g>
+</svg>

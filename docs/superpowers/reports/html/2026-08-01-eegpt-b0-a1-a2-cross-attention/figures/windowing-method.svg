@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">数据分窗方法示意图</title>
+  <desc id="desc">连续脑电事件按10秒窗口、5秒步长切分为23个重叠窗口，并与三类疲劳标签对齐。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f7fbff"/>
+      <stop offset="1" stop-color="#fff7ed"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="0" x2="1">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="0.5" stop-color="#059669"/>
+      <stop offset="1" stop-color="#dc2626"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#0f172a" flood-opacity="0.13"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#334155"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <rect x="70" y="56" width="1460" height="788" rx="34" fill="#ffffff" stroke="#dbe4ef" filter="url(#softShadow)"/>
+
+  <text x="110" y="128" font-family="Microsoft YaHei, Arial, sans-serif" font-size="44" font-weight="700" fill="#0f172a">数据分窗方法</text>
+  <text x="110" y="172" font-family="Microsoft YaHei, Arial, sans-serif" font-size="24" fill="#475569">固定 canonical window index：每个事件按 10s 窗长、5s stride 生成 23 个重叠窗口</text>
+
+  <g transform="translate(122,245)">
+    <rect x="0" y="0" width="1356" height="154" rx="18" fill="#f8fafc" stroke="#dbe4ef"/>
+    <text x="0" y="-28" font-family="Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="700" fill="#0f172a">1. 连续事件 EEG 片段</text>
+    <line x1="54" y1="78" x2="1294" y2="78" stroke="#cbd5e1" stroke-width="4" stroke-linecap="round"/>
+    <path d="M54 80 C80 35, 105 125, 132 78 S184 31, 211 78 S263 125, 290 78 S342 31, 369 78 S421 125, 448 78 S500 31, 527 78 S579 125, 606 78 S658 31, 685 78 S737 125, 764 78 S816 31, 843 78 S895 125, 922 78 S974 31, 1001 78 S1053 125, 1080 78 S1132 31, 1159 78 S1211 125, 1238 78 S1266 38, 1294 78" fill="none" stroke="url(#signal)" stroke-width="8" stroke-linecap="round"/>
+    <text x="54" y="135" font-family="Microsoft YaHei, Arial, sans-serif" font-size="19" fill="#64748b">t=0s</text>
+    <text x="1220" y="135" font-family="Microsoft YaHei, Arial, sans-serif" font-size="19" fill="#64748b">event end</text>
+  </g>
+
+  <g transform="translate(122,485)">
+    <text x="0" y="-30" font-family="Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="700" fill="#0f172a">2. 滑动分窗：窗长 10s，步长 5s</text>
+    <line x1="54" y1="102" x2="1294" y2="102" stroke="#cbd5e1" stroke-width="4" stroke-linecap="round"/>
+
+    <g font-family="Microsoft YaHei, Arial, sans-serif" font-size="18" fill="#0f172a">
+      <rect x="54" y="34" width="150" height="80" rx="10" fill="#dbeafe" stroke="#2563eb" stroke-width="3"/>
+      <text x="90" y="82">win 1</text>
+      <rect x="129" y="54" width="150" height="80" rx="10" fill="#dcfce7" stroke="#059669" stroke-width="3"/>
+      <text x="165" y="102">win 2</text>
+      <rect x="204" y="34" width="150" height="80" rx="10" fill="#ffedd5" stroke="#f97316" stroke-width="3"/>
+      <text x="240" y="82">win 3</text>
+      <rect x="279" y="54" width="150" height="80" rx="10" fill="#fee2e2" stroke="#dc2626" stroke-width="3"/>
+      <text x="315" y="102">win 4</text>
+      <rect x="1072" y="34" width="150" height="80" rx="10" fill="#ede9fe" stroke="#7c3aed" stroke-width="3"/>
+      <text x="1100" y="82">win 23</text>
+    </g>
+
+    <path d="M54,158 L204,158" stroke="#334155" stroke-width="2.5" marker-end="url(#arrow)"/>
+    <path d="M54,166 L129,166" stroke="#334155" stroke-width="2.5" marker-end="url(#arrow)"/>
+    <text x="80" y="190" font-family="Microsoft YaHei, Arial, sans-serif" font-size="19" fill="#334155">10s 窗长</text>
+    <text x="86" y="222" font-family="Microsoft YaHei, Arial, sans-serif" font-size="19" fill="#334155">5s stride</text>
+
+    <text x="465" y="94" font-family="Microsoft YaHei, Arial, sans-serif" font-size="38" fill="#94a3b8">...</text>
+    <text x="920" y="94" font-family="Microsoft YaHei, Arial, sans-serif" font-size="38" fill="#94a3b8">...</text>
+  </g>
+
+  <g transform="translate(122,735)">
+    <text x="0" y="-26" font-family="Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="700" fill="#0f172a">3. 窗口级样本与标签对齐</text>
+    <rect x="0" y="0" width="390" height="58" rx="14" fill="#eff6ff" stroke="#bfdbfe"/>
+    <text x="24" y="37" font-family="Microsoft YaHei, Arial, sans-serif" font-size="22" fill="#1e3a8a">EEG window embedding</text>
+    <path d="M418,29 L502,29" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+    <rect x="530" y="0" width="210" height="58" rx="14" fill="#ecfdf5" stroke="#bbf7d0"/>
+    <text x="574" y="37" font-family="Microsoft YaHei, Arial, sans-serif" font-size="22" fill="#14532d">alertness</text>
+    <rect x="760" y="0" width="210" height="58" rx="14" fill="#fff7ed" stroke="#fed7aa"/>
+    <text x="812" y="37" font-family="Microsoft YaHei, Arial, sans-serif" font-size="22" fill="#7c2d12">valence</text>
+    <rect x="990" y="0" width="210" height="58" rx="14" fill="#fef2f2" stroke="#fecaca"/>
+    <text x="1040" y="37" font-family="Microsoft YaHei, Arial, sans-serif" font-size="22" fill="#7f1d1d">arousal</text>
+    <text x="1232" y="37" font-family="Microsoft YaHei, Arial, sans-serif" font-size="21" fill="#475569">同一窗口同步用于三类 EEG 协议</text>
+  </g>
+</svg>
