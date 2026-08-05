@@ -78,6 +78,55 @@ within_subject_centered_r =
 
 ## 数据范围与指标定义
 
+### 分窗方式
+
+本轮实验使用 EEG 对齐后的 canonical window index，而不是重新从原始多模态文件中临时切窗。索引文件包含 `28819` 行，对应 `1253` 个评分事件；每个事件固定展开为 `23` 个窗口，`event_window_id` 为 `0..22`。每个窗口长度为 `10s`，相邻窗口起点间隔 `5s`，因此每个事件形成一个 5 秒步长的重叠窗口序列。
+
+每一行窗口都有稳定的 `sample_id` 和 `eeg_sample_index`：`sample_id` 从 `eeg_000000` 到 `eeg_028818`，`eeg_sample_index` 严格等于 `0..28818`。所有模态 embedding 都按这 28,819 行的同一顺序保存，后续训练直接按行读取 embedding 与 mask，不再改变窗口数量或顺序。
+
+| 分窗字段 | 本轮取值 |
+| --- | --- |
+| 事件数 | `1253` |
+| 每事件窗口数 | `23` |
+| 总窗口数 | `28819` |
+| 单窗口长度 | `10s` |
+| 窗口 stride | `5s` |
+| 窗口编号 | 每个事件内 `event_window_id = 0..22` |
+| 样本编号 | `sample_id = eeg_{eeg_sample_index:06d}` |
+
+### 数据集划分方式
+
+训练、验证和测试划分完全使用 `/vePFS-0x0d/DailyEEG/splits_new/` 下的三个 EEG 协议：`cross_subject`、`cross_day`、`within_subject_day`。每个协议目录都包含 `pretrain.json`、`finetune.json`、`val.json`、`test.json` 和 `split_info.json`。监督训练时只把 `pretrain + finetune` 合并为 train，`val` 用于早停/模型选择，`test` 只用于最终报告指标。
+
+这三个协议不是重新抽样得到的实验内随机划分，而是固定的 EEG 官方划分；本轮训练不重写、不过滤、不重排这些 split index。远端复核确认每个协议的 train、val、test 互不重叠，所有 index 都在 `0..28818` 范围内，并且 `train = pretrain + finetune`。
+
+| 协议 | 划分含义 | Pretrain | Finetune | Train 合计 | Val | Test |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `cross_subject` | 测试集考察跨被试泛化 | 6122 | 11519 | 17641 | 5106 | 6072 |
+| `cross_day` | 测试集考察跨日期泛化 | 6122 | 10691 | 16813 | 6187 | 5819 |
+| `within_subject_day` | 测试集考察同一被试内跨天泛化 | 6122 | 11121 | 17243 | 5708 | 5868 |
+
+### 实验缩写和模态分支含义
+
+本报告中的实验名采用 `视频路线_Wear分支_模态组合` 的形式。例如 `A1_Wphysio_no_audio` 表示：视频使用 A1 路线，wear 使用 Wphysio 分支，启用 EEG + wear + video，不启用 audio。
+
+视频路线 B0/A1/A2 都基于同一套 EEG 对齐 2x face ROI 视频窗口，并输出 256 维 `video_emb`。区别在于视频 embedding 生成时的视觉扰动策略：
+
+| 缩写 | 本轮含义 | 产物路径 |
+| --- | --- | --- |
+| `B0` | baseline video route；无额外视觉增强的 2x face ROI DINOv2 embedding | `video/video_B0_2xroi_eeg23win_embeddings.npz` |
+| `A1` | 在 2x face ROI 视频帧上加入 mild color / brightness 类增强后生成的 DINOv2 embedding | `video/video_A1_2xroi_eeg23win_embeddings.npz` |
+| `A2` | 在 A1 的 color / brightness 增强基础上加入 grayscale 扰动后生成的 DINOv2 embedding | `video/video_A2_2xroi_eeg23win_embeddings.npz` |
+
+Wear 的 `physio` 和 `deep` 是两条不同的 PPG/GSR/ACC wearable 表征路线，二者都输出 256 维 `wear_emb`，并且都已经对齐到同一批 28,819 个 EEG 窗口：
+
+| 缩写 | 本轮含义 | 输入信号和处理 | 产物路径 |
+| --- | --- | --- | --- |
+| `Wphysio` / `wear_physio` | 可解释生理特征分支 | 对 PPG、GSR、ACC 先做固定预处理，再提取 HR/HRV、GSR slope/SCR、ACC motion/stationary 等统计/生理特征，并投影到 256 维 | `wear/wear_physio_preprocessed_eeg23win_embeddings.npz` |
+| `Wdeep` / `wear_deep` | 序列型 wearable 表征分支 | 对预处理后的 PPG/GSR/ACC 重采样序列做固定序列 encoder / TCN-like 池化，再投影到 256 维 | `wear/wear_deep_sequence_preprocessed_eeg23win_embeddings.npz` |
+
+模态组合后缀表示启用哪些 token：`full` = EEG + wear + video + audio；`no_audio` = EEG + wear + video；`no_video` = EEG + wear + audio；`bio_only` = EEG + wear。A1/A2 只出现在实际使用视频的组合中；`no_video` 和 `bio_only` 是路线无关控制项，因此只在 B0 名下报告一次。
+
 | 项目 | 定义 |
 | --- | --- |
 | Canonical row count | `28819` 个 EEG 对齐 10 秒窗口 |
