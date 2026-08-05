@@ -96,6 +96,29 @@ class AudioRealEmbeddingTests(unittest.TestCase):
         self.assertEqual(audio_emb.shape, (1, 256))
         self.assertEqual(quality_flags[0]["pooling"], "functionals")
 
+    def test_encoder_profile_can_reuse_different_cache_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_root = root / "cache"
+            _write_audio_cache(cache_root, sample_id="sample-1", encoder_profile="wavlm_frozen_v1")
+
+            summary = extract_audio_real_embeddings(
+                [_window("sample-1")],
+                cache_root=cache_root,
+                output_npz=root / "audio_real_embeddings.npz",
+                failures_out=root / "failures.json",
+                encoder_profile="audio_opensmile_egemaps_v1",
+                cache_profile="wavlm_frozen_v1",
+                backend=FakeAudioBackend(hidden_dim=6, frames=1),
+            )
+            with np.load(root / "audio_real_embeddings.npz", allow_pickle=True) as loaded:
+                encoder_versions = loaded["encoder_version"].astype(str).tolist()
+                quality_flags = [json.loads(value) for value in loaded["quality_flags"].tolist()]
+
+        self.assertEqual(summary["success_count"], 1)
+        self.assertEqual(encoder_versions, ["audio_opensmile_egemaps_v1"])
+        self.assertEqual(quality_flags[0]["cache_profile"], "wavlm_frozen_v1")
+
     def test_emotion2vec_missing_checkpoint_records_checkpoint_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

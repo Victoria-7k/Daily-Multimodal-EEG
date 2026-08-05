@@ -1,0 +1,36 @@
+{
+  "base_embedding_path": "outputs/embeddings/video_v4a_dinov2_2xroi_embeddings.npz",
+  "train_augmentation_paths": {
+    "A1": "outputs/embeddings/video_v4d_A1_2xroi_train_embeddings.npz",
+    "A2": "outputs/embeddings/video_v4d_A2_2xroi_train_embeddings.npz"
+  },
+  "routes": {
+    "FullSweepB0": {
+      "source": "full_sweep",
+      "variant": "B0",
+      "mode": "fixed_base"
+    },
+    "FullSweepB3Lam005": {
+      "source": "full_sweep",
+      "variant": "B3_lam0.05",
+      "mode": "fold_fitted_adapter",
+      "adapter_input": "base_embedding",
+      "fit_scope": "train_only"
+    },
+    "A1A2TrainOnlyA2": {
+      "source": "a1_a2_train_only",
+      "variant": "A2",
+      "mode": "train_only_embedding_override",
+      "train_embedding": "A2",
+      "eval_embedding": "base_embedding"
+    },
+    "B5A1Lam0001": {
+      "source": "b5_a1",
+      "variant": "B5_A1_lam0.001",
+      "mode": "fold_fitted_adapter",
+      "adapter_input": "A1",
+      "fit_scope": "train_only",
+      "eval_embedding": "base_embedding"
+    }
+  }
+}

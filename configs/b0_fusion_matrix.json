@@ -1,0 +1,47 @@
+{
+  "task": "B0 EEG-aligned fusion matrix",
+  "root": "/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned",
+  "eeg_arrays": "/vePFS-0x0d/DailyEEG/processed_cadt_addtime_new",
+  "splits_root": "/vePFS-0x0d/DailyEEG/splits_new",
+  "protocol": "cross_subject",
+  "target_label": "fatigue",
+  "supervised_train_rule": "pretrain + finetune from splits_new",
+  "branches": {
+    "eeg": {
+      "path": "/vePFS-0x0d/DailyEEG_multimodal/embeddings/eeg/eeg_statfft_eeg23win_embeddings.npz",
+      "embedding": "eeg_emb",
+      "mask": "eeg_mask",
+      "encoder": "eeg_statfft_eeg23win_v1"
+    },
+    "wear_physio": {
+      "path": "/vePFS-0x0d/DailyEEG_multimodal/embeddings/wear/wear_physio_preprocessed_eeg23win_embeddings.npz",
+      "embedding": "wear_emb",
+      "mask": "wear_mask"
+    },
+    "wear_deep": {
+      "path": "/vePFS-0x0d/DailyEEG_multimodal/embeddings/wear/wear_deep_sequence_preprocessed_eeg23win_embeddings.npz",
+      "embedding": "wear_emb",
+      "mask": "wear_mask"
+    },
+    "video_B0": {
+      "path": "/vePFS-0x0d/DailyEEG_multimodal/embeddings/video/video_B0_2xroi_eeg23win_embeddings.npz",
+      "embedding": "video_emb",
+      "mask": "video_mask"
+    },
+    "audio": {
+      "path": "/vePFS-0x0d/DailyEEG_multimodal/embeddings/audio/audio_opensmile_eeg23win_embeddings.npz",
+      "embedding": "audio_emb",
+      "mask": "audio_mask"
+    }
+  },
+  "experiments": [
+    "B0_Wphysio_full",
+    "B0_Wphysio_no_audio",
+    "B0_Wphysio_no_video",
+    "B0_Wphysio_bio_only",
+    "B0_Wdeep_full",
+    "B0_Wdeep_no_audio",
+    "B0_Wdeep_no_video",
+    "B0_Wdeep_bio_only"
+  ]
+}

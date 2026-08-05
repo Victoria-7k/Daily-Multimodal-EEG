@@ -5,12 +5,12 @@ from hashlib import sha256
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Mapping, Sequence, Tuple
 
 import numpy as np
 
 
-EventKey = tuple[str, str, str]
+EventKey = Tuple[str, str, str]
 
 
 @dataclass(frozen=True)
@@ -28,8 +28,8 @@ def build_global_paired_cohort(
     *,
     reference_order: np.ndarray,
 ) -> np.ndarray:
-    if len(sample_ids_by_experiment) != 12:
-        raise ValueError("paired fusion cohort requires exactly 12 experiments")
+    if not sample_ids_by_experiment:
+        raise ValueError("paired fusion cohort requires at least one experiment")
     common = set(np.asarray(reference_order).astype(str).tolist())
     for name, values in sample_ids_by_experiment.items():
         ids = np.asarray(values).astype(str)

@@ -1,0 +1,86 @@
+{
+  "seq_len": 2000,
+  "n_channels": 59,
+  "n_labels": 11,
+  "label_names": [
+    "inspired",
+    "alert",
+    "determined",
+    "attentive",
+    "active",
+    "hostile",
+    "nervous",
+    "upset",
+    "afraid",
+    "ashamed",
+    "fatigue"
+  ],
+  "window_size": 10,
+  "step_size": 5,
+  "fs": 200,
+  "label_window": 120,
+  "domain_offset_map": {
+    "1": 0,
+    "2": 10,
+    "3": 20,
+    "4": 30,
+    "5": 40,
+    "6": 50,
+    "7": 60,
+    "8": 70,
+    "9": 80,
+    "10": 90,
+    "11": 100,
+    "12": 110,
+    "13": 120,
+    "14": 131,
+    "15": 141
+  },
+  "domains_per_subject_map": {
+    "1": 10,
+    "2": 10,
+    "3": 10,
+    "4": 10,
+    "5": 10,
+    "6": 10,
+    "7": 10,
+    "8": 10,
+    "9": 10,
+    "10": 10,
+    "11": 10,
+    "12": 10,
+    "13": 11,
+    "14": 10,
+    "15": 10
+  },
+  "num_samples": 295641,
+  "num_subjects": 15,
+  "num_domains": 151,
+  "num_sessions": 151,
+  "x_shape": [
+    295641,
+    2000,
+    59
+  ],
+  "y_shape": [
+    295641,
+    11
+  ],
+  "d_shape": [
+    295641
+  ],
+  "ts_shape": [
+    295641
+  ],
+  "sub_shape": [
+    295641
+  ],
+  "ts_range": [
+    0.0,
+    17555.0
+  ],
+  "d_range": [
+    0,
+    150
+  ]
+}

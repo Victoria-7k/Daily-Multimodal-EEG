@@ -21,7 +21,7 @@ def test_global_cohort_is_ordered_intersection_across_all_experiments():
         f"exp-{index:02d}": np.asarray(
             ["s3", "s1", "s2"] if index == 0 else ["s1", "s2", "extra"]
         )
-        for index in range(12)
+        for index in range(20)
     }
     cohort = build_global_paired_cohort(
         sample_ids,
@@ -214,7 +214,7 @@ def test_prepare_within_subject_fusion_splits_dry_run_reports_matrix_without_wri
     )
 
     assert completed.returncode == 0, completed.stderr
-    assert "native_experiment_count=12" in completed.stdout
+    assert "native_experiment_count=20" in completed.stdout
     assert "paired_cohort_count=6" in completed.stdout
     assert "protocols=event_grouped_5fold,session_held_out" in completed.stdout
     assert not cohort_manifest.exists()
@@ -253,8 +253,10 @@ def _write_tiny_fusion_inputs(root):
         "eeg": "eeg_emb",
         "wear_physio": "wear_emb",
         "wear_deep": "wear_emb",
-        "video_v4a": "face_emb",
-        "video_b1": "face_emb",
+        "video_b0": "face_emb",
+        "video_b3": "face_emb",
+        "video_a2": "face_emb",
+        "video_b5": "face_emb",
         "audio": "audio_emb",
     }.items():
         path = root / f"{modality}.npz"
@@ -288,12 +290,26 @@ def _write_tiny_fusion_inputs(root):
                         },
                     },
                     "video": {
-                        "V4aUpper": {
-                            "path": str(branches["video_v4a"]),
+                        "FullSweepB0": {
+                            "path": str(branches["video_b0"]),
                             "modality": "video",
-                            "profile": "V4a_upper",
+                            "profile": "full_sweep/B0",
                         },
-                        "B1": {"path": str(branches["video_b1"]), "modality": "video", "profile": "B1"},
+                        "FullSweepB3Lam005": {
+                            "path": str(branches["video_b3"]),
+                            "modality": "video",
+                            "profile": "full_sweep/B3_lam0.05",
+                        },
+                        "A1A2TrainOnlyA2": {
+                            "path": str(branches["video_a2"]),
+                            "modality": "video",
+                            "profile": "a1_a2_train_only/A2",
+                        },
+                        "B5A1Lam0001": {
+                            "path": str(branches["video_b5"]),
+                            "modality": "video",
+                            "profile": "b5_a1/B5_A1_lam0.001",
+                        },
                     },
                     "audio": {"path": str(branches["audio"]), "modality": "audio", "profile": "audio"},
                 },

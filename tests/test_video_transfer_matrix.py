@@ -20,8 +20,12 @@ def test_analyze_cross_subject_transfer_reports_pairwise_centered_mapping(tmp_pa
     )
 
     matrix = result["matrix"]
+    assert matrix["sub-01"]["sub-01"]["protocol"] == "within_subject_session_leave_out"
+    assert matrix["sub-01"]["sub-01"]["train_test_overlap"] == 0
+    assert matrix["sub-02"]["sub-02"]["train_test_overlap"] == 0
     assert matrix["sub-01"]["sub-01"]["pearson_r"] > 0.9
     assert matrix["sub-02"]["sub-02"]["pearson_r"] > 0.9
+    assert matrix["sub-01"]["sub-02"]["protocol"] == "cross_subject_all_to_all"
     assert matrix["sub-01"]["sub-02"]["pearson_r"] < -0.9
     assert result["sign_summary"]["positive_pairs"] == 2
     assert result["sign_summary"]["negative_pairs"] == 2
@@ -35,11 +39,12 @@ def _write_transfer_repr(path: Path) -> None:
     targets = []
     rows = []
     for subject, sign, baseline in [("sub-01", 1.0, 5.0), ("sub-02", -1.0, 6.0)]:
-        for index, value in enumerate([-2.0, -1.0, 1.0, 2.0]):
-            sample_ids.append(f"{subject}_ses-01_row-{index:04d}_win-0000")
+        for index, value in enumerate([-2.0, -1.0, 1.0, 2.0, -1.5, 1.5]):
+            session = "ses-01" if index < 3 else "ses-02"
+            sample_ids.append(f"{subject}_{session}_row-{index:04d}_win-0000")
             subject_ids.append(subject)
-            event_ids.append(f"{subject}_ses-01_row-{index:04d}")
-            session_ids.append(f"{subject}_ses-01")
+            event_ids.append(f"{subject}_{session}_row-{index:04d}")
+            session_ids.append(f"{subject}_{session}")
             targets.append(baseline + value)
             vector = np.zeros(64, dtype=np.float32)
             vector[0] = sign * value

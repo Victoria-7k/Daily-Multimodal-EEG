@@ -1,0 +1,21 @@
+{
+  "index": "/mnt/dataset4/sitian/wzw/DailyEEG_multimodal_eeg_aligned_export/index/eeg23win_video_audio_window_index.jsonl",
+  "out": "/mnt/dataset4/sitian/wzw/DailyEEG_multimodal_eeg_aligned_export/embeddings/video/video_A2_2xroi_eeg23win_embeddings.npz",
+  "row_count": 28819,
+  "source_files": [
+    "/mnt/dataset4/sitian/wzw/DailyEEG_multimodal_eeg_aligned_export/embeddings/video/chunks/video_A2_chunk_00.npz",
+    "/mnt/dataset4/sitian/wzw/DailyEEG_multimodal_eeg_aligned_export/embeddings/video/chunks/video_A2_chunk_01.npz",
+    "/mnt/dataset4/sitian/wzw/DailyEEG_multimodal_eeg_aligned_export/embeddings/video/chunks/video_A2_chunk_02.npz",
+    "/mnt/dataset4/sitian/wzw/DailyEEG_multimodal_eeg_aligned_export/embeddings/video/chunks/video_A2_chunk_03.npz",
+    "/mnt/dataset4/sitian/wzw/DailyEEG_multimodal_eeg_aligned_export/embeddings/video/chunks/video_A2_chunk_04.npz",
+    "/mnt/dataset4/sitian/wzw/DailyEEG_multimodal_eeg_aligned_export/embeddings/video/chunks/video_A2_chunk_05.npz",
+    "/mnt/dataset4/sitian/wzw/DailyEEG_multimodal_eeg_aligned_export/embeddings/video/chunks/video_A2_chunk_06.npz",
+    "/mnt/dataset4/sitian/wzw/DailyEEG_multimodal_eeg_aligned_export/embeddings/video/chunks/video_A2_chunk_07.npz"
+  ],
+  "source_sample_count": 18062,
+  "duplicate_sample_ids": [],
+  "duplicate_sample_count": 0,
+  "video_mask_sum": 17992,
+  "missing_video_embedding_count": 10827,
+  "encoder_version": "video_v4d_a2_dinov2_2x_face_roi_mean_std_max"
+}

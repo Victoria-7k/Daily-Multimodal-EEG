@@ -122,6 +122,7 @@ def extract_audio_real_embeddings(
     output_npz: Path | str,
     failures_out: Path | str,
     encoder_profile: str,
+    cache_profile: str | None = None,
     checkpoint_path: Path | str | None = None,
     backend: AudioBackend | None = None,
     backend_factory: AudioBackendFactory | None = None,
@@ -129,6 +130,7 @@ def extract_audio_real_embeddings(
     projection_seed: int = 13013,
 ) -> dict[str, Any]:
     checkpoint = Path(checkpoint_path) if checkpoint_path else None
+    resolved_cache_profile = cache_profile or encoder_profile
     failures: list[EmbeddingFailure] = []
     samples: list[dict[str, Any]] = []
 
@@ -172,7 +174,11 @@ def extract_audio_real_embeddings(
             return _summary(samples, failures, encoder_profile)
 
     for window in windows:
-        cache = _read_audio_cache(window, cache_root=cache_root, encoder_profile=encoder_profile)
+        cache = _read_audio_cache(
+            window,
+            cache_root=cache_root,
+            cache_profile=resolved_cache_profile,
+        )
         if cache is None:
             failures.append(
                 _failure(
@@ -181,7 +187,7 @@ def extract_audio_real_embeddings(
                     stage="read_audio_cache",
                     error_type="source_missing",
                     error="audio cache metadata or wav file is missing",
-                    source_path=str(_audio_cache_dir(window, cache_root, encoder_profile)),
+                    source_path=str(_audio_cache_dir(window, cache_root, resolved_cache_profile)),
                 )
             )
             continue
@@ -235,6 +241,7 @@ def extract_audio_real_embeddings(
                     "pooling": pooling,
                     "pooled_feature_dim": int(np.asarray(pooled).reshape(-1).shape[0]),
                     "target_sample_rate_hz": cache.get("target_sample_rate_hz", 16000),
+                    "cache_profile": resolved_cache_profile,
                 },
                 "encoder_version": encoder_profile,
             }
@@ -316,9 +323,9 @@ def _read_audio_cache(
     window: dict[str, Any],
     *,
     cache_root: Path | str,
-    encoder_profile: str,
+    cache_profile: str,
 ) -> dict[str, Any] | None:
-    cache_dir = _audio_cache_dir(window, cache_root, encoder_profile)
+    cache_dir = _audio_cache_dir(window, cache_root, cache_profile)
     metadata_path = cache_dir / "audio.json"
     if not metadata_path.is_file():
         return None
@@ -330,8 +337,8 @@ def _read_audio_cache(
     return metadata
 
 
-def _audio_cache_dir(window: dict[str, Any], cache_root: Path | str, encoder_profile: str) -> Path:
-    return Path(cache_root) / "audio_clips" / str(window.get("sample_id", "")) / encoder_profile
+def _audio_cache_dir(window: dict[str, Any], cache_root: Path | str, cache_profile: str) -> Path:
+    return Path(cache_root) / "audio_clips" / str(window.get("sample_id", "")) / cache_profile
 
 
 def _project_to_256(vector: np.ndarray, *, seed: int, salt: str) -> np.ndarray:

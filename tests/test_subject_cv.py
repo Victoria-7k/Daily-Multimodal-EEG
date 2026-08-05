@@ -59,6 +59,7 @@ class SubjectCvTests(unittest.TestCase):
 
         self.assertGreaterEqual(result["fold_count"], 4)
         self.assertFalse(result["subject_leakage"])
+        self.assertEqual(metrics["model"], "concat_mlp")
         self.assertEqual(metrics["modalities"], ["eeg", "wear", "audio", "face"])
         self.assertIn("rmse_mean", metrics)
         self.assertIn("pearson_r_mean", metrics)
@@ -89,6 +90,8 @@ class SubjectCvTests(unittest.TestCase):
                     "15",
                     "--hidden-dim",
                     "8",
+                    "--model",
+                    "concat_mlp",
                 ],
                 cwd=Path(__file__).resolve().parents[1],
                 text=True,
@@ -99,6 +102,74 @@ class SubjectCvTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("fold_count=", completed.stdout)
         self.assertIn("pearson_r_mean=", completed.stdout)
+
+    def test_learnable_cross_attention_reports_missing_torch_dependency(self):
+        try:
+            import torch  # noqa: F401
+        except ImportError:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                embeddings = root / "embeddings.npz"
+                _write_embeddings(embeddings)
+
+                with self.assertRaisesRegex(ImportError, "learnable_cross_attention requires torch"):
+                    run_subject_cv(
+                        embeddings=embeddings,
+                        target_label="alert",
+                        out_json=root / "subject_cv.json",
+                        out_table=root / "subject_cv.md",
+                        strategy="leave_one_subject_out",
+                        model="learnable_cross_attention",
+                        epochs=2,
+                    )
+        else:
+            self.skipTest("PyTorch is installed; missing-dependency path is not active")
+
+    def test_learnable_cross_attention_fusion_spec_reports_missing_torch_dependency(self):
+        try:
+            import torch  # noqa: F401
+        except ImportError:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                sample_ids = [f"sample-{idx}" for idx in range(18)]
+                eeg = root / "eeg.npz"
+                wear = root / "wear.npz"
+                video = root / "video.npz"
+                audio = root / "audio.npz"
+                _write_branch(eeg, sample_ids=sample_ids, modality="eeg", offset=0.1)
+                _write_branch(wear, sample_ids=sample_ids, modality="wear", offset=0.2)
+                _write_branch(video, sample_ids=sample_ids, modality="video", offset=0.3)
+                _write_branch(audio, sample_ids=sample_ids, modality="audio", offset=0.4)
+                config = root / "fusion_matrix.json"
+                config.write_text(
+                    json.dumps(
+                        {
+                            "target_label": "alert",
+                            "branches": {
+                                "eeg": {"path": str(eeg), "modality": "eeg", "profile": "eeg_current"},
+                                "wear": {"WphysioPre": {"path": str(wear), "modality": "wear", "profile": "wear_physio_features_preprocessed_v1"}},
+                                "video": {"V4aUpper": {"path": str(video), "modality": "video", "profile": "V4a_upper"}},
+                                "audio": {"path": str(audio), "modality": "audio", "profile": "audio_current"},
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(ImportError, "learnable_cross_attention requires torch"):
+                    run_subject_cv(
+                        embeddings=root / "unused.npz",
+                        target_label="alert",
+                        out_json=root / "subject_cv.json",
+                        out_table=root / "subject_cv.md",
+                        strategy="leave_one_subject_out",
+                        model="learnable_cross_attention",
+                        fusion_spec=config,
+                        fusion_experiment="fusion_WphysioPre_V4aUpper_full",
+                        epochs=2,
+                    )
+        else:
+            self.skipTest("PyTorch is installed; missing-dependency path is not active")
 
 
 def _write_embeddings(path: Path) -> None:
@@ -120,6 +191,26 @@ def _write_embeddings(path: Path) -> None:
         modality_mask=np.ones((len(subjects), 4), dtype=np.int8),
         labels=labels,
         source_paths=np.array(["{}"] * len(subjects), dtype=object),
+    )
+
+
+def _write_branch(path: Path, *, sample_ids: list[str], modality: str, offset: float) -> None:
+    count = len(sample_ids)
+    base = np.zeros((count, 256), dtype=np.float32)
+    base[:, 0] = np.linspace(0.0, 1.0, count, dtype=np.float32) + offset
+    mask = np.zeros((count, 4), dtype=np.int8)
+    key = {"eeg": "eeg_emb", "wear": "wear_emb", "video": "face_emb", "audio": "audio_emb"}[modality]
+    mask_index = {"eeg": 0, "wear": 1, "video": 2, "audio": 3}[modality]
+    mask[:, mask_index] = 1
+    np.savez_compressed(
+        path,
+        sample_id=np.asarray(sample_ids, dtype=object),
+        event_id=np.asarray([f"event-{idx}" for idx in range(count)], dtype=object),
+        subject_id=np.asarray([f"sub-{idx % 6 + 1:02d}" for idx in range(count)], dtype=object),
+        session_id=np.asarray(["ses-01"] * count, dtype=object),
+        **{key: base},
+        modality_mask=mask,
+        labels=np.asarray([json.dumps({"alert": float(idx)}) for idx in range(count)], dtype=object),
     )
 
 

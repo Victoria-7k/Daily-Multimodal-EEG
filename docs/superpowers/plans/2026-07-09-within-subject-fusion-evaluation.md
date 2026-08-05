@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Evaluate all 12 fusion experiments with frozen, leakage-audited within-subject splits, complete OOF metrics, paired cohorts, baselines, resumable prediction artifacts, and efficient production execution.
+**Goal:** Evaluate all 20 fusion experiments with frozen, leakage-audited within-subject splits, complete OOF metrics, paired cohorts, baselines, resumable prediction artifacts, and efficient production execution.
 
 **Architecture:** A preparation phase builds immutable cohort and split manifests before training. Focused split, metric, and execution modules then run event-grouped and session-held-out protocols using deterministic experiment-by-subject jobs; every job writes an independent prediction shard and atomic resume state before experiment-level aggregation.
 
@@ -10,8 +10,8 @@
 
 ## Global Constraints
 
-- Run all 12 configurations produced by `matrix_experiment_specs`; cheap screening is a gate, not a pruning step.
-- Use one ordered global paired cohort: the `sample_id` intersection across all 12 post-mask fusion datasets.
+- Run all 20 configurations produced by the two-wear, four-video route matrix; cheap screening is a gate, not a pruning step.
+- Use one ordered global paired cohort: the `sample_id` intersection across all 20 post-mask fusion datasets.
 - Build the cohort and split manifests once, hash them, and require every experiment to load them unchanged.
 - Separate `split_seed=17` from `model_seed=1701`.
 - Treat overlap-connected events from the same subject/session as one split unit.
@@ -32,17 +32,33 @@
 - Production uses the frozen backend benchmark decision unless `--device` and `--workers` are explicitly supplied.
 - Preserve all existing cross-subject code paths and outputs.
 
+### Within-subject video route contract
+
+The four video routes are fixed before any fusion result is inspected:
+
+| Route name | Source | Variant | Fold policy |
+| --- | --- | --- | --- |
+| `FullSweepB0` | `full_sweep` | `B0` | Fixed 2xROI base embedding in train/validation/test |
+| `FullSweepB3Lam005` | `full_sweep` | `B3_lam0.05` | Fit the adapter/GRL route on fusion-train rows only; encode validation/test with that fold's fitted route |
+| `A1A2TrainOnlyA2` | `a1_a2_train_only` | `A2` | A2 embedding for train rows only; fixed B0 base embedding for validation/test rows |
+| `B5A1Lam0001` | `b5_a1` | `B5_A1_lam0.001` | Fit on A1 train inputs only; encode validation/test from fixed B0 base inputs |
+
+`configs/within_subject_video_routes.yaml` is the single route registry. Do not
+substitute a globally fitted B3/B5 representation, an OOF representation from
+a different split manifest, or A1/A2 inputs into validation/test tokens. The
+matrix contains `2 x 4 x 2 + 2 x 2 = 20` experiments.
+
 ## Review Incorporation
 
 | Priority | Review item | Planned implementation |
 | --- | --- | --- |
-| P0-1 | Fixed shared split manifest | Task 2 writes one hashed manifest loaded by all 12 experiments |
+| P0-1 | Fixed shared split manifest | Task 2 writes one hashed manifest loaded by all 20 experiments |
 | P0-2 | Separate split/model seeds | Task 2 owns `split_seed`; Task 5 derives job seeds from `model_seed` |
 | P0-3 | Cross-event raw-time overlap | Task 1 builds overlap-connected components from the window index |
 | P0-4 | Train-only normalization audit | Task 3 exposes and verifies the exact training-only fit |
 | P0-5 | Complete OOF subject metrics | Task 4 concatenates all held-out predictions before recomputing |
 | P0-6 | Within-subject-centered pooled r | Task 4 centers prediction and target within subject before pooled r |
-| P0-7 | Paired ablation cohort | Task 1 uses one global 12-experiment intersection |
+| P0-7 | Paired ablation cohort | Task 1 uses one global 20-experiment intersection |
 | P1-8 | Window and event OOF | Task 4 reports both levels |
 | P1-9 | Session-held-out protocol | Task 2 adds a frozen session protocol |
 | P1-10 | Simple baselines | Task 4 adds train mean and fixed-alpha concatenated Ridge |
@@ -67,6 +83,35 @@
 | Protocol-specific acceptance | Task 2 and Task 7 document five event folds for eligible event subjects and one held-out fold per eligible session |
 | Prespecified best-model metric | Task 6 ranks attention configurations by event-level subject-macro Pearson before any multi-seed follow-up |
 | Efficiency fixes | Task 5 caches train-mean by protocol/subject/fold and avoids submitting full datasets per CPU job; Task 6 keeps the full matrix to one seed then reruns only the top attention configs with extra seeds |
+
+---
+
+### Task 0: Implement fold-safe video route providers
+
+**Files:**
+- Create: `src/daily_multimodal/training/within_subject_video_routes.py`
+- Create: `tests/test_within_subject_video_routes.py`
+- Create: `configs/within_subject_video_routes.yaml`
+
+**Interfaces:**
+- `load_video_route_registry(path) -> VideoRouteRegistry`
+- `build_fold_video_tokens(route, base_tokens, train_override_tokens, train_indices, val_indices, test_indices, ...) -> np.ndarray`
+
+- [x] Read all four route records from `configs/within_subject_video_routes.yaml`.
+- [x] For `FullSweepB0`, return fixed 2xROI B0 tokens for every partition.
+- [x] For `A1A2TrainOnlyA2`, replace only `train_indices` with A2 tokens and
+  assert that validation/test tokens exactly equal their B0 base tokens.
+- [x] For `FullSweepB3Lam005` and `B5A1Lam0001`, fit the variant-specific
+  adapter/GRL representation on the current fold's training rows only. B5
+  receives A1 only for its training rows. The fitted route metadata is stored
+  in each prediction sidecar; the fusion checkpoint is stored below the
+  current protocol/experiment/model/subject/fold path.
+- [ ] Add tests with held-out outliers proving that validation/test features
+  cannot alter a fitted B3/B5 route, and that all four source/variant fields
+  appear in the run manifest.
+
+This task is a hard prerequisite for manifest preparation and screening. It
+replaces the earlier static `V4aUpper`/`B1` branch assumption.
 
 ---
 
@@ -99,7 +144,7 @@ from daily_multimodal.training.within_subject_splits import (
 def test_global_cohort_is_ordered_intersection_across_all_experiments():
     sample_ids = {
         f"exp-{index:02d}": np.asarray(["s3", "s1", "s2"] if index == 0 else ["s1", "s2", "extra"])
-        for index in range(12)
+        for index in range(20)
     }
     cohort = build_global_paired_cohort(sample_ids, reference_order=sample_ids["exp-00"])
     assert cohort.tolist() == ["s1", "s2"]
@@ -165,8 +210,8 @@ def build_global_paired_cohort(
     *,
     reference_order: np.ndarray,
 ) -> np.ndarray:
-    if len(sample_ids_by_experiment) != 12:
-        raise ValueError("paired fusion cohort requires exactly 12 experiments")
+    if not sample_ids_by_experiment:
+        raise ValueError("paired fusion cohort requires at least one experiment")
     common = set(np.asarray(reference_order).astype(str).tolist())
     for name, values in sample_ids_by_experiment.items():
         ids = np.asarray(values).astype(str)
@@ -294,9 +339,9 @@ session IDs, counts, and `cross_partition_time_overlap_count=0`.
 
 The CLI must:
 
-1. Load all 12 fusion datasets without training.
+1. Load all 20 fusion datasets without training.
 2. Compute native row counts and the global ordered intersection.
-3. Rebuild all 12 datasets with strict `base_sample_ids=cohort`.
+3. Rebuild all 20 datasets with strict `base_sample_ids=cohort`.
 4. Assert identical sample IDs, subjects, events, and targets.
 5. Hash source files and ordered cohort IDs with SHA-256.
 6. Write manifests atomically using temporary files plus `Path.replace`.
@@ -316,7 +361,7 @@ python -m pytest tests/test_within_subject_splits.py -q
 python scripts/44_prepare_within_subject_fusion_splits.py --config configs/within_subject_fusion.yaml --dry-run
 ```
 
-Expected: tests pass; dry-run reports 12 native datasets, one paired cohort,
+Expected: tests pass; dry-run reports 20 native datasets, one paired cohort,
 both protocols, and no files written.
 
 - [ ] **Step 6: Commit**
@@ -678,7 +723,7 @@ python -m pytest tests/test_within_subject_runner.py -q
 
 Expected: collection fails because `within_subject_runner` does not exist.
 
-- [ ] **Step 4: Implement deterministic jobs and atomic resume**
+- [x] **Step 4: Implement deterministic jobs and atomic resume**
 
 Derive the fold seed from the first eight bytes of:
 
@@ -716,17 +761,17 @@ Do not pass a full `FusionDataset` through every `ProcessPoolExecutor.submit`.
 CPU workers must either load the selected experiment data once in a worker
 initializer or use memory-mapped arrays where practical. Cache `train_mean`
 baseline predictions by `(protocol, subject_id, fold_id, target_sha256)` and
-reuse them across the 12 experiments when cohort and splits are identical.
+reuse them across the 20 experiments when cohort and splits are identical.
 
-- [ ] **Step 6: Implement the matrix CLI**
+- [x] **Step 6: Implement the matrix CLI**
 
 `scripts/45_run_within_subject_fusion_matrix.py` must:
 
 1. Require and validate frozen cohort/split manifests.
-2. Build each of the 12 datasets using the exact global cohort.
+2. Build each of the 20 datasets using the exact global cohort.
 3. Expand both protocols, all subjects, and three models.
 4. Support `--screen-subjects sub-02,sub-03`, reduced epochs/dimension, and
-   all 12 experiments without pruning.
+   all 20 experiments without pruning.
 5. Support `--resume`, `--workers`, `--device`, and `--backend-decision`.
 6. Merge independent shards into per-experiment protocol NPZ files.
 7. Write per-subject window/event OOF JSON rows and aggregate Markdown/JSON.
@@ -738,7 +783,7 @@ the user explicitly supplies both `--device` and `--workers`. The report records
 selected device, selected worker count, benchmark decision SHA-256, and the
 effective runtime configuration.
 
-- [ ] **Step 7: Verify runner and regression tests**
+- [x] **Step 7: Verify runner and regression tests**
 
 ```powershell
 python -m pytest tests/test_within_subject_runner.py tests/test_within_subject_metrics.py tests/test_within_subject_splits.py tests/test_cross_attention_fusion.py -q
@@ -767,12 +812,12 @@ git commit -m "feat: run resumable within-subject fusion jobs"
 - Consumes the frozen manifests and production runner
 - Produces a backend decision, complete OOF predictions, metrics, checkpoints, and resume state
 
-- [ ] **Step 1: Sync implementation to the server**
+- [x] **Step 1: Sync implementation to the server**
 
 Use explicit `scp` commands for the new/modified config, scripts, modules, and
 tests. Do not copy the dirty repository wholesale.
 
-- [ ] **Step 2: Build and verify frozen manifests**
+- [x] **Step 2: Build and verify frozen manifests**
 
 ```powershell
 ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/44_prepare_within_subject_fusion_splits.py --config configs/within_subject_fusion.yaml'
@@ -780,8 +825,8 @@ ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && pyth
 
 Then run safe piped Python asserting:
 
-- 12 native experiments are represented
-- all 12 strict datasets have identical ordered sample IDs
+- 20 native experiments are represented
+- all 20 strict datasets have identical ordered sample IDs
 - the cohort is non-empty
 - `split_seed == 17` and no `model_seed` appears in the split manifest
 - both protocols exist
@@ -789,15 +834,26 @@ Then run safe piped Python asserting:
 - the known server audit reports the `sub-09/ses-01` overlap component rather
   than splitting its two events
 
-- [ ] **Step 3: Run cheap screening across every branch**
+- [x] **Step 3: Run cheap screening across every branch**
 
 ```powershell
 ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/45_run_within_subject_fusion_matrix.py --config configs/within_subject_fusion.yaml --out-dir outputs/reports/fusion_matrix_within_subject_screen --model-dir outputs/models/fusion_matrix_within_subject_screen --screen-subjects sub-02,sub-03 --epochs 5 --hidden-dim 32 --workers 1 --device cpu'
 ```
 
+Execution checkpoint completed on the server with
+`/home/lzs/miniconda3/envs/myenv/bin/python`: the four selected video routes
+ran for `sub-02` under `event_grouped_5fold`, producing `12/12` independent
+model shards. B3 and B5 sidecars record `fit_scope=train_only`; B5 records
+`adapter_input=A1`. The current runner caches one fitted route representation
+per subject/experiment/fold and reuses it across the three fusion models.
+
+- [ ] **Step 4: Run the full event-grouped matrix**
+- [ ] **Step 5: Run the session-held-out matrix**
+- [ ] **Step 6: Benchmark CPU parallel versus CUDA and freeze the backend decision**
+
 Gate conditions:
 
-- all 12 experiments complete for both protocols where subjects are eligible
+- all 20 experiments complete for both protocols where subjects are eligible
 - all three models produce prediction shards
 - normalization audits pass
 - every eligible OOF sample appears exactly once
@@ -807,7 +863,7 @@ No experiment is dropped based on screening accuracy.
 
 - [ ] **Step 4: Benchmark CPU parallelism versus CUDA**
 
-Run the identical subset `fusion_WphysioPre_B1_full`, subjects `sub-02,sub-03`,
+Run the identical subset `fusion_WphysioPre_FullSweepB0_full`, subjects `sub-02,sub-03`,
 event protocol, 10 epochs, hidden dimension 32 under:
 
 - CPU workers 1
@@ -847,7 +903,7 @@ ssh ncc_serve_4090 'cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && pyth
 
 - [ ] **Step 7: Run initialization-sensitivity follow-up for top attention configs**
 
-Keep the primary 12-experiment matrix at fixed `model_seed=1701`. After both
+Keep the primary 20-experiment matrix at fixed `model_seed=1701`. After both
 primary protocols complete, select the top two or three
 `learnable_cross_attention` configurations by the prespecified primary ranking
 metric: event-level subject-macro Pearson, sorted descending with `null` values
@@ -856,13 +912,13 @@ auxiliary reporting metrics only, not as alternate selection rules. If the
 primary metric ties exactly, break ties by experiment name for deterministic
 execution. Rerun only the selected attention configurations with additional
 model seeds. Use the same frozen cohort and split manifests; do not rerun all
-12 experiments for multi-seed sensitivity.
+20 experiments for multi-seed sensitivity.
 
 - [ ] **Step 8: Verify full-run invariants**
 
 Run a piped server audit that exits non-zero unless:
 
-- all 12 experiments and all three models have complete state
+- all 20 experiments and all three models have complete state
 - every valid subject has complete OOF coverage
 - prediction artifacts are separate from metric JSON
 - event and window metrics are both present
@@ -884,7 +940,7 @@ correlations for the final report.
 
 Before full production, focused tests must cover:
 
-1. shared cohort is identical across all 12 experiments
+1. shared cohort is identical across all 20 experiments
 2. split manifest is independent of model seed
 3. overlap-connected events never cross partitions
 4. composite event keys do not collide

@@ -1,0 +1,17 @@
+{
+  "mode": "cross_subject",
+  "seed": 42,
+  "ratios": {
+    "train": 0.6,
+    "val": 0.2,
+    "test": 0.2
+  },
+  "counts": {
+    "base_train": 17641,
+    "pretrain": 6122,
+    "finetune": 11519,
+    "val": 5106,
+    "test": 6072
+  },
+  "shared_pretrain_rule": "intersection_of_formal_train_sets"
+}

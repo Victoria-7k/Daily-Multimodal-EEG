@@ -26,6 +26,11 @@ def main() -> int:
     parser.add_argument("--learning-rate", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=17)
     parser.add_argument("--modalities", default="eeg,wear,audio,face")
+    parser.add_argument("--model", choices=["concat_mlp", "learnable_cross_attention"], default="concat_mlp")
+    parser.add_argument("--min-available-modalities", type=int, default=2)
+    parser.add_argument("--device")
+    parser.add_argument("--fusion-spec", help="Fusion matrix config path for learnable_cross_attention branch experiments.")
+    parser.add_argument("--fusion-experiment", help="Experiment name inside --fusion-spec.")
     args = parser.parse_args()
 
     result = run_subject_cv(
@@ -40,6 +45,11 @@ def main() -> int:
         learning_rate=args.learning_rate,
         seed=args.seed,
         modalities=tuple(item.strip() for item in args.modalities.split(",") if item.strip()),
+        model=args.model,
+        min_available_modalities=args.min_available_modalities,
+        device=args.device,
+        fusion_spec=args.fusion_spec,
+        fusion_experiment=args.fusion_experiment,
     )
     print(f"fold_count={result['fold_count']}")
     print(f"subject_leakage={result['subject_leakage']}")

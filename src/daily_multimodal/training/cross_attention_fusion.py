@@ -48,6 +48,7 @@ class FusionDataset:
     token_mask: np.ndarray
     branch_profiles: dict[str, str]
     target_label: str
+    session_id: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -159,6 +160,7 @@ def build_fusion_dataset(
         token_mask=token_mask[keep],
         branch_profiles={modality: branches[modality].profile for modality in modalities},
         target_label=experiment.target_label,
+        session_id=metadata["session_id"][metadata_indices][keep].astype(str),
     )
 
 
@@ -505,6 +507,7 @@ def _load_branch(spec: FusionBranchSpec) -> dict[str, Any]:
             "sample_id": sample_id,
             "event_id": _optional_array(loaded, "event_id", len(sample_id), default_prefix="event"),
             "subject_id": _optional_array(loaded, "subject_id", len(sample_id), default_prefix="subject"),
+            "session_id": _optional_array(loaded, "session_id", len(sample_id), default_prefix="session"),
             "labels": None if "labels" not in loaded.files else np.asarray(loaded["labels"].tolist(), dtype=object),
             "embedding": validate_embedding_shape(emb_key, loaded[emb_key], expected_dim=EMBEDDING_DIM),
             "mask": mask[:, MODALITY_TO_MASK_INDEX[modality]].astype(bool),

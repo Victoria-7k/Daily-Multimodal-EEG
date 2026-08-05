@@ -263,8 +263,10 @@ class FusionMatrixConfigTests(unittest.TestCase):
                         },
                     },
                     "video": {
-                        "V4aUpper": {"path": "video_v4a.npz", "modality": "video", "profile": "V4a_upper"},
-                        "B1": {"path": "video_b1.npz", "modality": "video", "profile": "B1"},
+                        "FullSweepB0": {"path": "video_b0.npz", "modality": "video", "profile": "full_sweep/B0"},
+                        "FullSweepB3Lam005": {"path": "video_b3.npz", "modality": "video", "profile": "full_sweep/B3_lam0.05"},
+                        "A1A2TrainOnlyA2": {"path": "video_a2.npz", "modality": "video", "profile": "a1_a2_train_only/A2"},
+                        "B5A1Lam0001": {"path": "video_b5.npz", "modality": "video", "profile": "b5_a1/B5_A1_lam0.001"},
                     },
                     "audio": {"path": "audio.npz", "modality": "audio", "profile": "audio_current"},
                 },
@@ -276,9 +278,9 @@ class FusionMatrixConfigTests(unittest.TestCase):
             specs = matrix_experiment_specs(matrix)
             names = {spec.name for spec in specs}
 
-        self.assertEqual(len(specs), 12)
-        self.assertIn("fusion_WphysioPre_V4aUpper_no_audio", names)
-        self.assertIn("fusion_WdeepPre_B1_full", names)
+        self.assertEqual(len(specs), 20)
+        self.assertIn("fusion_WphysioPre_FullSweepB3Lam005_no_audio", names)
+        self.assertIn("fusion_WdeepPre_B5A1Lam0001_full", names)
         self.assertIn("fusion_WphysioPre_no_video", names)
         self.assertIn("fusion_WdeepPre_bio_only", names)
         by_name = {spec.name: spec for spec in specs}
@@ -308,8 +310,10 @@ class FusionMatrixConfigTests(unittest.TestCase):
                         },
                     },
                     "video": {
-                        "V4aUpper": {"path": "video_v4a.npz", "modality": "video", "profile": "V4a_upper"},
-                        "B1": {"path": "video_b1.npz", "modality": "video", "profile": "B1"},
+                        "FullSweepB0": {"path": "video_b0.npz", "modality": "video", "profile": "full_sweep/B0"},
+                        "FullSweepB3Lam005": {"path": "video_b3.npz", "modality": "video", "profile": "full_sweep/B3_lam0.05"},
+                        "A1A2TrainOnlyA2": {"path": "video_a2.npz", "modality": "video", "profile": "a1_a2_train_only/A2"},
+                        "B5A1Lam0001": {"path": "video_b5.npz", "modality": "video", "profile": "b5_a1/B5_A1_lam0.001"},
                     },
                     "audio": {"path": "audio.npz", "modality": "audio", "profile": "audio_current"},
                 },
@@ -335,11 +339,11 @@ class FusionMatrixConfigTests(unittest.TestCase):
             manifest = json.loads((out_dir / "fusion_matrix_manifest.json").read_text(encoding="utf-8"))
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual(manifest["experiment_count"], 12)
+        self.assertEqual(manifest["experiment_count"], 20)
         by_name = {row["name"]: row for row in manifest["experiments"]}
         self.assertEqual(
-            by_name["fusion_WphysioPre_V4aUpper_no_audio"]["comparison_family"],
-            "WphysioPre_V4aUpper",
+            by_name["fusion_WphysioPre_FullSweepB3Lam005_no_audio"]["comparison_family"],
+            "WphysioPre_FullSweepB3Lam005",
         )
         self.assertEqual(by_name["fusion_WphysioPre_no_video"]["comparison_family"], "WphysioPre_no_video")
         self.assertIn("decision_rule", manifest)

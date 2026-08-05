@@ -26,6 +26,7 @@ def main() -> int:
     parser.add_argument("--max-windows", type=int)
     parser.add_argument("--require-all-modalities", action="store_true")
     parser.add_argument("--cache-root", default="outputs/cache")
+    parser.add_argument("--cache-profile")
     parser.add_argument("--encoder-profile", default="wavlm_frozen_v1")
     parser.add_argument("--checkpoint")
     parser.add_argument("--device", default="cpu")
@@ -46,6 +47,7 @@ def main() -> int:
         output_npz=args.out,
         failures_out=args.failures_out,
         encoder_profile=args.encoder_profile,
+        cache_profile=args.cache_profile,
         checkpoint_path=args.checkpoint,
         device=args.device,
     )

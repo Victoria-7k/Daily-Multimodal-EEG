@@ -132,6 +132,38 @@ def summarize_pooled_oof(records: PredictionRecords) -> dict:
     }
 
 
+def summarize_event_subject_macro_pearson(records: PredictionRecords) -> dict:
+    """Compute the preregistered event-level subject-macro Pearson metric."""
+    event_records = aggregate_event_predictions(records)
+    by_subject: dict[str, list[int]] = {}
+    for index, subject in enumerate(event_records.subject_id.astype(str).tolist()):
+        by_subject.setdefault(subject, []).append(index)
+    subject_rows = []
+    for subject, indices in sorted(by_subject.items()):
+        metric = regression_metrics(
+            event_records.prediction[np.asarray(indices, dtype=np.int64)],
+            event_records.target[np.asarray(indices, dtype=np.int64)],
+        )
+        subject_rows.append(
+            {
+                "subject_id": subject,
+                "event_count": int(len(indices)),
+                "pearson": metric["pearson"],
+                "rmse": metric["rmse"],
+            }
+        )
+    pearsons = [row["pearson"] for row in subject_rows if row["pearson"] is not None]
+    rmses = [row["rmse"] for row in subject_rows if row["rmse"] is not None]
+    return {
+        "subject_count": int(len(subject_rows)),
+        "eligible_subject_count": int(len(pearsons)),
+        "pearson": None if not pearsons else float(np.mean(pearsons)),
+        "rmse": None if not rmses else float(np.mean(rmses)),
+        "subjects": subject_rows,
+        "definition": "mean of per-subject Pearson r after event-level aggregation",
+    }
+
+
 def audit_fold_target_variance(
     target: Sequence[float] | np.ndarray,
     *,
@@ -187,12 +219,17 @@ def fit_predict_concat_ridge(
     y_train = np.asarray(target, dtype=np.float32)[train_idx]
     y_mean = float(y_train.mean())
     y_centered = y_train - y_mean
-    gram = x_train.T @ x_train
-    coef = np.linalg.solve(
-        gram + float(alpha) * np.eye(gram.shape[0], dtype=np.float32),
-        x_train.T @ y_centered,
-    )
-    prediction = (x_test @ coef + y_mean).astype(np.float32)
+    # Solve in the sample space with a symmetric eigendecomposition. The
+    # concatenated embedding is high-dimensional and can contain duplicate or
+    # near-duplicate columns, so a direct normal-equation solve is fragile.
+    x_train64 = x_train.astype(np.float64)
+    x_test64 = x_test.astype(np.float64)
+    y64 = y_centered.astype(np.float64)
+    kernel = x_train64 @ x_train64.T
+    kernel = (kernel + kernel.T) * 0.5
+    eigenvalues, eigenvectors = np.linalg.eigh(kernel)
+    dual = eigenvectors @ ((eigenvectors.T @ y64) / (eigenvalues + float(alpha)))
+    prediction = (x_test64 @ x_train64.T @ dual + y_mean).astype(np.float32)
     return prediction, {
         "normalization_fit_scope": "train_only",
         "fit_sample_count": int(len(train_idx)),

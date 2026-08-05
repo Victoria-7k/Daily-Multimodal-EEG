@@ -248,8 +248,60 @@ Cross-subject centered transfer was added as a mapping-direction diagnostic:
 
 - report: `outputs/reports/video_transfer_matrix/b1_centered_transfer_matrix.{json,md}`
 - subjects: `14`
-- within-subject diagonal r mean: `0.6981`
+- within-subject diagonal r mean: `0.0180`
 - off-diagonal transfer r mean: `0.0089`
-- positive / negative off-diagonal pairs: `117 / 79`
+- positive / negative pairs: `111 / 85`
+- diagonal protocol: strict `within_subject_session_leave_out`
+- diagonal train/test overlap: `0`
 
-This is the clearest signal so far: B1 contains strong within-subject learnable structure, but the learned centered mapping does not transfer across subjects. The next main direction should be subject calibration and subject-dependent mapping clusters, plus a final server-side `B1-R1` versus `B1-R2` rerun. Multimodal fusion should freeze the selected B1 video branch and compare no-video versus `+V4a` versus `+B1`; video-only structure search remains paused.
+The initial in-sample diagonal transfer matrix reached diagonal r mean `0.6981`, but that result used the same windows for same-subject training and testing and should not be cited as held-out evidence. After strict held-out session diagonal evaluation, both same-subject OOF and cross-subject transfer are near zero. The next main direction should be subject calibration and subject-dependent mapping diagnostics, plus a final server-side `B1-R1` versus `B1-R2` rerun. Multimodal fusion should freeze the selected B1 video branch and compare no-video versus `+V4a` versus `+B1`; video-only structure search remains paused.
+
+## 10. Upper-Body Rollback To 2x Face ROI, 2026-07-09
+
+Manual sample inspection found that the `upper_body` crop path was invalid. All video-only conclusions that depended on `upper_body` inputs are therefore superseded unless rerun with valid `2x face ROI` input. The V4a/V4b baselines remain valid because they already used `outputs/embeddings/video_v4a_dinov2_2xroi_embeddings.npz` and the matching V4b 2xROI temporal bundles.
+
+Rollback summary: `outputs/reports/video_2xroi_rollback_summary.md`
+
+Priority rerun scope:
+
+- Remote 2xROI reports synced under `outputs/server_sync/video_2xroi_rollback_priority/`.
+- B0/B1/B2_lam0.005/B2_lam0.01 adapter/GRL rerun on LOSO/S1/S4/S2.
+- B1 2xROI OOF representation exported and reused for window-centered, event pooling, personalization, and strict transfer diagnostics.
+- Five-seed B1/B2 repeat and the full B0-B4 lambda sweep have now completed and are synced under `outputs/server_sync/video_2xroi_long_runs/`.
+- A1/A2/B5_A1 are still running/pending because A1/A2 require fresh full 2xROI train-augmentation artifacts.
+
+| Split | B0 RMSE / r | B1 RMSE / r | B2_lam0.005 RMSE / r | B2_lam0.01 RMSE / r | Read |
+| --- | ---: | ---: | ---: | ---: | --- |
+| LOSO | `0.9409 / -0.0094` | `0.9810 / -0.0266` | `0.9824 / -0.0547` | `0.9708 / -0.0245` | Adapter hurts cross-subject LOSO |
+| S1 | `0.8390 / 0.3518` | `0.8362 / 0.3869` | `0.8378 / 0.3850` | `0.8431 / 0.3698` | B1 helps same-subject event split |
+| S4 | `0.9198 / 0.1933` | `0.9104 / 0.2370` | `0.9246 / 0.2018` | `0.9241 / 0.2096` | B1 helps session leave-out |
+| S2 | `0.9514 / 0.1839` | `0.9169 / 0.2596` | `0.9137 / 0.2979` | `0.9596 / 0.1930` | B2_lam0.005 is best on chronological split |
+
+Conclusion change: B1 should no longer be described as the frozen final video backbone. Under valid 2xROI input it improves S1/S4, and B2_lam0.005 improves S2, but both B1 and B2 are worse than B0 on LOSO.
+
+Long-run interim summary: `outputs/reports/video_2xroi_long_run_interim_summary.md`
+
+Five-seed repeat over B1/B2 keeps LOSO negative for all candidates: B1 r mean `-0.0328`, B2_lam0.005 r mean `-0.0336`, and B2_lam0.01 r mean `-0.0355`. B1 remains the most stable S4 candidate among B1/B2 (r mean `0.2240`), while B2_lam0.005 is the best repeated S2 candidate among B1/B2 (r mean `0.2556`).
+
+The full 2xROI B0-B4 lambda sweep changes the best within-subject candidates:
+
+| Split | Best r variant | RMSE / r | Read |
+| --- | --- | ---: | --- |
+| LOSO | B0 | `0.9409 / -0.0094` | Adapter/GRL hurts cross-subject LOSO |
+| S1 | B3_lam0.05 | `0.8327 / 0.3938` | Session-GRL is strongest in same-subject event split |
+| S4 | B4_lam0.05 | `0.9104 / 0.2511` | Dual GRL gives the best r; B4_lam0.005 gives best RMSE `0.9055` |
+| S2 | B3_lam0.01 | `0.9012 / 0.3156` | Session-GRL beats B1/B2 on chronological split |
+
+Current A1/A2 status: the remote queue is still extracting `outputs/embeddings/video_v4d_A1_2xroi_train_embeddings.npz`; the latest progress check reached about `374 / 8328` windows (`4.5%`) with `0` failures. Therefore augmentation and B5_A1 conclusions remain unanswered.
+
+2xROI diagnostic follow-up:
+
+| Diagnostic | Main result | Read |
+| --- | --- | --- |
+| Window C0 absolute | RMSE `0.9592`, r `-0.0197` | LOSO remains near zero |
+| Window C1 subject-centered | RMSE `0.8522`, r `-0.0476` | Centering lowers RMSE but worsens r |
+| Event pooling | best S2 E2 `1.0231 / 0.1931`; best S4 E2 `0.9880 / 0.2228` | No promotion over window B1/B2 |
+| Few-shot affine | original B1 affine K=10 RMSE `0.8861`, r `-0.0197`; centered C1 affine K=10 RMSE `0.8124`, r `-0.0418` | RMSE calibration only, no correlation recovery |
+| Strict transfer matrix | diagonal r mean `-0.0311`, off-diagonal r mean `0.0034`, overlap `0` | No stable held-out same-subject or cross-subject centered mapping |
+
+Current direction: keep V4a/V4b 2xROI baselines as valid. Do not launch P4 multimodal fusion with the old upper-body B1 branch. For exploratory P4, compare no-video against valid 2xROI B0/V4a and split-specific candidates; for formal P4, wait for A1/A2/B5_A1 or explicitly exclude augmentation from the video branch.

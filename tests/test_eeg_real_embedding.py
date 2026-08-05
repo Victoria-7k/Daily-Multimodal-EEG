@@ -214,6 +214,35 @@ class EEGRealEmbeddingTests(unittest.TestCase):
         self.assertEqual(quality_flags[0]["deep_feature_dim"], 12)
         self.assertEqual(failures, [])
 
+    def test_deep_encoder_can_reuse_different_cache_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_root = root / "cache"
+            checkpoint = _touch(root / "eegpt-checkpoint")
+            _write_eeg_cache(cache_root, sample_id="sample-1", encoder_profile="eeg_real_frozen_v1")
+            reader = ArrayEEGReader(_valid_eeg_window())
+            backend = FakeDeepEEGBackend(hidden_dim=12)
+
+            summary = extract_eeg_real_embeddings(
+                [_window("sample-1")],
+                cache_root=cache_root,
+                output_npz=root / "eeg_deep_embeddings.npz",
+                failures_out=root / "failures.json",
+                encoder_profile="eeg_deep_frozen_v1",
+                cache_profile="eeg_real_frozen_v1",
+                checkpoint_path=checkpoint,
+                reader=reader,
+                deep_backend=backend,
+            )
+
+            with np.load(root / "eeg_deep_embeddings.npz", allow_pickle=True) as loaded:
+                encoder_versions = loaded["encoder_version"].astype(str).tolist()
+                quality_flags = [json.loads(value) for value in loaded["quality_flags"].tolist()]
+
+        self.assertEqual(summary["success_count"], 1)
+        self.assertEqual(encoder_versions, ["eeg_deep_frozen_v1"])
+        self.assertEqual(quality_flags[0]["cache_profile"], "eeg_real_frozen_v1")
+
     def test_missing_deep_checkpoint_records_checkpoint_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

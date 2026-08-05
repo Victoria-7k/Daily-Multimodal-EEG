@@ -1,0 +1,55 @@
+{
+  "target_label": "fatigue",
+  "min_available_modalities": 2,
+  "metadata_source": {
+    "path": "outputs/embeddings/video_v4a_dinov2_2xroi_embeddings.npz",
+    "modality": "video",
+    "profile": "FullSweepB0_labels_metadata"
+  },
+  "branches": {
+    "eeg": {
+      "path": "outputs/embeddings/eeg_real_eegpt_full_v2_mainface_120s10s_embeddings.npz",
+      "modality": "eeg",
+      "profile": "eeg_deep_frozen_v1_120s10s"
+    },
+    "wear": {
+      "WphysioPre": {
+        "path": "outputs/embeddings/wear_physio_features_preprocessed_v1_full_mainface_embeddings.npz",
+        "modality": "wear",
+        "profile": "wear_physio_features_preprocessed_v1"
+      },
+      "WdeepPre": {
+        "path": "outputs/embeddings/wear_deep_sequence_preprocessed_v1_full_mainface_embeddings.npz",
+        "modality": "wear",
+        "profile": "wear_deep_sequence_preprocessed_v1"
+      }
+    },
+    "video": {
+      "FullSweepB0": {
+        "path": "outputs/embeddings/video_v4a_dinov2_2xroi_embeddings.npz",
+        "modality": "video",
+        "profile": "FullSweepB0"
+      },
+      "FullSweepB3Lam005": {
+        "path": "outputs/embeddings/video_v4a_dinov2_2xroi_embeddings.npz",
+        "modality": "video",
+        "profile": "FullSweepB3Lam005_fold_fitted"
+      },
+      "A1A2TrainOnlyA2": {
+        "path": "outputs/embeddings/video_v4a_dinov2_2xroi_embeddings.npz",
+        "modality": "video",
+        "profile": "A1A2TrainOnlyA2_train_only"
+      },
+      "B5A1Lam0001": {
+        "path": "outputs/embeddings/video_v4a_dinov2_2xroi_embeddings.npz",
+        "modality": "video",
+        "profile": "B5A1Lam0001_fold_fitted"
+      }
+    },
+    "audio": {
+      "path": "outputs/embeddings/audio_opensmile_egemaps_full_v2_mainface_120s10s_embeddings.npz",
+      "modality": "audio",
+      "profile": "audio_opensmile_egemaps_v1_120s10s"
+    }
+  }
+}

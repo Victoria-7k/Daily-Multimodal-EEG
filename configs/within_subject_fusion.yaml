@@ -1,5 +1,6 @@
 {
   "fusion_config": "configs/fusion_matrix.yaml",
+  "video_route_config": "configs/within_subject_video_routes.yaml",
   "window_index": "outputs/window_index/real_cache_face_detected_full_v2_mainface.jsonl",
   "cohort_manifest": "outputs/splits/fusion_within_subject_120s10s_cohort.json",
   "split_manifest": "outputs/splits/fusion_within_subject_120s10s_splits_seed17.json",

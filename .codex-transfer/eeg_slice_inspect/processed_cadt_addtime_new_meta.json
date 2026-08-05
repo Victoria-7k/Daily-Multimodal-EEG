@@ -1,0 +1,91 @@
+{
+  "seq_len": 2000,
+  "n_channels": 59,
+  "n_labels": 11,
+  "label_names": [
+    "inspired",
+    "alert",
+    "determined",
+    "attentive",
+    "active",
+    "hostile",
+    "nervous",
+    "upset",
+    "afraid",
+    "ashamed",
+    "fatigue"
+  ],
+  "use_all_segments": true,
+  "domains_per_subject": 10,
+  "domain_offset_map": {
+    "1": 0,
+    "2": 10,
+    "3": 20,
+    "4": 30,
+    "5": 40,
+    "6": 50,
+    "7": 60,
+    "8": 70,
+    "9": 80,
+    "10": 90,
+    "11": 100,
+    "12": 110,
+    "13": 120,
+    "14": 131,
+    "15": 141
+  },
+  "domains_per_subject_map": {
+    "1": 10,
+    "2": 10,
+    "3": 10,
+    "4": 10,
+    "5": 10,
+    "6": 10,
+    "7": 10,
+    "8": 10,
+    "9": 10,
+    "10": 10,
+    "11": 10,
+    "12": 10,
+    "13": 11,
+    "14": 10,
+    "15": 10
+  },
+  "num_samples": 28819,
+  "num_subjects": 15,
+  "num_domains": 150,
+  "skipped_samples": 0,
+  "x_shape": [
+    28819,
+    2000,
+    59
+  ],
+  "y_shape": [
+    28819,
+    11
+  ],
+  "ts_shape": [
+    28819
+  ],
+  "ts_range": [
+    33.0,
+    16662.0
+  ],
+  "source_h5_files": [
+    "sub_01_de.h5",
+    "sub_02_de.h5",
+    "sub_03_de.h5",
+    "sub_04_de.h5",
+    "sub_05_de.h5",
+    "sub_06_de.h5",
+    "sub_07_de.h5",
+    "sub_08_de.h5",
+    "sub_09_de.h5",
+    "sub_10_de.h5",
+    "sub_11_de.h5",
+    "sub_12_de.h5",
+    "sub_13_de.h5",
+    "sub_14_de.h5",
+    "sub_15_de.h5"
+  ]
+}

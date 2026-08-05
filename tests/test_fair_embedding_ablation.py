@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from daily_multimodal.training.fair_embedding_ablation import run_fair_embedding_ablation
+from daily_multimodal.training.fair_embedding_ablation import run_fair_embedding_ablation, run_fusion_spec_fair_ablation
 
 
 class FairEmbeddingAblationTests(unittest.TestCase):
@@ -111,6 +111,71 @@ class FairEmbeddingAblationTests(unittest.TestCase):
             self.assertTrue(metrics_json.is_file())
             self.assertTrue(table_md.is_file())
 
+    def test_learnable_cross_attention_reports_missing_torch_dependency(self):
+        try:
+            import torch  # noqa: F401
+        except ImportError:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                basic_npz = root / "basic.npz"
+                real_npz = root / "real.npz"
+                _write_embeddings(basic_npz, offset=0.0)
+                _write_embeddings(real_npz, offset=2.0)
+
+                with self.assertRaisesRegex(ImportError, "learnable_cross_attention requires torch"):
+                    run_fair_embedding_ablation(
+                        basic_embeddings=basic_npz,
+                        real_embeddings=real_npz,
+                        target_label="alert",
+                        out_json=root / "metrics.json",
+                        out_table=root / "table.md",
+                        epochs=2,
+                        model="learnable_cross_attention",
+                    )
+        else:
+            self.skipTest("PyTorch is installed; missing-dependency path is not active")
+
+    def test_fusion_spec_fair_ablation_reports_missing_torch_dependency(self):
+        try:
+            import torch  # noqa: F401
+        except ImportError:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                sample_ids = [f"sample-{idx}" for idx in range(6)]
+                eeg = root / "eeg.npz"
+                wear = root / "wear.npz"
+                video = root / "video.npz"
+                _write_branch(eeg, sample_ids=sample_ids, modality="eeg", offset=0.1, include_labels=True)
+                _write_branch(wear, sample_ids=sample_ids, modality="wear", offset=0.2, include_labels=False)
+                _write_branch(video, sample_ids=sample_ids, modality="video", offset=0.3, include_labels=False)
+                config = root / "fusion_matrix.json"
+                config.write_text(
+                    json.dumps(
+                        {
+                            "target_label": "alert",
+                            "branches": {
+                                "eeg": {"path": str(eeg), "modality": "eeg", "profile": "eeg_current"},
+                                "wear": {"WphysioPre": {"path": str(wear), "modality": "wear", "profile": "wear_physio_features_preprocessed_v1"}},
+                                "video": {"V4aUpper": {"path": str(video), "modality": "video", "profile": "V4a_upper"}},
+                                "audio": {"path": str(eeg), "modality": "audio", "profile": "audio_current"},
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(ImportError, "learnable_cross_attention requires torch"):
+                    run_fusion_spec_fair_ablation(
+                        fusion_spec=config,
+                        fusion_experiment="fusion_WphysioPre_V4aUpper_no_audio",
+                        target_label="alert",
+                        out_json=root / "metrics.json",
+                        out_table=root / "table.md",
+                        epochs=2,
+                    )
+        else:
+            self.skipTest("PyTorch is installed; missing-dependency path is not active")
+
 
 def _write_embeddings(path: Path, *, offset: float, reverse_sample_ids: bool = False) -> None:
     subjects = np.array(["sub-02", "sub-02", "sub-11", "sub-11", "sub-13", "sub-13"], dtype=object)
@@ -140,6 +205,33 @@ def _write_embeddings(path: Path, *, offset: float, reverse_sample_ids: bool = F
             dtype=object,
         ),
     )
+
+
+def _write_branch(
+    path: Path,
+    *,
+    sample_ids: list[str],
+    modality: str,
+    offset: float,
+    include_labels: bool,
+) -> None:
+    count = len(sample_ids)
+    emb = np.zeros((count, 256), dtype=np.float32)
+    emb[:, 0] = np.arange(count, dtype=np.float32) + offset
+    key = {"eeg": "eeg_emb", "wear": "wear_emb", "video": "face_emb", "audio": "audio_emb"}[modality]
+    mask_index = {"eeg": 0, "wear": 1, "video": 2, "audio": 3}[modality]
+    mask = np.zeros((count, 4), dtype=np.int8)
+    mask[:, mask_index] = 1
+    payload = {
+        "sample_id": np.asarray(sample_ids, dtype=object),
+        "event_id": np.asarray([f"event-{idx}" for idx in range(count)], dtype=object),
+        "subject_id": np.asarray(["sub-02", "sub-02", "sub-11", "sub-11", "sub-13", "sub-13"], dtype=object),
+        key: emb,
+        "modality_mask": mask,
+    }
+    if include_labels:
+        payload["labels"] = np.asarray([json.dumps({"alert": float(idx)}) for idx in range(count)], dtype=object)
+    np.savez_compressed(path, **payload)
 
 
 if __name__ == "__main__":

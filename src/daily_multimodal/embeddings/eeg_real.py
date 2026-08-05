@@ -207,6 +207,7 @@ def extract_eeg_real_embeddings(
     output_npz: Path | str,
     failures_out: Path | str,
     encoder_profile: str,
+    cache_profile: str | None = None,
     checkpoint_path: Path | str | None = None,
     reader: EEGReader | None = None,
     deep_backend: DeepEEGBackend | None = None,
@@ -216,9 +217,14 @@ def extract_eeg_real_embeddings(
     failures: list[EmbeddingFailure] = []
     samples: list[dict[str, Any]] = []
     cached: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    resolved_cache_profile = cache_profile or encoder_profile
 
     for window in windows:
-        cache = _read_eeg_cache(window, cache_root=cache_root, encoder_profile=encoder_profile)
+        cache = _read_eeg_cache(
+            window,
+            cache_root=cache_root,
+            cache_profile=resolved_cache_profile,
+        )
         if cache is None:
             failures.append(
                 _failure(
@@ -227,7 +233,7 @@ def extract_eeg_real_embeddings(
                     stage="read_eeg_cache",
                     error_type="source_missing",
                     error="EEG cache metadata or BDF file is missing",
-                    source_path=str(_eeg_cache_dir(window, cache_root, encoder_profile)),
+                    source_path=str(_eeg_cache_dir(window, cache_root, resolved_cache_profile)),
                 )
             )
             continue
@@ -359,6 +365,7 @@ def extract_eeg_real_embeddings(
                     "deep_load_report": getattr(deep_backend, "load_report", None)
                     if deep_mode
                     else None,
+                    "cache_profile": resolved_cache_profile,
                 },
                 "encoder_version": encoder_profile,
             }
@@ -380,9 +387,9 @@ def _read_eeg_cache(
     window: dict[str, Any],
     *,
     cache_root: Path | str,
-    encoder_profile: str,
+    cache_profile: str,
 ) -> dict[str, Any] | None:
-    cache_dir = _eeg_cache_dir(window, cache_root, encoder_profile)
+    cache_dir = _eeg_cache_dir(window, cache_root, cache_profile)
     metadata_path = cache_dir / "window.json"
     if not metadata_path.is_file():
         return None
@@ -459,8 +466,8 @@ def _select_checkpoint_state_file(checkpoint_path: Path) -> Path:
     raise RuntimeError(f"EEG deep checkpoint state file was not found under {checkpoint_path}")
 
 
-def _eeg_cache_dir(window: dict[str, Any], cache_root: Path | str, encoder_profile: str) -> Path:
-    return Path(cache_root) / "eeg_windows" / str(window.get("sample_id", "")) / encoder_profile
+def _eeg_cache_dir(window: dict[str, Any], cache_root: Path | str, cache_profile: str) -> Path:
+    return Path(cache_root) / "eeg_windows" / str(window.get("sample_id", "")) / cache_profile
 
 
 def _window_offsets(window: dict[str, Any], cache: dict[str, Any]) -> tuple[float, float]:

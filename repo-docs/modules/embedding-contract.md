@@ -76,3 +76,43 @@ The upper-body path may use injected MediaPipe/pose localization or existing bbo
 The default region writer emits short, DINO-oriented clips rather than copying full source MP4 files: it samples 16 frames from the requested window, applies any crop bbox, scales frames to 640px width, and writes a compact MP4. It reads each source window sequentially and reuses the sampled raw frames when both `upper_body` and `full_frame` are requested for the same window. `face_presence.main_face_bbox` from the current window index is OpenCV-style `[x,y,w,h]`, and the upper-body fallback expands that face box before cropping. This keeps region cache artifacts small enough for R1/R2/R3 extraction while preserving the region content used by the visual encoder.
 
 When the default writer is asked for only `upper_body` and `full_frame`, it further groups rows by `(source_video_path, event_id)` and decodes each source/event group once. Sidecars written through this faster path use `region_source=source_video_event_group`; the per-window output path and fallback fields stay the same, so downstream DINOv2 extraction continues to read the cache by `sample_id` and `video_region`.
+
+## Learnable fusion token contract, 2026-07-08
+
+`src/daily_multimodal/training/cross_attention_fusion.py` owns the first lightweight learnable cross-attention fusion contract. It consumes aligned `.npz` branch bundles and turns the enabled modalities into modality tokens ordered as `eeg`, `wear`, `video`, `audio`. The video token intentionally reads the existing `face_emb` compatibility slot. The within-subject route registry keeps the same slot while selecting B0, B3, A2, or B5 behavior per fold.
+
+The within-subject fusion plan uses independent EEG/audio branches instead of the old 781-row all-real pack. EEG reads `outputs/embeddings/eeg_real_eegpt_full_v2_mainface_120s10s_embeddings.npz` (`eeg_deep_frozen_v1`), audio reads `outputs/embeddings/audio_opensmile_egemaps_full_v2_mainface_120s10s_embeddings.npz` (`audio_opensmile_egemaps_v1`), and wear retains its two preprocessed branches. Video is registered in `configs/within_subject_video_routes.yaml` as four routes: `full_sweep/B0`, `full_sweep/B3_lam0.05`, `a1_a2_train_only/A2`, and `b5_a1/B5_A1_lam0.001`. B0 is fixed 2xROI input. B3 and B5 must be fitted within each fusion training fold, while A2 replaces train rows only; their validation/test tokens use the fixed B0 base route. The resulting paired matrix has 20 experiments, with full/no-audio controls for every wear/video pair plus no-video and bio-only controls for each wear branch.
+
+`FusionDataset.tokens` has shape `(N, modality_count, 256)` and `FusionDataset.token_mask` has shape `(N, modality_count)`. By default, branch alignment uses the common `sample_id` intersection in the target branch order, because real branch artifacts can have different coverage. Labels and subject/event metadata are read from the first enabled branch that carries a `labels` array; when no enabled branch has labels, the fusion config can provide a `metadata_source` branch that is used only for labels and metadata, not as an enabled token. This lets embedding-only EEG/audio/wear branch files participate directly in `no_video` and `bio_only` controls. Matched controls can pass an explicit `base_sample_ids`; that path is strict and fails if a required branch is missing any requested row. Rows are retained when at least `min_available_modalities` enabled tokens are available, defaulting to 2. `learnable_cross_attention` lazily imports PyTorch; environments without torch can still validate configs and dataset alignment, while training reports the missing dependency explicitly.
+
+The server result in `outputs/reports/fusion_matrix_120s10s/` is the earlier static 12-experiment V4aUpper/B1 matrix. It remains historical evidence only and cannot rank the four-route within-subject plan. Before screening the new plan, the runner must materialize every route inside the frozen subject/fold partition and audit that validation/test inputs were never produced from a model fitted with those rows.
+
+## B0 EEG-Aligned Contract, 2026-07-29
+
+The B0 EEG-aligned workflow is separate from the older 120s/10s `7368`-window within-subject cohort. Its canonical row set is the new `28819`-row index at `/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/index/eeg_aligned_window_index.jsonl`, where `sample_id` is `eeg_{eeg_sample_index:06d}` and `eeg_sample_index` is exactly `0..28818`.
+
+The B0 branch bundles all keep the full canonical row count. Missing video, audio, or wear data is represented only by branch masks; rows are not dropped before fusion. The checked branch files are:
+
+```text
+/vePFS-0x0d/DailyEEG_multimodal/embeddings/eeg/eeg_statfft_eeg23win_embeddings.npz
+/vePFS-0x0d/DailyEEG_multimodal/embeddings/video/video_B0_2xroi_eeg23win_embeddings.npz
+/vePFS-0x0d/DailyEEG_multimodal/embeddings/audio/audio_opensmile_eeg23win_embeddings.npz
+/vePFS-0x0d/DailyEEG_multimodal/embeddings/wear/wear_physio_preprocessed_eeg23win_embeddings.npz
+/vePFS-0x0d/DailyEEG_multimodal/embeddings/wear/wear_deep_sequence_preprocessed_eeg23win_embeddings.npz
+```
+
+`eeg_statfft_eeg23win_embeddings.npz` is a deterministic statistical/FFT EEG token, not an EEGPT checkpoint output. It reads `X.npy` shaped `(28819, 2000, 59)`, computes per-window time statistics plus FFT bandpower features, projects them to `(28819, 256)`, and writes `eeg_mask` plus `modality_mask[:,0]`. It was introduced because the new server did not expose an existing Python runtime or EEGPT checkpoint at handoff time. A future EEGPT branch may replace it, but should use a distinct filename and encoder version rather than silently overwriting this statistical baseline.
+
+The B0 fusion runner consumes `splits_new` directly. For supervised cross-attention runs, `pretrain + finetune` is used as the supervised training set, while `val` and `test` are kept unchanged. The first complete B0 pass has now been run for all three `splits_new` protocols: `cross_subject`, `cross_day`, and `within_subject_day`.
+
+## EEGPT EEG-Aligned Branch, 2026-08-01
+
+The EEG-aligned `28819`-row cohort now has a real EEGPT EEG branch on the new server:
+
+```text
+/vePFS-0x0d/DailyEEG_multimodal/embeddings/eeg/eeg_eegpt_eeg23win_embeddings.npz
+```
+
+This branch uses profile `eeg_deep_frozen_v1`, backend `braindecode EEGPT`, checkpoint `outputs/checkpoints/eegpt-pretrained`, and writes `eeg_emb (28819, 256)` plus `eeg_mask (28819,)`. The generation report verified `eeg_mask_sum=28819`, `failure_count=0`, `nan_count=0`, and sha256 `943046313ae5af275bd6f3b7b134169cdc651ec0a1ec0369151dbe99be75013c`.
+
+For new EEG-aligned multimodal cross-attention analysis, use this EEGPT branch instead of the earlier `eeg_statfft_eeg23win_embeddings.npz` statistical baseline. Keep both files distinct so old baseline reports remain traceable.

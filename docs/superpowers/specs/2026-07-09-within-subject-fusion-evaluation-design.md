@@ -2,7 +2,7 @@
 
 ## Goal
 
-Evaluate all 12 existing multimodal fusion experiments under a strict
+Evaluate all 20 multimodal fusion experiments under a strict
 within-subject protocol. Train an independent model for every subject and
 report both per-subject and overall results without allowing windows from the
 same event to cross train, validation, and test boundaries.
@@ -15,18 +15,25 @@ definitions or model architecture:
 - EEG: `eeg_deep_frozen_v1_120s10s`
 - Wear: `wear_physio_features_preprocessed_v1` and
   `wear_deep_sequence_preprocessed_v1`
-- Video: `V4a_upper` and `B1`
+- Video routes: `full_sweep/B0`, `full_sweep/B3_lam0.05`,
+  `a1_a2_train_only/A2`, and `b5_a1/B5_A1_lam0.001`
 - Audio: `audio_opensmile_egemaps_v1_120s10s`
-- Experiments: all 12 combinations already produced by
-  `matrix_experiment_specs`
+- Experiments: 20 combinations: two wear branches times four video routes,
+  each with full/no-audio controls, plus no-video and bio-only controls for
+  each wear branch
 - Target: `fatigue`
 - Model: the existing learnable multimodal attention model
-- Primary cohort: the exact `sample_id` intersection across all 12 experiments
+- Primary cohort: the exact `sample_id` intersection across all 20 experiments
 - Primary protocol: event-grouped five-fold within-subject OOF
 - Secondary protocol: within-subject session-held-out OOF
 - Baselines: train-target mean and fixed-alpha Ridge on concatenated embeddings
 
-This work does not alter embedding extraction or the cross-subject results.
+This work does not alter the existing cross-subject results. It adds a
+within-subject video-route provider: B0 is the fixed 2xROI base embedding;
+B3 is fitted only on each fusion fold's training partition; A2 replaces video
+only in the training partition; and B5 fits its adapter on A1 training inputs
+only. Validation and test video inputs for B3, A2, and B5 remain the fixed B0
+base embedding.
 
 ## Evaluation Protocol
 
@@ -43,7 +50,7 @@ partitions are used only for final evaluation.
 Before any model training, a preparation command builds two immutable inputs:
 
 - a cohort manifest containing the ordered `sample_id` intersection across all
-  12 experiments
+  20 experiments
 - a split manifest assigning every eligible event or overlap-connected event
   group to a fold for both evaluation protocols
 
@@ -57,7 +64,7 @@ and minibatch order; changing it cannot change fold membership.
 The preparation command reads
 `outputs/window_index/real_cache_face_detected_full_v2_mainface.jsonl` to
 recover `window_start_time`, `window_end_time`, and session metadata that are
-not stored in the B1 embedding bundle. Events from the same subject/session
+not stored in every independent video source bundle. Events from the same subject/session
 whose raw time intervals overlap are placed in the same connected component.
 The component, rather than the individual event, is the indivisible split
 unit. Components use collision-safe `(subject_id, session_id, event_id)` keys,
@@ -168,7 +175,7 @@ only for deterministic execution.
 ### Paired ablation cohort
 
 The primary matrix uses one global paired cohort: the ordered sample-ID
-intersection across all 12 experiment datasets after modality availability
+intersection across all 20 experiment datasets after modality availability
 filtering. Every experiment trains and evaluates on exactly this cohort.
 Native-coverage row counts are descriptive only and are not used for primary
 comparisons.
@@ -192,13 +199,14 @@ outputs/reports/fusion_matrix_within_subject_120s10s/
 The directory contains:
 
 - `fusion_matrix_within_subject_manifest.json`: command configuration and the
-  expanded 12-experiment matrix
+  expanded 20-experiment matrix, including each route's source, variant, and
+  fold policy
 - `<experiment>_metrics.json`: fold details, per-subject summaries, skipped
   subjects, macro metrics, and pooled metrics
 - `<experiment>_table.md`: one row per subject plus aggregate rows
-- `fusion_matrix_within_subject_summary.json`: compact results for all 12
+- `fusion_matrix_within_subject_summary.json`: compact results for all 20
   experiments
-- `fusion_matrix_within_subject_summary.md`: comparison table for all 12
+- `fusion_matrix_within_subject_summary.md`: comparison table for all 20
   experiments
 - `split_manifest.json` and `cohort_manifest.json`, including source hashes
 - `predictions/<protocol>/<experiment>/<model>/<subject>.npz`, containing
@@ -278,9 +286,9 @@ Automated tests cover:
 - subjects with fewer than five overlap-connected split units are reported as skipped
 - macro aggregation gives subjects equal weight
 - pooled metrics are recomputed from held-out predictions
-- dry-run expansion contains all 12 experiments
+- dry-run expansion contains all 20 experiments
 - report schemas and output paths
-- frozen split reuse across all 12 experiments
+- frozen split reuse across all 20 experiments
 - split/model seed independence
 - overlap-connected events never cross partitions
 - composite event keys do not collide across subjects or sessions
@@ -303,20 +311,20 @@ Automated tests cover:
 
 Server execution has three gates:
 
-1. Cheap screening of all 12 experiments on two subjects with reduced model
+1. Cheap screening of all 20 experiments on two subjects with reduced model
    size and epochs; this validates every branch without pruning the matrix.
 2. A benchmark comparing CPU worker counts with single-worker CUDA on the same
    jobs, selecting the fastest valid backend.
-3. Full production runs for all 12 experiments and both protocols.
+3. Full production runs for all 20 experiments and both protocols.
 
-The full 12-experiment production matrix uses one fixed `model_seed`. After
+The full 20-experiment production matrix uses one fixed `model_seed`. After
 the primary matrix is complete, only the top two or three attention
 configurations by the prespecified event-level subject-macro Pearson ranking
 are rerun with additional model seeds to estimate initialization sensitivity.
 
 ## Acceptance Criteria
 
-- All 12 experiments complete or explicitly report a failure.
+- All 20 experiments complete or explicitly report a failure.
 - For event-grouped evaluation, every eligible subject has exactly five
   completed test folds.
 - For session-held-out evaluation, every eligible subject has exactly one
