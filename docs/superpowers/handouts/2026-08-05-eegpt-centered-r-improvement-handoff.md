@@ -2,7 +2,7 @@
 
 ## 接手目标
 
-本 handoff 面向 EEGPT EEG 对齐后的多模态 cross-attention 下一轮实验。当前结果已经能支撑一个清楚判断：模型在 `cross_day` 和 `within_subject_day` 中具备一定总体 fatigue 排序能力，但 within-subject centered r 明显低于 raw r。下一轮目标是把问题从“哪个 route 最优”推进到“模型能否学习同一被试内部、跨日期的疲劳波动”。
+本 handoff 面向 EEGPT EEG 对齐后的多模态 cross-attention 下一轮实验。当前结果已经能支撑一个清楚判断：模型在 `cross_day` 中具备一定总体 fatigue 排序能力；原始 `within_subject_day` 只能作为窗口级诊断，因为 split audit 发现 train/val/test 两两共享全部 150 个 subject-day pair。2026-08-06 已补齐 `within_subject_day_strict`，并在 strict split 上重跑 16 个 B0/A1/A2 route-aware 组合；strict 结果显示 raw r 和 centered r 均明显下降，因此下一轮目标应从“哪个 route 最优”推进到“如何建模同一被试内部的跨日期 fatigue 波动”。
 
 优先完成两类工作：
 
@@ -24,6 +24,8 @@
 - merged Markdown：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_allvideo_fusion_matrix_all_protocols_summary.md`
 - merged JSON：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_allvideo_fusion_matrix_all_protocols_summary.json`
 - preflight：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_allvideo_alignment_preflight.json`
+- strict split audit：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_centered_improvement/within_subject_day_strict_split_audit.md`
+- strict route matrix：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_centered_improvement/within_subject_day_strict_route_matrix.md`
 
 ## 已确认的数据和划分口径
 
@@ -44,13 +46,24 @@
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | `cross_subject` | 跨被试泛化 | 6122 | 11519 | 17641 | 5106 | 6072 |
 | `cross_day` | 跨日期泛化 | 6122 | 10691 | 16813 | 6187 | 5819 |
-| `within_subject_day` | 同一被试内跨天泛化 | 6122 | 11121 | 17243 | 5708 | 5868 |
+| `within_subject_day` | 当前同一被试内窗口级诊断 | 6122 | 11121 | 17243 | 5708 | 5868 |
 
 当前解释口径：
 
 - `cross_subject`：按被试划分，测试被试整体保留。
 - `cross_day`：按日期维度划分，train/val/test 来自同一总体被试池；预测 `sub1 day5` 时，训练池包含所有被试的训练日期数据，例如 `sub1-sub5 day1-day3`。
-- `within_subject_day`：按每个被试内部的日期划分，核心问题是用该被试早期日期解释其后续日期。若训练实现仍是单一全局模型，训练 batch 会汇总每个被试各自的训练日期；若下一轮要严格实现“预测 `sub1 day5` 只用 `sub1 day1-day3`”，需要新增 subject-specific runner 或 subject-conditioned fine-tuning，这一点应在 split audit 后明确。
+- `within_subject_day`：当前 split audit 显示 train/val/test 的 window index 两两不重叠，但 subject-day pair 两两重叠均为 `150`。因此它只能作为同一批 subject-day 内的窗口级诊断；严格“同一被试内跨日期泛化”需要重新构造 subject-day pair 不重叠的 held-out-day split。
+
+新增 split audit 结论：
+
+| 协议 | index train/val/test 重叠 | subject-day train-val | subject-day train-test | subject-day val-test | 当前证据等级 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `cross_subject` | 0 | 0 | 0 | 0 | 可用于跨被试泛化 |
+| `cross_day` | 0 | 0 | 0 | 0 | 可用于跨日期泛化 |
+| `within_subject_day` | 0 | 150 | 150 | 150 | 只能用于窗口级诊断 |
+| `within_subject_day_strict` | 0 | 0 | 0 | 0 | 可用于同一被试 held-out-day 诊断 |
+
+`within_subject_day_strict` 的 split 规模为 train `17135`、val `5658`、test `6026`；对应 subject-day pair 为 train `90`、val `30`、test `30`。strict test 上最低 RMSE 为 `B0_Wdeep_bio_only`（RMSE `0.9678`、raw r `0.0665`、centered r `0.0452`），最高 raw r 为 `A2_Wdeep_no_audio`（raw r `0.1115`），最高 centered r 为 `B0_Wphysio_no_video`（centered r `0.0682`）。
 
 ## 关键结果
 
@@ -100,6 +113,7 @@ within_subject_centered_r =
 
 建议按以下顺序执行：
 
+0. 构造严格 within-subject held-out-day split
 1. Split audit + subject-mean baseline
 2. Raw + centered multi-task loss
 3. Residual prediction head
@@ -107,6 +121,74 @@ within_subject_centered_r =
 5. Subject-adversarial / subject-invariant training
 6. Audio quality gate 和 missing-modality robustness
 7. 多 seed 稳定性验证
+
+## 实验 0：严格 within-subject held-out-day split
+
+### 原因
+
+现有 `within_subject_day` 的 train/val/test window index 互不重叠，但 150 个 subject-day pair 在三集合中全部重叠。该协议可以检查同一 subject-day 内不同窗口的预测稳定性，不能支撑“训练日期和测试日期隔离”的严格结论。后续若要写“同一被试内跨日期泛化”，需要先修复划分单位。
+
+### 预期结果
+
+新的 strict split 应满足：
+
+- 同一 subject 的 train/val/test 均有样本。
+- 任意 subject-day pair 只出现在一个 split 中。
+- `subject_day_overlap_train_val = 0`
+- `subject_day_overlap_train_test = 0`
+- `subject_day_overlap_val_test = 0`
+- window index 继续两两不重叠。
+
+### 操作指南
+
+新增脚本：
+
+```text
+scripts/33_build_strict_within_subject_day_split.py
+scripts/30_audit_eegpt_splits.py
+```
+
+构造逻辑：
+
+```text
+for each subject:
+    group rows by subject_id + day_id
+    sort subject-day groups by day/order
+    assign early groups to train, middle groups to val, late groups to test
+    keep all windows from the same subject-day group in one split
+```
+
+推荐比例：
+
+```text
+train 60%
+val 20%
+test 20%
+```
+
+输出目录建议：
+
+```text
+/vePFS-0x0d/DailyEEG/splits_new/within_subject_day_strict/
+  pretrain.json
+  finetune.json
+  val.json
+  test.json
+  split_info.json
+```
+
+验证后再跑当前主候选：
+
+```text
+A1_Wphysio_no_audio
+B0_Wdeep_no_audio
+A2_Wdeep_full
+```
+
+判定标准：
+
+- 如果 strict split 下 raw r 和 centered r 仍为正，才能支撑同一被试内跨日期泛化。
+- 如果 strict split 下指标显著下降，论文口径应保留 `cross_day` 的跨日期结论，把旧 `within_subject_day` 作为窗口级诊断附录或补充实验。
 
 ## 实验 1：Split Audit + Subject-Mean Baseline
 

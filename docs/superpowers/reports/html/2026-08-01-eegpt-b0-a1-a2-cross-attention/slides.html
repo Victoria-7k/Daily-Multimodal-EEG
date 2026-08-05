@@ -520,9 +520,9 @@
         <div class="metric-grid">
           <div class="metric"><div class="label">Canonical windows</div><div class="value">28,819</div><div class="note">1253 events x 23 windows</div></div>
           <div class="metric"><div class="label">Completed metrics</div><div class="value">48</div><div class="note">3 protocols x 16 experiments</div></div>
-          <div class="metric"><div class="label">Best within raw r</div><div class="value">0.3161</div><div class="note">A2_Wdeep_full</div></div>
+          <div class="metric"><div class="label">Strict within raw r</div><div class="value">0.1115</div><div class="note">A2_Wdeep_no_audio</div></div>
         </div>
-        <div class="footer"><span>Daily Multimodal EEG</span><span>2026-08-05</span></div>
+        <div class="footer"><span>Daily Multimodal EEG</span><span>2026-08-06 strict update</span></div>
       </article>
 
       <article class="slide">
@@ -532,8 +532,9 @@
           <div class="callout teal">
             <h3>可以作为主结论的部分</h3>
             <ul class="bullets">
-              <li><strong>A1_Wphysio_no_audio</strong> 是 cross_day 和 within_subject_day 的低误差主候选。</li>
-              <li>视频路线在跨天和被试内跨天设置中更有价值，跨被试设置仍以 EEG+wear 的 bio-only RMSE 基线为主。</li>
+              <li><strong>A1_Wphysio_no_audio</strong> 是 cross_day 的低误差主候选。</li>
+              <li>原始 within_subject_day 只能作为窗口级诊断；strict split 后相关性明显下降。</li>
+              <li>视频路线在跨天设置中更有价值，跨被试设置仍以 EEG+wear 的 bio-only RMSE 基线为主。</li>
               <li>音频分支在当前 openSMILE token 和 fusion 设置下整体拉高 RMSE。</li>
             </ul>
           </div>
@@ -541,12 +542,40 @@
             <h3>需要谨慎表述的部分</h3>
             <ul class="bullets">
               <li>raw r 高于 centered r，说明 subject-level baseline 或天级差异贡献明显。</li>
-              <li>centered r 最高约 0.10，个体内疲劳相对升降仍未被稳定捕捉。</li>
+              <li>strict within_subject_day 的 centered r 最高为 0.0682，个体内疲劳相对升降仍未被稳定捕捉。</li>
               <li>不能把低 RMSE 直接解释为强跨被试 fatigue ranking。</li>
             </ul>
           </div>
         </div>
         <div class="footer"><span>结论先行</span><span>02 / 10</span></div>
+      </article>
+
+      <article class="slide">
+        <p class="eyebrow">Strict within-subject update</p>
+        <h2>修复 subject-day 重叠后，within-subject 结论需要降级</h2>
+        <div class="slide-body two-col">
+          <div class="panel">
+            <h3>划分修复</h3>
+            <table class="mini-table" style="margin-top:16px">
+              <thead><tr><th>Check</th><th class="num">Count</th></tr></thead>
+              <tbody>
+                <tr><td>train / val subject-day overlap</td><td class="num">0</td></tr>
+                <tr><td>train / test subject-day overlap</td><td class="num">0</td></tr>
+                <tr><td>val / test subject-day overlap</td><td class="num">0</td></tr>
+                <tr><td>test windows</td><td class="num">6,026</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="panel">
+            <h3>strict test winners</h3>
+            <ul class="bullets" style="margin-top:16px">
+              <li>最低 RMSE：<code>B0_Wdeep_bio_only</code>，RMSE <strong>0.9678</strong>。</li>
+              <li>最高 raw r：<code>A2_Wdeep_no_audio</code>，raw r <strong>0.1115</strong>。</li>
+              <li>最高 centered r：<code>B0_Wphysio_no_video</code>，centered r <strong>0.0682</strong>。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer"><span>旧 within_subject_day = 窗口级诊断</span><span>strict rerun</span></div>
       </article>
 
       <article class="slide">
@@ -625,7 +654,7 @@
             <tbody>
               <tr><td>cross_subject</td><td class="num">17,641</td><td class="num">5,106</td><td class="num">6,072</td><td>跨被试泛化</td></tr>
               <tr><td>cross_day</td><td class="num">16,813</td><td class="num">6,187</td><td class="num">5,819</td><td>跨日期泛化</td></tr>
-              <tr><td>within_subject_day</td><td class="num">17,243</td><td class="num">5,708</td><td class="num">5,868</td><td>同一被试内跨天泛化</td></tr>
+              <tr><td>within_subject_day</td><td class="num">17,243</td><td class="num">5,708</td><td class="num">5,868</td><td>窗口级诊断；subject-day 三集合重叠</td></tr>
             </tbody>
           </table>
         </div>

@@ -817,7 +817,7 @@
         },
         {
           "protocol": "within_subject_day",
-          "split_meaning": "within-subject cross-day generalization",
+          "split_meaning": "window-level diagnostic; subject-day overlap",
           "pretrain": 6122,
           "finetune": 11121,
           "train_total": 17243,
