@@ -1,85 +1,166 @@
-# Daily Multimodal Embedding
+# Daily Multimodal EEG-Aligned Fatigue Prediction
 
-本项目用于跑通 Daily Multimodal 数据的前半段工程闭环：从 EEG、PPG、GSR、ACC、面部录像和录音原始数据构建事件级 `manifest`，做视频音频时间对齐，生成窗口级样本，再输出基础版 smoke embedding。当前目标是先让数据路径、时间窗口、模态 mask、产物格式和服务器复跑流程可验证；最终模型效果不由当前 `basic` profile 代表。
-
-更完整的仓库导览在 [repo-docs/README.md](repo-docs/README.md)。第一次理解代码时，建议从 [一条事件如何变成 smoke embedding](repo-docs/walkthroughs/one-real-run.md) 开始。
-
-## 当前状态
-
-| 层级 | 当前状态 | 证据 |
-| --- | --- | --- |
-| 阶段 0-2 | 服务器目录、项目脚手架、只读 manifest 构建和覆盖率报告已跑通 | [阶段 0-2 执行记录](阶段0-2执行记录.md) |
-| 阶段 3 | 视频音频精确对齐入口已实现，支持 ffprobe cache、失败重试和不限时重跑 | [视频音频对齐脚本](scripts/02_align_video_audio.py) |
-| 阶段 4-6 | window index、单事件探针、单事件和 10 条 smoke embedding 已在服务器验证 | [阶段 4-6 服务器验证报告](阶段4-6服务器验证报告.md) |
-| 阶段 7 | 单被试 `basic` embedding 入口已实现，按 `subject_id` 选择窗口并复用统一 embedding 契约 | [单被试入口](scripts/06_extract_subject_embeddings.py) |
-| 阶段 7+ | 全量提取入口仍是占位，需等待单被试验证后实现 | [全量占位入口](scripts/07_extract_all_embeddings.py) |
-
-当前本地同步产物显示：
+本仓库当前主线是基于 EEG 对齐后的多模态 10 秒窗口预测 `fatigue`：
 
 ```text
-events_total=1272
-complete_wear_events=1127
-video_day_events=1103
-complete_multimodal_candidates=995
+10s EEG/Wear/Video/Audio aligned windows
+-> 每模态 256D embedding
+-> modality-token cross-attention
+-> fatigue regression
 ```
 
-这些数字来自 `outputs/reports/manifest_summary.json`。本地 `outputs/` 目前包含阶段 0-6 的 manifest、window index、探针报告和 smoke embedding；尚未包含精确对齐后的 manifest、alignment report、ffprobe cache 或单被试 embedding 产物。
+更完整的技术路线见 [technical_route_20260814.md](technical_route_20260814.md)，仓库行为导览见 [repo-docs/README.md](repo-docs/README.md)。当前脚本入口说明见 [scripts/README.md](scripts/README.md)。
 
-## 运行约定
+## 当前任务口径
 
-1. 本地创建和修改代码，再同步到服务器 `wzw` 目录：`/mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding`。
-2. 大规模或长时间任务前先跑小规模可行性测试，例如单事件、10 条 smoke、单被试。
-3. 服务器端产生的 `outputs/manifests/`、`outputs/reports/`、`outputs/logs/`、`outputs/embeddings/` 需要同步回本地对应目录，保证本地保留可追踪副本。
-4. 视频音频精确对齐会写 ffprobe cache；重跑慢文件时可用 `--retry-failed-ffprobe`，把 `--ffprobe-timeout` 设为 `0` 或负数表示不限时。
+| 项目 | 当前口径 |
+| --- | --- |
+| 样本 | `28819` 个 EEG-aligned 10 秒窗口 |
+| EEG 原始输入 | `X.npy`，shape 为 `(28819, 2000, 59)`；每窗 10 秒、200 Hz、59 通道 |
+| 标签 | `fatigue`，来自对齐后的窗口索引和 `y.npy` |
+| 主评估协议 | `cross_day`、`within_subject_day` |
+| 诊断协议 | `cross_subject` |
+| 划分规则 | train 使用 `pretrain + finetune`，val 用于早停和模型选择，最终指标只在 test split 计算 |
 
-## 常用命令
+每个窗口在融合阶段最多包含四个 256D modality token：
+
+| 模态 | 输入 | Token |
+| --- | --- | --- |
+| EEG | 59 通道 EEG 10 秒窗口 | `eeg_emb (N,256)` |
+| Wear | PPG、GSR、三轴 ACC | `wear_emb (N,256)` |
+| Video | 2 倍主脸 ROI 视频窗口 | `video_emb (N,256)` |
+| Audio | 视频音轨切窗后的 openSMILE 特征 | `audio_emb (N,256)` |
+
+`modality_mask` 顺序为 `[eeg, wear, video, audio]`。
+
+## 模态路线
+
+### EEG
+
+当前 EEG 接入口径是完整 256D EEG embedding。最新矩阵包含五条路线：
+
+| EEG route | 方法 | 监督边界 |
+| --- | --- | --- |
+| `eegpt_frozen_v1` | 复用现有 EEGPT frozen 256D embedding | frozen baseline |
+| `eegpt_partial_ft_v1` | EEGPT 端到端回归训练，解冻最后若干 transformer block、norm、projection/head；取 encoder pooled hidden state，经 256D projection 输出 | fatigue-supervised，仅用对应 protocol 的 train/val |
+| `cbramod_frozen_v1` | CBraMod encoder frozen，encoder hidden state pooling 后接 256D projection/head | fatigue-supervised projection/head，仅用 train/val |
+| `cbramod_partial_ft_v1` | CBraMod partial fine-tune，解冻后部 block、norm、projection/head；输出 256D pooled embedding | fatigue-supervised，仅用 train/val |
+| `eeg_de_5band_1s_avg_v1` | 五频带 DE 特征按 1 秒提取并做 10 秒平均，得到 295D，再由 MLP 倒数 256D projection 输出 | fatigue-supervised MLP，仅用 train/val |
+
+当前主线最强 EEG 表征是 `eegpt_partial_ft_v1`。EEG-only 结果：
+
+| protocol | RMSE | raw r | centered r |
+| --- | ---: | ---: | ---: |
+| `cross_day` | 0.9272 | 0.2741 | 0.1005 |
+| `within_subject_day` | 0.9270 | 0.3749 | 0.1489 |
+
+### Wear / Video / Audio
+
+| 模态 | 当前路线 |
+| --- | --- |
+| Wear | `Wphysio` 从 PPG/GSR/ACC 提取 HR/HRV、SCR/slope、motion/stationary 等可解释特征并投影到 256D；`Wdeep` 使用固定随机 1D convolution / TCN-like 序列特征、池化统计和固定 256D projection。`Wdeep` 本身是固定提取器，监督训练发生在最终融合回归器。 |
+| Video | `B0`、`A1`、`A2` 均为 2 倍主脸 ROI DINOv2-Base frozen 256D embedding；`A1` 加入轻量颜色/亮度增强，`A2` 在 A1 基础上加入 grayscale 增强。 |
+| Audio | 从视频音轨按窗口切出音频，计算 openSMILE eGeMAPS Functionals，再投影为 256D `audio_emb`。 |
+
+## 融合模型
+
+当前融合器是轻量 modality-token attention regression：
+
+1. 每个可用模态作为一个 256D token。
+2. token 经过 `Linear(256 -> hidden_dim)`，当前 `hidden_dim=128`。
+3. 加入 learnable modality embedding。
+4. 使用单头 `MultiheadAttention` 建模模态互补关系。
+5. 使用 learnable query 对 attention 后的 token 加权 pooling。
+6. 经过 `LayerNorm + MLP` 回归头输出 fatigue 预测。
+
+训练配置为 AdamW、学习率 `1e-3`、weight decay `1e-4`、batch size `256`、最多 `80` epoch、patience `15`、dropout `0.1`。所有 normalization 只在 train split 拟合。
+
+## 最新结果
+
+最新结果来自 `eeg_encoder_256d_5route_fusion_video_only_seed240800_raw`：
+
+- EEG 256D matrix：`15` runs。
+- 四模态融合 matrix：`180` runs。
+- EEG routes：5 条。
+- Video routes：`B0/A1/A2`。
+- Wear routes：`Wphysio/Wdeep`。
+- Fusion 设置：`full` 四模态与 `no_audio` EEG+Wear+Video。
+
+主协议最佳结果：
+
+| protocol | 选择标准 | EEG route | fusion route | RMSE | raw r | centered r |
+| --- | --- | --- | --- | ---: | ---: | ---: |
+| `cross_day` | 最低 RMSE | EEGPT partial FT | `B0_Wphysio_no_audio` | 0.9189 | 0.3301 | 0.1526 |
+| `cross_day` | 最高 raw r | EEGPT partial FT | `B0_Wphysio_full` | 0.9481 | 0.3504 | 0.1176 |
+| `within_subject_day` | 最低 RMSE | EEGPT partial FT | `A2_Wdeep_full` | 0.9138 | 0.4046 | 0.1736 |
+| `within_subject_day` | 最高 raw r | EEGPT partial FT | `B0_Wdeep_no_audio` | 0.9337 | 0.4252 | 0.2122 |
+
+按 EEG route 聚合时，`EEGPT partial FT` 在两个主协议中也保持领先：
+
+| protocol | EEG route | mean RMSE | mean raw r | mean centered r |
+| --- | --- | ---: | ---: | ---: |
+| `cross_day` | EEGPT partial FT | 0.9497 | 0.3012 | 0.1115 |
+| `within_subject_day` | EEGPT partial FT | 0.9268 | 0.3964 | 0.1903 |
+
+主要结果文件：
+
+- `outputs/server_sync/eeg_encoder_256d_5route_20260814/reports/eeg_encoder_256d_5route_matrix_seed240800_20260814.json`
+- `outputs/server_sync/eeg_encoder_256d_5route_20260814/reports/eeg_encoder_256d_5route_fusion_video_only_seed240800_raw.json`
+- `outputs/server_sync/eeg_encoder_256d_5route_20260814/eeg_encoder_256d_5route_results_summary.md`
+
+## 当前复现实验顺序
+
+1. 如需重新生成非 EEG 模态 embedding，运行：
 
 ```bash
-python scripts/00_check_environment.py --config configs/paths.server.yaml
-
-python scripts/01_build_manifest.py \
-  --config configs/paths.server.yaml \
-  --out outputs/manifests/events_manifest.jsonl \
-  --coverage-out outputs/reports/manifest_coverage.json
-
-python scripts/02_validate_alignment.py \
-  --manifest outputs/manifests/events_manifest.jsonl \
-  --summary-out outputs/reports/manifest_summary.json
-
-python scripts/02_align_video_audio.py \
-  --manifest outputs/manifests/events_manifest.jsonl \
-  --out outputs/manifests/events_manifest_with_video_audio.jsonl \
-  --report-out outputs/reports/video_audio_alignment_report.json
-
-python scripts/03_build_window_index.py \
-  --manifest outputs/manifests/events_manifest.jsonl \
-  --out outputs/window_index/window_index.jsonl
-
-python scripts/03_probe_one_event.py \
-  --window-index outputs/window_index/window_index.jsonl \
-  --require-all-modalities
-
-python scripts/05_extract_smoke_embeddings.py \
-  --window-index outputs/window_index/window_index.jsonl \
-  --require-all-modalities \
-  --max-events 10 \
-  --encoder-profile basic
-
-python scripts/06_extract_subject_embeddings.py \
-  --window-index outputs/window_index/window_index.jsonl \
-  --subject-id sub-10 \
-  --require-all-modalities \
-  --encoder-profile basic
+python scripts/12_extract_audio_embeddings.py
+python scripts/15_extract_wear_embeddings.py
+python scripts/27_extract_dinov2_roi_embeddings.py
 ```
 
-更完整的命令、产物和字段契约见 [运行命令和产物](repo-docs/references/commands-and-artifacts.md) 与 [字段契约](repo-docs/references/data-contracts.md)。
+2. 生成五条 EEG 256D token：
+
+```bash
+python scripts/34_run_eeg_encoder_matrix.py \
+  --profiles eegpt_frozen_v1,eegpt_partial_ft_v1,cbramod_frozen_v1,cbramod_partial_ft_v1,eeg_de_5band_1s_avg_v1 \
+  --protocols cross_subject,cross_day,within_subject_day \
+  --seeds 240800 \
+  --cbramod-checkpoint outputs/checkpoints/cbramod-pretrained \
+  --predictions-dir outputs/predictions/eeg_encoder_256d_5route_matrix_seed240800_20260814 \
+  --embeddings-dir /vePFS-0x0d/DailyEEG_multimodal/embeddings/eeg_encoder_256d_tokens \
+  --out-json outputs/reports/eeg_encoder_256d_5route_matrix_seed240800_20260814.json \
+  --out-md outputs/reports/eeg_encoder_256d_5route_matrix_seed240800_20260814.md
+```
+
+3. 运行当前 full/no_audio video-only fusion matrix：
+
+```bash
+python scripts/32_run_eegpt_centered_loss.py \
+  --root /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned \
+  --embeddings-root /vePFS-0x0d/DailyEEG_multimodal/embeddings \
+  --splits-root /vePFS-0x0d/DailyEEG/splits_new \
+  --experiment-set video_only \
+  --protocols cross_subject,cross_day,within_subject_day \
+  --eeg-branches eeg_eegpt_frozen_v1,eeg_eegpt_partial_ft_v1,eeg_cbramod_frozen_v1,eeg_cbramod_partial_ft_v1,eeg_de_5band_1s_avg_v1 \
+  --eeg-token-root eeg_encoder_256d_tokens \
+  --eeg-token-seed 240800 \
+  --loss-modes raw \
+  --no-raw-baseline \
+  --subject-balanced-batches \
+  --out-json outputs/reports/eeg_encoder_256d_5route_fusion_video_only_seed240800_raw.json \
+  --out-md outputs/reports/eeg_encoder_256d_5route_fusion_video_only_seed240800_raw.md \
+  --predictions-dir outputs/predictions/eeg_encoder_256d_5route_fusion_video_only_seed240800_raw
+```
 
 ## 本地验证
 
 ```bash
-python -m pytest tests -q
 python -m compileall -q src scripts tests
+$env:PYTHONPATH='src'; python -m unittest tests.test_eeg_encoder_matrix tests.test_eeg_encoder_fusion_tokens tests.test_centered_metrics -v
 ```
 
-当前测试覆盖 manifest 构建、时间解析、窗口切分、单事件探针、视频音频对齐、embedding 保存和单被试选择。
+repo-docs 结构检查：
 
+```bash
+python C:\Users\28303\.codex\skills\repo-docs\scripts\validate_repo_docs.py repo-docs --repo-root .
+```

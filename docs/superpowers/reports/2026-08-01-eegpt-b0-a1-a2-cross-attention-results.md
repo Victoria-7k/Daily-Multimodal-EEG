@@ -2,26 +2,27 @@
 
 ## 技术摘要
 
-本报告汇总 EEGPT EEG 分支接入后的 EEG 对齐多模态 cross-attention 矩阵结果。实验基于 28,819 行 canonical EEG window index，默认预测 `fatigue`，在 `cross_subject`、`cross_day`、`within_subject_day` 三个 `splits_new` 协议下训练和测试。
+本报告汇总 EEGPT EEG 分支接入后的 EEG 对齐多模态 cross-attention 矩阵结果。实验基于 28,819 行 canonical EEG window index，默认预测 `fatigue`。原始矩阵覆盖 `cross_subject`、`cross_day`、`within_subject_day` 三个 `splits_new` 协议；后续审计发现原始 `within_subject_day` 存在 subject-day pair 跨 split 重叠，因此本报告的正式同一被试跨日期结论改用修复后的 `within_subject_day_strict`。
 
 - **全量 route-aware 结果已经完成。** 本轮共有 48 个 metrics 文件：3 个协议 x 16 个实验。16 个实验由原 B0 的 8 个控制组合，加上 A1/A2 各 4 个真正使用视频的组合构成；`no_video` 和 `bio_only` 是路线无关控制项，只在 B0 名下保留一次。
-- **最佳 RMSE 随泛化协议变化。** `cross_subject` 最优为 `B0_Wphysio_bio_only`，RMSE `0.9012`，raw r `-0.0207`；`cross_day` 由 `A1_Wphysio_no_audio` 取得最佳 RMSE `0.9298`、raw r `0.2594`。原始 `within_subject_day` 的最佳 RMSE 为 `0.9348`，但后续审计确认它只能作为窗口级诊断。
-- **A1 是当前 `cross_day` 的主候选视频路线，并在原始 `within_subject_day` 窗口级诊断中保持低误差。** `cross_day` 最佳 RMSE 来自 A1 + Wphysio + no_audio。strict `within_subject_day` 重跑后，最低 RMSE 转为 `B0_Wdeep_bio_only`，最高 raw r 转为 `A2_Wdeep_no_audio`，整体相关性明显下降。
-- **音频分支在当前矩阵中整体拉高误差。** 18 个 full-vs-no-audio 配对中，加入音频后 RMSE 平均增加 `0.0151`，raw r 平均变化 `-0.0271`。`cross_day` 和 `within_subject_day` 的顶部候选主要来自 `no_audio`。
-- **centered r 显示模型的个体内波动追踪能力弱于总体排序能力。** `cross_day` 的 centered r 最优为 `A1_Wphysio_no_audio`（`0.1107`）；原始 `within_subject_day` 的 centered r 最高 `0.1026` 只能作为窗口级诊断。strict `within_subject_day` 中 centered r 最高降至 `0.0682`，说明严格同一被试跨日期 fatigue 波动仍是后续改进重点。
+- **严格协议下的最佳结果已经重新收口。** `cross_subject` 最低 RMSE 为 `B0_Wphysio_bio_only`：RMSE `0.9012`、raw r `-0.0207`；`cross_day` 最低 RMSE、最高 raw r 和最高 centered r 均来自 `A1_Wphysio_no_audio`：RMSE `0.9298`、raw r `0.2594`、centered r `0.1107`；`within_subject_day_strict` 最低 RMSE 为 `B0_Wdeep_bio_only`：RMSE `0.9678`、raw r `0.0665`、centered r `0.0452`。
+- **原始 `within_subject_day` 只能作为窗口级诊断。** 它的最佳 RMSE `0.9348` 和最高 raw r `0.3161` 来自 subject-day pair 跨 train/val/test 重叠的设置；这些数值可用于观察同一 subject-day 内窗口预测稳定性，不再作为严格同一被试跨日期泛化证据。
+- **A1 是当前 `cross_day` 的主候选视频路线。** `cross_day` 最佳结果来自 A1 + Wphysio + no_audio；`within_subject_day_strict` 重跑后，最低 RMSE 转为 bio-only，最高 raw r 转为 `A2_Wdeep_no_audio`，说明视频路线在严格个体内 held-out-day 设置中的优势还不稳定。
+- **音频分支在当前矩阵中整体拉高误差。** 18 个 full-vs-no-audio 配对中，加入音频后 RMSE 平均增加 `0.0151`，raw r 平均变化 `-0.0271`。正式候选优先采用 `no_audio`；`within_subject_day_strict` 中最高 raw r 也来自 `A2_Wdeep_no_audio`。
+- **centered r 显示模型的个体内波动追踪能力弱于总体排序能力。** `cross_day` 的 centered r 最优为 `0.1107`；`within_subject_day_strict` 的 centered r 最高为 `0.0682`。这说明当前模型已有一定总体 fatigue 水平排序信号，但严格同一被试跨日期 fatigue 波动仍没有稳定学到。
 - **跨被试场景更像校准问题，排序信号仍弱。** `cross_subject` 的最低 RMSE 来自 bio-only 控制项，但 raw Pearson r 接近 0；因此它适合作为当前跨被试 RMSE 基线，暂不宜当作跨被试 fatigue ranking 已经有效的证据。
 
-## 协议级最佳结果
+## 协议级正式结果
 
 | 协议 | RMSE 最优实验 | RMSE | MAE | Raw r | Centered r | Per-subject r mean | Raw r 最优实验 | Raw r | RMSE |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: |
 | `cross_subject` | `B0_Wphysio_bio_only` | 0.9012 | 0.6861 | -0.0207 | -0.0415 | -0.0336 | `B0_Wdeep_bio_only` | 0.0835 | 0.9060 |
 | `cross_day` | `A1_Wphysio_no_audio` | 0.9298 | 0.7055 | 0.2594 | 0.1107 | 0.0687 | `A1_Wphysio_no_audio` | 0.2594 | 0.9298 |
-| `within_subject_day` | `A1_Wphysio_no_audio` | 0.9348 | 0.7255 | 0.3032 | 0.0778 | 0.0555 | `A2_Wdeep_full` | 0.3161 | 0.9382 |
+| `within_subject_day_strict` | `B0_Wdeep_bio_only` | 0.9678 | 0.7183 | 0.0665 | 0.0452 | 0.0222 | `A2_Wdeep_no_audio` | 0.1115 | 0.9783 |
 
-**2026-08-06 strict 更新。** 后续 split audit 发现原始 `within_subject_day` 的 train/val/test 虽然 window index 不重叠，但三组共享全部 `150` 个 subject-day pair；因此上表中的 `within_subject_day` 只能作为窗口级诊断，不能支撑严格同一被试跨日期泛化。已新增 `within_subject_day_strict`，以 subject-day pair 为最小划分单位，train/val/test 的 subject-day overlap 均为 `0`。strict 重跑 16 组合后，最低 RMSE 为 `B0_Wdeep_bio_only`：RMSE `0.9678`、raw r `0.0665`、centered r `0.0452`；最高 raw r 为 `A2_Wdeep_no_audio`：raw r `0.1115`、RMSE `0.9783`、centered r `0.0196`；最高 centered r 为 `B0_Wphysio_no_video`：centered r `0.0682`、RMSE `0.9937`、raw r `0.0598`。正式结论应以 `cross_day` 作为当前严格跨日期证据，把原始 `within_subject_day` 降级为窗口级诊断，把 strict 结果作为后续个体内动态建模的主要检验。
+**原始 `within_subject_day` 的定位。** 后续 split audit 发现原始 `within_subject_day` 的 train/val/test 虽然 window index 不重叠，但三组共享全部 `150` 个 subject-day pair；因此原始 `within_subject_day` 只能作为同一 subject-day 内不同窗口的诊断结果。该协议下最低 RMSE 为 `A1_Wphysio_no_audio`：RMSE `0.9348`、raw r `0.3032`、centered r `0.0778`；最高 raw r 为 `A2_Wdeep_full`：raw r `0.3161`、RMSE `0.9382`。这些数值不再进入严格泛化主结论。
 
-**解读。** RMSE 衡量预测尺度和校准，raw r 衡量样本排序。`cross_subject` 的 RMSE 最优行和 raw r 最优行并不一致，且相关系数都偏弱；`cross_day` 的 RMSE 和 raw r 最优都集中在 `A1_Wphysio_no_audio`；`within_subject_day` 中 A1 拿到最低 RMSE，A2/Wdeep/full 拿到最高 raw r。后续如果主目标是误差，优先追 A1/Wphysio/no_audio；如果主目标是排序，也要保留 A2/Wdeep 作为比较对象。
+**解读。** RMSE 衡量预测尺度和校准，raw r 衡量样本排序。`cross_subject` 的 RMSE 最优行和 raw r 最优行并不一致，且相关系数都偏弱；`cross_day` 的 RMSE、raw r 和 centered r 最优都集中在 `A1_Wphysio_no_audio`，是当前最清晰的主候选；`within_subject_day_strict` 的 raw r 和 centered r 均较低，说明同一被试跨日期的个体内疲劳波动仍需要专门建模。
 
 ## Raw r 与 centered r 的计算和解释
 
@@ -56,7 +57,7 @@ within_subject_centered_r =
 
 **本轮结果的读法。** Raw r 明显高于 centered r，说明模型捕捉到的主要信号包含被试间或天级整体 fatigue 差异；当这些 subject-level baseline 被扣除后，个体内部波动仍能被部分追踪，但强度较弱。因此主性能结论应使用 RMSE、MAE、raw r；centered r 应作为更严格的动态追踪诊断指标。
 
-## Cross-day 和 within-subject-day 的 centered r 结果
+## Cross-day 和 strict within-subject-day 的 centered r 结果
 
 `cross_day` 中，`A1_Wphysio_no_audio` 同时取得最低 RMSE、最高 raw r 和最高 centered r，是当前最均衡的跨天候选。
 
@@ -68,15 +69,15 @@ within_subject_centered_r =
 | `B0_Wphysio_no_video` | 0.9603 | 0.1651 | 0.0900 | 0.0560 |
 | `B0_Wdeep_no_video` | 0.9722 | 0.1362 | 0.0781 | 0.0431 |
 
-`within_subject_day` 中，centered r 最优是 `B0_Wdeep_no_audio`，而 RMSE 最优是 `A1_Wphysio_no_audio`，raw r 最优是 `A2_Wdeep_full`。这说明被试内跨天场景存在一个清晰取舍：A1/Wphysio/no-audio 更适合低误差主候选，B0/Wdeep/no-audio 更适合个体内波动追踪诊断，A2/Wdeep/full 更适合总体排序对照。
+`within_subject_day_strict` 中，raw r 和 centered r 明显低于原始窗口级 `within_subject_day`。最高 raw r 是 `A2_Wdeep_no_audio`，最高 centered r 是 `B0_Wphysio_no_video`，最低 RMSE 是 `B0_Wdeep_bio_only`。这说明严格同一被试 held-out-day 设置下，当前模型的个体内动态预测仍不稳定，旧 `within_subject_day` 中 `0.3032–0.3161` 的 raw r 主要适合作为窗口级诊断参考。
 
 | Experiment | RMSE | Raw r | Within-subject centered r | Per-subject r mean |
 | --- | ---: | ---: | ---: | ---: |
-| `B0_Wdeep_no_audio` | 0.9577 | 0.2838 | **0.1026** | 0.1038 |
-| `A1_Wphysio_full` | 0.9755 | 0.1489 | 0.1004 | 0.0898 |
-| `A2_Wdeep_full` | 0.9382 | 0.3161 | 0.0794 | 0.0679 |
-| `A1_Wphysio_no_audio` | 0.9348 | 0.3032 | 0.0778 | 0.0555 |
-| `A1_Wdeep_no_audio` | 0.9481 | 0.3067 | 0.0765 | 0.0844 |
+| `B0_Wphysio_no_video` | 0.9937 | 0.0598 | **0.0682** | 0.0892 |
+| `A2_Wdeep_full` | 0.9802 | 0.0822 | 0.0467 | 0.0705 |
+| `B0_Wdeep_full` | 0.9741 | 0.0853 | 0.0458 | 0.0800 |
+| `A1_Wdeep_full` | 0.9989 | 0.0630 | 0.0454 | 0.0735 |
+| `B0_Wdeep_bio_only` | 0.9678 | 0.0665 | 0.0452 | 0.0222 |
 
 ## 数据范围与指标定义
 
@@ -98,7 +99,7 @@ within_subject_centered_r =
 
 ### 数据集划分方式
 
-训练、验证和测试划分完全使用 `/vePFS-0x0d/DailyEEG/splits_new/` 下的三个 EEG 协议：`cross_subject`、`cross_day`、`within_subject_day`。每个协议目录都包含 `pretrain.json`、`finetune.json`、`val.json`、`test.json` 和 `split_info.json`。监督训练时只把 `pretrain + finetune` 合并为 train，`val` 用于早停/模型选择，`test` 只用于最终报告指标。
+训练、验证和测试划分先使用 `/vePFS-0x0d/DailyEEG/splits_new/` 下的三个 EEG 协议：`cross_subject`、`cross_day`、`within_subject_day`。每个协议目录都包含 `pretrain.json`、`finetune.json`、`val.json`、`test.json` 和 `split_info.json`。监督训练时只把 `pretrain + finetune` 合并为 train，`val` 用于早停/模型选择，`test` 只用于最终报告指标。后续为修复 subject-day overlap，另行生成 `within_subject_day_strict`，并用同一套训练脚本重跑 16 个组合。
 
 这三个协议不是重新抽样得到的实验内随机划分，而是固定的 EEG 官方划分；本轮训练不重写、不过滤、不重排这些 split index。远端复核确认每个协议的 train、val、test 互不重叠，所有 index 都在 `0..28818` 范围内，并且 `train = pretrain + finetune`。
 
@@ -109,7 +110,7 @@ within_subject_centered_r =
 | `within_subject_day` | 当前只能作为同一被试内窗口级诊断 | 6122 | 11121 | 17243 | 5708 | 5868 |
 | `within_subject_day_strict` | 修复后的同一被试 held-out-day 泛化 | 5957 | 11178 | 17135 | 5658 | 6026 |
 
-**重要修正：`within_subject_day` 当前不支撑严格日期泛化结论。** 后续 split audit 发现，`within_subject_day` 的 train、val、test 虽然 window index 两两不重叠，但 subject-day pair 两两重叠均为 `150`：`subject_day_overlap_train_val = 150`、`subject_day_overlap_train_test = 150`、`subject_day_overlap_val_test = 150`。因此该协议目前表示同一批 subject-day 内的窗口级划分/诊断，不能被解释为 train 日期和 test 日期严格隔离的 within-subject cross-day 泛化。严格日期泛化应优先引用 `cross_day`，或重新构造 subject-day pair 不重叠的 within-subject held-out-day split。
+**重要修正：`within_subject_day` 当前不支撑严格日期泛化结论。** 后续 split audit 发现，`within_subject_day` 的 train、val、test 虽然 window index 两两不重叠，但 subject-day pair 两两重叠均为 `150`：`subject_day_overlap_train_val = 150`、`subject_day_overlap_train_test = 150`、`subject_day_overlap_val_test = 150`。因此该协议目前表示同一批 subject-day 内的窗口级划分/诊断，不能被解释为 train 日期和 test 日期严格隔离的 within-subject cross-day 泛化。严格同一被试 held-out-day 结论应引用 `within_subject_day_strict`。
 
 `within_subject_day_strict` 已在 `/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/splits/within_subject_day_strict/` 生成，并同步到本地结果报告。它保留每个被试都出现在 train/val/test 中，但同一个 `subject_id + day_id` 的所有窗口只进入一个 split；审计结果显示 train/val/test 的 index overlap 和 subject-day overlap 均为 `0`。
 
@@ -141,8 +142,8 @@ Wear 的 `physio` 和 `deep` 是两条不同的 PPG/GSR/ACC wearable 表征路�
 | 目标标签 | `fatigue` |
 | Split 策略 | train = `pretrain + finetune`；validation = `val`；test = `test`；不重写 `splits_new` |
 | 模型 | modality token cross-attention；每个模态为 256 维 token；train-only 特征归一化；train-standardized target MSE |
-| 测试指标 | RMSE、MAE、pooled raw Pearson r、within-subject centered r、per-subject r mean/std；其中 centered r 只用于 `cross_day` 和 `within_subject_day` 的个体内波动诊断 |
-| 完成矩阵 | 3 个协议 x 16 个实验 = 48 个 metrics 文件 |
+| 测试指标 | RMSE、MAE、pooled raw Pearson r、within-subject centered r、per-subject r mean/std；其中 centered r 用于 `cross_day` 和 `within_subject_day_strict` 的个体内波动诊断，原始 `within_subject_day` 仅保留窗口级诊断 |
+| 完成矩阵 | 原始 3 个协议 x 16 个实验 = 48 个 metrics 文件；`within_subject_day_strict` 另有 16 个重跑结果 |
 
 ## 分支覆盖率
 
@@ -172,17 +173,19 @@ Wear 的 `physio` 和 `deep` 是两条不同的 PPG/GSR/ACC wearable 表征路�
 | `within_subject_day` | `A1` | 4 | 0.9538 | 0.2529 | `A1_Wphysio_no_audio` | 0.9348 | 0.3032 |
 | `within_subject_day` | `A2` | 4 | 0.9465 | 0.2888 | `A2_Wdeep_full` | 0.9382 | 0.3161 |
 
-**解读。** `cross_subject` 中三条视频路线的均值接近，最低整体 RMSE 仍由 bio-only 控制项给出。`cross_day` 中 A2 的视频使用行平均 RMSE 最低，但单行最佳仍是 `A1_Wphysio_no_audio`；两条路线都优于 B0 均值。`within_subject_day` 中 A2 的路线均值和最高 raw r 最突出，A1 仍保持最低单行 RMSE。整体上，A1 更适合做低误差主候选，A2 更适合保留为排序信号和路线鲁棒性的比较候选。
+**解读。** `cross_subject` 中三条视频路线的均值接近，最低整体 RMSE 仍由 bio-only 控制项给出。`cross_day` 中 A2 的视频使用行平均 RMSE 最低，但单行最佳仍是 `A1_Wphysio_no_audio`；两条路线都优于 B0 均值。原始 `within_subject_day` 中 A2 的路线均值和最高 raw r 最突出，A1 保持最低单行 RMSE，但这部分只能作为窗口级诊断。strict 重跑后，最低 RMSE 转为 `B0_Wdeep_bio_only`，最高 raw r 转为 `A2_Wdeep_no_audio` 且只有 `0.1115`，说明视频路线在严格同一被试跨日期设置中的收益需要重新设计实验验证。
 
 ## 消融解读
 
-**音频。** 18 个 full-vs-no-audio 配对中，full 相对 no-audio 的平均 ΔRMSE 为 `+0.0151`，平均 Δraw r 为 `-0.0271`。这说明当前 openSMILE 音频 token 在这个 fusion 设置下整体拖累前排候选，尤其影响 `cross_day` 和 `within_subject_day`。下一轮主候选建议采用 `no_audio`，同时单独重审音频 encoder、音频质量门控和缺失模态建模。
+**音频。** 18 个 full-vs-no-audio 配对中，full 相对 no-audio 的平均 ΔRMSE 为 `+0.0151`，平均 Δraw r 为 `-0.0271`。这说明当前 openSMILE 音频 token 在这个 fusion 设置下整体拖累前排候选，尤其影响 `cross_day` 和原始 `within_subject_day` 的窗口级结果。下一轮主候选建议采用 `no_audio`，同时单独重审音频 encoder、音频质量门控和缺失模态建模。
 
-**视频。** 以共享 `no_video` / `bio_only` 作为控制项时，视频收益主要出现在 `cross_day` 和 `within_subject_day` 的无音频设置。A1/A2 都能在若干配对中低于 bio-only 控制项；带音频设置的收益更不稳定。`cross_subject` 中视频常常提高 RMSE，所以视频路线优势应按协议分别陈述。
+**视频。** 以共享 `no_video` / `bio_only` 作为控制项时，视频收益主要出现在 `cross_day` 的无音频设置和原始 `within_subject_day` 的窗口级诊断中。`within_subject_day_strict` 下，视频使用组合没有形成稳定低误差优势，最高 raw r 虽来自 `A2_Wdeep_no_audio`，但绝对值只有 `0.1115`。因此视频路线优势应主要围绕 `cross_day` 陈述，个体内 held-out-day 场景需要后续专门复核。
 
-**Wear。** Wphysio 是当前更稳的低 RMSE 选择，特别是 `cross_day` 和 `within_subject_day` 的主候选 `A1_Wphysio_no_audio`。Wdeep 在部分 within-subject 排序指标上有价值，例如 A2 相关行 raw r 更高。下一轮保留两条 wear 分支更合适：Wphysio 支撑主 RMSE 候选，Wdeep 检查序列特征对排序的贡献。
+**Wear。** Wphysio 是 `cross_day` 当前更稳的低 RMSE 选择，主候选为 `A1_Wphysio_no_audio`。`within_subject_day_strict` 的最低 RMSE 来自 `B0_Wdeep_bio_only`，最高 raw r 来自 `A2_Wdeep_no_audio`，说明 Wdeep 在严格同一被试跨日期设置中更值得保留为主要对照。下一轮应同时保留 Wphysio 和 Wdeep：Wphysio 支撑跨天 RMSE 候选，Wdeep 检查序列特征对 held-out-day 排序和个体内动态的贡献。
 
 ## 全部 48 个测试结果
+
+下表保留原始三协议 x 16 组合的完整矩阵，便于追溯 route-aware 实验。表中的 `within_subject_day` 行是窗口级诊断结果；严格同一被试 held-out-day 的 16 组合重跑结果见 [2026-08-06 centered-r 改进报告](2026-08-06-eegpt-centered-improvement-results.md) 中的 `within_subject_day_strict` 表。
 
 | 协议 | 实验 | 启用模态 | RMSE | MAE | Raw r | Centered r | Per-subject r mean | Per-subject r std |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -240,31 +243,33 @@ Wear 的 `physio` 和 `deep` 是两条不同的 PPG/GSR/ACC wearable 表征路�
 - **模型结构。** 每个启用模态堆叠为一个 256 维 token；模型包含 `Linear(256 -> hidden_dim)`、learnable modality embedding、1-head `MultiheadAttention`、learnable query pooling、`LayerNorm + Linear + ReLU + Dropout + Linear` 回归头。
 - **训练设置。** AdamW；hidden dim 128；dropout 0.1；learning rate 1e-3；weight decay 1e-4；batch size 256；最多 80 epochs；patience 15；seed 240729；远端 NVIDIA H20 上使用 CUDA。
 - **归一化。** 特征归一化只在 train token 上拟合；target 只用 train 统计量标准化后进入 MSE loss，报告指标再反变换到原始尺度。
-- **centered r 计算。** 对 `cross_day` 和 `within_subject_day`，报告使用 test split 内的 subject-wise mean centering：先分别对 prediction 和 target 按测试被试去均值，再 pooled 计算 Pearson r。该指标用于诊断个体内相对波动，不作为单独的冠军选择标准。
-- **验证结果。** 完整性脚本检查了 3 个 protocol summary、48 个 metrics 文件、`fatigue` target、测试指标字段、train/val/test mask coverage、per-subject r 字段，以及每个 metrics JSON 中的 EEGPT EEG branch path；结果 `errors=0`。
+- **centered r 计算。** 对 `cross_day`、原始 `within_subject_day` 和 `within_subject_day_strict`，报告使用 test split 内的 subject-wise mean centering：先分别对 prediction 和 target 按测试被试去均值，再 pooled 计算 Pearson r。正式解释时，原始 `within_subject_day` 的 centered r 只作为窗口级诊断，strict centered r 才对应同一被试跨日期 held-out-day 检验。
+- **验证结果。** 完整性脚本检查了原始 3 个 protocol summary、48 个 metrics 文件、`fatigue` target、测试指标字段、train/val/test mask coverage、per-subject r 字段，以及每个 metrics JSON 中的 EEGPT EEG branch path；结果 `errors=0`。strict split 审计额外确认 `within_subject_day_strict` 的 train/val/test subject-day overlap 全为 `0`，并完成 16 个 route-aware 重跑。
 - **路线矩阵定义。** A1/A2 只加入真实使用视频的组合；`no_video` 和 `bio_only` 作为共享路线无关控制项保留在 B0 下。
 
 ## 限制与不确定性
 
 - **跨被试排序信号偏弱。** `cross_subject` 最低 RMSE 行的 raw r 接近 0；因此当前结果更支持跨被试误差基线，而对 fatigue ranking 的跨被试推广仍需多 seed 和更强个体差异建模验证。
-- **centered r 显示个体内动态仍有改进空间。** `cross_day` 和 `within_subject_day` 的 centered r 最高值分别为 `0.1107` 和 `0.1026`，明显低于对应 raw r 前排结果；论文表述应区分“总体 fatigue 水平排序”和“个体内相对波动追踪”。其中 `within_subject_day` 只能作为当前窗口级诊断，严格日期泛化需要重新划分 subject-day held-out split 后再报告。
+- **centered r 显示个体内动态仍有改进空间。** `cross_day` 的 centered r 最高值为 `0.1107`；修复后的 `within_subject_day_strict` 最高值为 `0.0682`，低于原始窗口级 `within_subject_day` 的 `0.1026`。论文表述应区分“总体 fatigue 水平排序”和“个体内相对波动追踪”，并将严格同一被试跨日期结论建立在 strict split 上。
 - **配对消融包含训练随机性。** 为避免重复无视频行，A1/A2 没有各自复制 `no_video` / `bio_only` 控制项；视频贡献表使用共享控制项，因此适合判断方向，不适合当作严格同 seed 因果消融。
 - **音频结论依赖当前 openSMILE 分支。** 当前结果说明这个音频 token 在该 fusion 设置下整体帮助有限；更强音频 encoder、音频质量门控或更细的缺失模态建模可能改变结论。
 - **本报告是模型比较证据。** 它适合用于选择下一轮候选路线和论文叙事重点，不直接证明某一模态对 fatigue 的因果作用。
 
 ## 建议下一步
 
-1. 将 `A1_Wphysio_no_audio` 作为 `cross_day` 和 `within_subject_day` 的主候选，围绕它做多 seed 稳定性验证。
-2. 保留 `A2_Wdeep_full`、`A2_Wdeep_no_audio` 作为排序指标对照，因为 A2 在 `within_subject_day` 中给出最高 raw r。
+1. 将 `A1_Wphysio_no_audio` 作为 `cross_day` 主候选，围绕它做多 seed 稳定性验证。
+2. 在 `within_subject_day_strict` 上优先复核 `B0_Wdeep_bio_only`、`A2_Wdeep_no_audio` 和 `B0_Wphysio_no_video`，分别对应最低 RMSE、最高 raw r 和最高 centered r。
 3. 将 `B0_Wphysio_bio_only` 作为当前 `cross_subject` RMSE 基线，同时持续报告 raw r，避免把低 RMSE 误读成强排序能力。
-4. 在 `cross_day` 和 `within_subject_day` 的后续报告中保留 centered r；将它作为个体内动态追踪诊断，与 RMSE/raw r 分开解释。
+4. 在 `cross_day` 和 `within_subject_day_strict` 的后续报告中保留 centered r；将它作为个体内动态追踪诊断，与 RMSE/raw r 分开解释。
 5. 单独重审音频分支：优先做 audio encoder 替换、audio mask sensitivity，或更强 fusion regularization，再决定 full multimodal 是否进入主结论。
-6. 论文叙事建议围绕协议特异性组织：A1/A2 视频路线在跨天和被试内跨天设置下更有价值；跨被试设置当前以 EEG+wear 的 bio-only 校准基线为主。
+6. 论文叙事建议围绕协议特异性组织：A1/A2 视频路线当前主要支撑 `cross_day`；严格同一被试 held-out-day 仍是待改进场景；跨被试设置当前以 EEG+wear 的 bio-only 校准基线为主。
 
 ## 来源产物
 
 - 远端 merged Markdown：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_allvideo_fusion_matrix_all_protocols_summary.md`
 - 远端 merged JSON：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_allvideo_fusion_matrix_all_protocols_summary.json`
 - 远端 preflight：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_allvideo_alignment_preflight.json`
+- 远端 strict split audit：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_centered_improvement/within_subject_day_strict_split_audit.md`
+- 远端 strict route matrix：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_centered_improvement/within_subject_day_strict_route_matrix.md`
 - 本地同步 JSON：`outputs/server_sync/eegpt_allvideo_fusion/eegpt_allvideo_fusion_matrix_all_protocols_summary.json`
 - 本地同步 preflight：`outputs/server_sync/eegpt_allvideo_fusion/eegpt_allvideo_alignment_preflight.json`

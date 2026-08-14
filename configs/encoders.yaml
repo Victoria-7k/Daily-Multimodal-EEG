@@ -72,6 +72,59 @@ eeg_real_profiles:
     frozen_feature_dim: 2048
     checkpoint_required: true
 
+eeg_encoder_matrix_profiles:
+  eegpt_frozen_v1:
+    source: existing_eegpt_embedding
+    default_embedding_path: /vePFS-0x0d/DailyEEG_multimodal/embeddings/eeg/eeg_eegpt_eeg23win_embeddings.npz
+    output_dim: 256
+    trainable: false
+  eegpt_partial_ft_v1:
+    source: raw_eeg_aligned_array
+    backend: braindecode_eegpt
+    fine_tune_depth: last_2_blocks_norm_projection_head
+    target_sample_rate_hz: 200
+    target_window_samples: 2000
+  eegpt_full_ft_v1:
+    source: raw_eeg_aligned_array
+    backend: braindecode_eegpt
+    fine_tune_depth: full_encoder
+    target_sample_rate_hz: 200
+    target_window_samples: 2000
+  cbramod_frozen_v1:
+    source: raw_eeg_aligned_array
+    backend: braindecode_cbramod
+    checkpoint_repo: braindecode/cbramod-pretrained
+    checkpoint_install: "python -m pip install 'braindecode[hub]'"
+    checkpoint_download: "huggingface-cli download braindecode/cbramod-pretrained --local-dir outputs/checkpoints/cbramod-pretrained"
+    trainable: false
+    target_sample_rate_hz: 200
+    target_window_samples: 2000
+    patch_seconds: 1
+  cbramod_partial_ft_v1:
+    source: raw_eeg_aligned_array
+    backend: braindecode_cbramod
+    checkpoint_repo: braindecode/cbramod-pretrained
+    fine_tune_depth: last_2_blocks_norm_projection_head
+    target_sample_rate_hz: 200
+    target_window_samples: 2000
+    patch_seconds: 1
+  cbramod_full_ft_v1:
+    source: raw_eeg_aligned_array
+    backend: braindecode_cbramod
+    checkpoint_repo: braindecode/cbramod-pretrained
+    fine_tune_depth: full_encoder
+    target_sample_rate_hz: 200
+    target_window_samples: 2000
+    patch_seconds: 1
+  eeg_de_5band_1s_avg_v1:
+    source: raw_eeg_aligned_array
+    feature: differential_entropy
+    bands_hz: [[1, 4], [4, 8], [8, 13], [13, 30], [30, 45]]
+    feature_dim: 295
+    target_sample_rate_hz: 200
+    target_window_samples: 2000
+    seconds_per_window: 10
+
 face_real_profiles:
   face_raw_openface_stats_v1:
     output_dim: 256

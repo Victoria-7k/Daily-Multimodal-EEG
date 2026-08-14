@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import importlib.util
 import unittest
@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def _load_script_module():
-    script_path = Path(__file__).resolve().parents[1] / "scripts" / "21_draw_data_overview.py"
+    script_path = Path(__file__).resolve().parents[1] / "scripts" / "archive_legacy" / "21_draw_data_overview.py"
     spec = importlib.util.spec_from_file_location("draw_data_overview", script_path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

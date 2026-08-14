@@ -1,4 +1,4 @@
-import json
+﻿import json
 import subprocess
 import sys
 import tempfile
@@ -395,7 +395,7 @@ class FaceRealEmbeddingTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "scripts/13_extract_face_embeddings.py",
+                    "scripts/archive_legacy/13_extract_face_embeddings.py",
                     "--window-index",
                     str(window_index),
                     "--cache-root",

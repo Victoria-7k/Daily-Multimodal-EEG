@@ -1,4 +1,4 @@
-import json
+﻿import json
 import subprocess
 import sys
 import tempfile
@@ -90,7 +90,7 @@ class WearQualityAblationTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "scripts/22_run_wear_quality_ablation.py",
+                    "scripts/archive_legacy/22_run_wear_quality_ablation.py",
                     "--window-index",
                     str(window_index),
                     "--physio-embeddings",

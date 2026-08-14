@@ -1,4 +1,4 @@
-import json
+﻿import json
 import subprocess
 import sys
 import tempfile
@@ -366,7 +366,7 @@ class RealPipelineTests(unittest.TestCase):
             result = subprocess.run(
                 [
                     sys.executable,
-                    "scripts/16_extract_all_real_embeddings.py",
+                    "scripts/archive_legacy/16_extract_all_real_embeddings.py",
                     "--window-index",
                     str(window_index),
                     "--eeg",

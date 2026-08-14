@@ -1,4 +1,4 @@
-import json
+﻿import json
 import subprocess
 import sys
 import tempfile
@@ -296,7 +296,7 @@ class EEGRealEmbeddingTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "scripts/14_extract_eeg_embeddings.py",
+                    "scripts/archive_legacy/14_extract_eeg_embeddings.py",
                     "--window-index",
                     str(window_index),
                     "--cache-root",
@@ -336,7 +336,7 @@ class EEGRealEmbeddingTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "scripts/14_extract_eeg_embeddings.py",
+                    "scripts/archive_legacy/14_extract_eeg_embeddings.py",
                     "--window-index",
                     str(window_index),
                     "--cache-root",

@@ -1,4 +1,4 @@
-import unittest
+﻿import unittest
 import importlib.util
 from pathlib import Path
 
@@ -12,7 +12,7 @@ from daily_multimodal.training.centered_metrics import (
 )
 
 
-_STRICT_SPLIT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "33_build_strict_within_subject_day_split.py"
+_STRICT_SPLIT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "archive_legacy" / "33_build_strict_within_subject_day_split.py"
 _STRICT_SPLIT_SPEC = importlib.util.spec_from_file_location("strict_within_subject_day_split", _STRICT_SPLIT_PATH)
 assert _STRICT_SPLIT_SPEC is not None and _STRICT_SPLIT_SPEC.loader is not None
 strict_split = importlib.util.module_from_spec(_STRICT_SPLIT_SPEC)

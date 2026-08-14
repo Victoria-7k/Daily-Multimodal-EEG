@@ -1,4 +1,4 @@
-import json
+﻿import json
 import subprocess
 import sys
 import tempfile
@@ -76,7 +76,7 @@ class SubjectCvTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "scripts/20_run_subject_cv.py",
+                    "scripts/archive_legacy/20_run_subject_cv.py",
                     "--embeddings",
                     str(embeddings),
                     "--target-label",

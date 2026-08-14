@@ -1,4 +1,4 @@
-# 字段契约
+﻿# 字段契约
 
 > 这是查表材料。如果还不理解行为路径，先读 [一条事件如何变成 smoke embedding](../walkthroughs/one-real-run.md)。
 
@@ -54,7 +54,7 @@
 
 | 字段 | 含义 | 来源 |
 | --- | --- | --- |
-| `events_total`、`events_selected`、`events_skipped`、`windows_total` | 输入事件数、保留事件数、跳过事件数和展开后的窗口总数 | [窗口索引入口](../../scripts/03_build_window_index.py) |
+| `events_total`、`events_selected`、`events_skipped`、`windows_total` | 输入事件数、保留事件数、跳过事件数和展开后的窗口总数 | [窗口索引入口](../../scripts/archive_legacy/03_build_window_index.py) |
 | `skip_reasons` | 跳过原因计数；当前包括 `insufficient_pre_event_history` 和 `insufficient_video_coverage` | [窗口构建函数](../../src/daily_multimodal/alignment/event_windows.py) |
 | `skipped_events` | 每个被跳过事件的 `event_id`、`subject_id`、`session_id`、`absolute_onset_time`、原因和可用历史秒数 | [窗口构建函数](../../src/daily_multimodal/alignment/event_windows.py) |
 
@@ -109,7 +109,7 @@
 | `bdf_duration_seconds` | BDF 记录时长，来自窗口字段、cache 字段或 EEG sidecar | [EEG coverage 模块](../../src/daily_multimodal/alignment/eeg_coverage.py) |
 | `overlap_seconds` | 窗口与 BDF 记录范围的重叠秒数 | [EEG coverage 模块](../../src/daily_multimodal/alignment/eeg_coverage.py) |
 | `whole_day_shift_candidate`、`suggested_shift_seconds` | 是否疑似整天偏移，以及建议尝试的 `-86400` 或 `86400` 秒平移 | [EEG coverage 模块](../../src/daily_multimodal/alignment/eeg_coverage.py) |
-| `affected_subject_sessions` | 非 `in_range` 窗口涉及的 `subject/session` 列表 | [EEG coverage audit 入口](../../scripts/19_audit_eeg_coverage.py) |
+| `affected_subject_sessions` | 非 `in_range` 窗口涉及的 `subject/session` 列表 | [EEG coverage audit 入口](../../scripts/archive_legacy/19_audit_eeg_coverage.py) |
 | `eeg_window_before_recording`、`eeg_window_after_recording`、`eeg_window_partial_overlap` | EEG real embedding 中由 coverage 分类派生的失败类型 | [EEG 真实模块](../../src/daily_multimodal/embeddings/eeg_real.py) |
 
 ## v2 profile 与 subject CV 字段

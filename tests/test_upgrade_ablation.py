@@ -1,4 +1,4 @@
-import json
+﻿import json
 import subprocess
 import sys
 import tempfile
@@ -69,7 +69,7 @@ class UpgradeAblationTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "scripts/10_run_upgrade_ablation.py",
+                    "scripts/archive_legacy/10_run_upgrade_ablation.py",
                     "--embeddings",
                     str(embeddings),
                     "--baseline",

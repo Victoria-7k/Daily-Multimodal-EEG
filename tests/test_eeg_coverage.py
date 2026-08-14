@@ -1,4 +1,4 @@
-import json
+﻿import json
 import subprocess
 import sys
 import tempfile
@@ -94,7 +94,7 @@ class EEGCoverageTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "scripts/19_audit_eeg_coverage.py",
+                    "scripts/archive_legacy/19_audit_eeg_coverage.py",
                     "--window-index",
                     str(window_index),
                     "--out-json",

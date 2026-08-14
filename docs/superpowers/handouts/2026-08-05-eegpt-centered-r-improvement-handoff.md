@@ -2,12 +2,20 @@
 
 ## 接手目标
 
-本 handoff 面向 EEGPT EEG 对齐后的多模态 cross-attention 下一轮实验。当前结果已经能支撑一个清楚判断：模型在 `cross_day` 中具备一定总体 fatigue 排序能力；原始 `within_subject_day` 只能作为窗口级诊断，因为 split audit 发现 train/val/test 两两共享全部 150 个 subject-day pair。2026-08-06 已补齐 `within_subject_day_strict`，并在 strict split 上重跑 16 个 B0/A1/A2 route-aware 组合；strict 结果显示 raw r 和 centered r 均明显下降，因此下一轮目标应从“哪个 route 最优”推进到“如何建模同一被试内部的跨日期 fatigue 波动”。
+本 handoff 面向 EEGPT EEG 对齐后的多模态 cross-attention 下一轮实验。当前 `within_subject_day` 已统一为 subject-day 级日期顺序划分：同一 subject-day 的全部窗口只进入一个集合，每个被试的早期日期进入 train、中期日期进入 val、后期日期进入 test。更新后的结果显示，模型在 `cross_day` 中具备一定总体 fatigue 排序能力；在 `within_subject_day` 的日期隔离设置下，个体内跨日期动态信号仍较弱，因此下一轮目标应从“哪个 route 最优”推进到“如何建模同一被试内部的跨日期 fatigue 波动”。
 
 优先完成两类工作：
 
 1. 做 split audit 和 subject-mean baseline，量化 raw r 有多少来自被试稳定均值。
 2. 围绕 centered r 做目标函数和结构改造实验，判断当前模态 embedding 是否包含可学习的个体内动态信号。
+
+## 当前完成状态
+
+- 实验 1 已完成：`within_subject_day` 的 train/val/test subject-day overlap 均为 `0`；subject-mean baseline 的 raw r 为 `0.2806`。
+- 实验 2 已完成：27-run centered-loss sweep 中，`within_subject_day` 的最高 centered r 为 `0.0386`。
+- 实验 3 初步验证已完成：两个候选各与 raw baseline 做了五个同-seed 配对。`B0_Wdeep_no_audio + raw_centered_mse, λ=0.5` 的 mean Δcentered r 为 `-0.0063`；`A1_Wphysio_no_audio + raw_centered_corr, λ=0.1` 的 mean Δcentered r 为 `+0.0079`，均未达到进入 residual head 正式实验的门槛。
+
+下一轮优先研究日期级标签、事件级聚合、窗口尺度和动态状态定义；这些证据更新后再评估 residual head。
 
 ## 当前依据和产物
 
@@ -24,8 +32,8 @@
 - merged Markdown：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_allvideo_fusion_matrix_all_protocols_summary.md`
 - merged JSON：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_allvideo_fusion_matrix_all_protocols_summary.json`
 - preflight：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_allvideo_alignment_preflight.json`
-- strict split audit：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_centered_improvement/within_subject_day_strict_split_audit.md`
-- strict route matrix：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_centered_improvement/within_subject_day_strict_route_matrix.md`
+- centered-r split audit：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_centered_improvement/split_audit_subject_day.md`
+- centered-r loss matrix：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/reports/eegpt_centered_improvement/multitask_loss_matrix.md`
 
 ## 已确认的数据和划分口径
 
@@ -40,19 +48,19 @@
 | stride | 5s |
 | 目标标签 | `fatigue` |
 
-三种协议均来自 `/vePFS-0x0d/DailyEEG/splits_new/`。每个协议包含 `pretrain.json`、`finetune.json`、`val.json`、`test.json`、`split_info.json`。监督训练时使用 `pretrain + finetune` 作为 train，`val` 用于早停和模型选择，`test` 用于最终指标。
+三种协议均来自 `/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/splits/`。每个协议包含 `pretrain.json`、`finetune.json`、`val.json`、`test.json`、`split_info.json`。监督训练时使用 `pretrain + finetune` 作为 train，`val` 用于早停和模型选择，`test` 用于最终指标。
 
 | 协议 | 评估重点 | Pretrain | Finetune | Train 合计 | Val | Test |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | `cross_subject` | 跨被试泛化 | 6122 | 11519 | 17641 | 5106 | 6072 |
 | `cross_day` | 跨日期泛化 | 6122 | 10691 | 16813 | 6187 | 5819 |
-| `within_subject_day` | 当前同一被试内窗口级诊断 | 6122 | 11121 | 17243 | 5708 | 5868 |
+| `within_subject_day` | 同一被试按日期顺序 held-out-day 泛化 | 5957 | 11178 | 17135 | 5658 | 6026 |
 
 当前解释口径：
 
 - `cross_subject`：按被试划分，测试被试整体保留。
 - `cross_day`：按日期维度划分，train/val/test 来自同一总体被试池；预测 `sub1 day5` 时，训练池包含所有被试的训练日期数据，例如 `sub1-sub5 day1-day3`。
-- `within_subject_day`：当前 split audit 显示 train/val/test 的 window index 两两不重叠，但 subject-day pair 两两重叠均为 `150`。因此它只能作为同一批 subject-day 内的窗口级诊断；严格“同一被试内跨日期泛化”需要重新构造 subject-day pair 不重叠的 held-out-day split。
+- `within_subject_day`：以 subject-day pair 为最小划分单位，train/val/test 的 window index 和 subject-day pair 两两不重叠；同一被试跨日期出现在三个集合中，用于评估后续日期预测。
 
 新增 split audit 结论：
 
@@ -60,10 +68,9 @@
 | --- | ---: | ---: | ---: | ---: | --- |
 | `cross_subject` | 0 | 0 | 0 | 0 | 可用于跨被试泛化 |
 | `cross_day` | 0 | 0 | 0 | 0 | 可用于跨日期泛化 |
-| `within_subject_day` | 0 | 150 | 150 | 150 | 只能用于窗口级诊断 |
-| `within_subject_day_strict` | 0 | 0 | 0 | 0 | 可用于同一被试 held-out-day 诊断 |
+| `within_subject_day` | 0 | 0 | 0 | 0 | 可用于同一被试 held-out-day 诊断 |
 
-`within_subject_day_strict` 的 split 规模为 train `17135`、val `5658`、test `6026`；对应 subject-day pair 为 train `90`、val `30`、test `30`。strict test 上最低 RMSE 为 `B0_Wdeep_bio_only`（RMSE `0.9678`、raw r `0.0665`、centered r `0.0452`），最高 raw r 为 `A2_Wdeep_no_audio`（raw r `0.1115`），最高 centered r 为 `B0_Wphysio_no_video`（centered r `0.0682`）。
+`within_subject_day` 的 split 规模为 train `17135`、val `5658`、test `6026`；对应 subject-day pair 为 train `90`、val `30`、test `30`。该设置下最低 RMSE 为 `B0_Wdeep_bio_only`（RMSE `0.9678`、raw r `0.0665`、centered r `0.0452`），最高 raw r 为 `A2_Wdeep_no_audio`（raw r `0.1115`），最高 centered r 为 `B0_Wphysio_no_video`（centered r `0.0682`）。
 
 ## 关键结果
 
@@ -73,14 +80,14 @@
 | --- | --- | ---: | ---: | ---: | ---: | --- | ---: |
 | `cross_subject` | `B0_Wphysio_bio_only` | 0.9012 | 0.6861 | -0.0207 | -0.0415 | `B0_Wdeep_bio_only` | 0.0835 |
 | `cross_day` | `A1_Wphysio_no_audio` | 0.9298 | 0.7055 | 0.2594 | 0.1107 | `A1_Wphysio_no_audio` | 0.2594 |
-| `within_subject_day` | `A1_Wphysio_no_audio` | 0.9348 | 0.7255 | 0.3032 | 0.0778 | `A2_Wdeep_full` | 0.3161 |
+| `within_subject_day` | `B0_Wdeep_bio_only` | 0.9678 | 0.7183 | 0.0665 | 0.0452 | `A2_Wdeep_no_audio` | 0.1115 |
 
 需要保留的主结论：
 
-- `A1_Wphysio_no_audio` 是当前 `cross_day` 和 `within_subject_day` 的低误差主候选。
-- `A2_Wdeep_full` 在 `within_subject_day` 给出最高 raw r，适合作为排序指标对照。
+- `A1_Wphysio_no_audio` 是当前 `cross_day` 的低误差主候选；`within_subject_day` 的最低 RMSE 来自 `B0_Wdeep_bio_only`。
+- `A2_Wdeep_no_audio` 在 `within_subject_day` 给出最高 raw r，适合作为排序指标对照。
 - 音频在当前 openSMILE token 和 fusion 设置下整体拉高误差：18 个 full-vs-no-audio 配对中，full 的平均 ΔRMSE 为 `+0.0151`，平均 Δraw r 为 `-0.0271`。
-- centered r 最高值仍低：`cross_day` 最优 `0.1107`，`within_subject_day` 最优 `0.1026`。这说明当前模型更擅长总体 fatigue 水平排序，对同一被试内部相对波动的追踪仍是主要改进空间。
+- centered r 最高值仍低：`cross_day` route matrix 最优 `0.1107`，`within_subject_day` route matrix 最优 `0.0682`；本轮 centered-loss sweep 的最高值分别为 `0.0454` 和 `0.0386`。这说明当前模型更擅长总体 fatigue 水平排序，对同一被试内部相对波动的追踪仍是主要改进空间。
 - `cross_subject` 的最低 RMSE 行 raw r 接近 0，适合作为跨被试误差基线，不适合直接支撑跨被试 fatigue ranking 已经有效。
 
 ## Raw r 与 centered r 的指标公式
@@ -113,7 +120,7 @@ within_subject_centered_r =
 
 建议按以下顺序执行：
 
-0. 构造严格 within-subject held-out-day split
+0. 构造 within-subject held-out-day split
 1. Split audit + subject-mean baseline
 2. Raw + centered multi-task loss
 3. Residual prediction head
@@ -122,15 +129,15 @@ within_subject_centered_r =
 6. Audio quality gate 和 missing-modality robustness
 7. 多 seed 稳定性验证
 
-## 实验 0：严格 within-subject held-out-day split
+## 实验 0：within-subject held-out-day split
 
 ### 原因
 
-现有 `within_subject_day` 的 train/val/test window index 互不重叠，但 150 个 subject-day pair 在三集合中全部重叠。该协议可以检查同一 subject-day 内不同窗口的预测稳定性，不能支撑“训练日期和测试日期隔离”的严格结论。后续若要写“同一被试内跨日期泛化”，需要先修复划分单位。
+`within_subject_day` 使用 subject-day pair 作为划分单位，同一 subject-day 的全部窗口进入同一个集合。该设置保证训练日期和测试日期隔离，同时保留同一被试跨日期的训练/测试关系。
 
 ### 预期结果
 
-新的 strict split 应满足：
+当前划分应满足：
 
 - 同一 subject 的 train/val/test 均有样本。
 - 任意 subject-day pair 只出现在一个 split 中。
@@ -144,7 +151,6 @@ within_subject_centered_r =
 新增脚本：
 
 ```text
-scripts/33_build_strict_within_subject_day_split.py
 scripts/30_audit_eegpt_splits.py
 ```
 
@@ -166,10 +172,10 @@ val 20%
 test 20%
 ```
 
-输出目录建议：
+输出目录：
 
 ```text
-/vePFS-0x0d/DailyEEG/splits_new/within_subject_day_strict/
+/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/splits/within_subject_day/
   pretrain.json
   finetune.json
   val.json
@@ -187,8 +193,8 @@ A2_Wdeep_full
 
 判定标准：
 
-- 如果 strict split 下 raw r 和 centered r 仍为正，才能支撑同一被试内跨日期泛化。
-- 如果 strict split 下指标显著下降，论文口径应保留 `cross_day` 的跨日期结论，把旧 `within_subject_day` 作为窗口级诊断附录或补充实验。
+- 如果 `within_subject_day` 下 raw r 和 centered r 稳定为正，才能支撑同一被试内跨日期泛化。
+- 如果 `within_subject_day` 下指标较低，论文应把 `cross_day` 作为总体跨日期证据，并把同一被试内动态预测作为后续改进目标。
 
 ## 实验 1：Split Audit + Subject-Mean Baseline
 
@@ -261,13 +267,13 @@ for protocol in ["cross_day", "within_subject_day"]:
 ```bash
 python scripts/30_audit_eegpt_splits.py \
   --window-index /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/data/canonical_window_index.jsonl \
-  --splits-root /vePFS-0x0d/DailyEEG/splits_new \
+  --splits-root /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/splits \
   --out-json reports/eegpt_split_audit_subject_day.json \
   --out-md reports/eegpt_split_audit_subject_day.md
 
 python scripts/31_run_subject_mean_baseline.py \
   --window-index /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/data/canonical_window_index.jsonl \
-  --splits-root /vePFS-0x0d/DailyEEG/splits_new \
+  --splits-root /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/splits \
   --target fatigue \
   --protocols cross_day within_subject_day \
   --out-json reports/eegpt_subject_mean_baseline.json \
@@ -327,8 +333,8 @@ loss = raw_loss + λ * centered_corr_loss
 
 理想结果：
 
-- `cross_day` centered r 从 `0.1107` 继续上升，同时 RMSE 保持在 `A1_Wphysio_no_audio` 当前 `0.9298` 附近。
-- `within_subject_day` centered r 超过当前最优 `0.1026`。
+- `cross_day` centered r 从本轮 raw reference 的 `0.0404` 稳定上升，同时 RMSE 保持在可接受范围。
+- `within_subject_day` centered r 超过本轮对应路线的 raw reference，并在多 seed 中保持方向一致。
 - 若 centered r 上升伴随 raw r 小幅下降，可以把它解释为总体排序和个体内波动之间的合理取舍。
 - 若 centered r 不上升，说明现有 embedding 或 batch 组织方式对个体内动态信号不足，需要进入 residual head 或 modality-specific 分析。
 
@@ -377,7 +383,7 @@ test.per_subject_r_mean
 
 - centered r 绝对提升至少 `+0.02`，且 RMSE 恶化不超过 `+0.015`，进入多 seed。
 - centered r 提升但 RMSE 恶化超过 `+0.03`，作为诊断结果保留，不进入主模型。
-- centered r 无提升时，不继续扩大 λ sweep，转向 residual head。
+- centered r 无提升时，不继续扩大 λ sweep；先复核日期级标签、事件级聚合、窗口尺度和动态状态定义，再决定是否进入 residual head。
 
 ## 实验 3：Residual Prediction Head
 

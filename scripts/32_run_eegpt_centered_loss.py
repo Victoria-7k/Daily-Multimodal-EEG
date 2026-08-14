@@ -38,6 +38,7 @@ DEFAULT_EXPERIMENTS = (
     "within_subject_day:A1_Wphysio_no_audio",
     "within_subject_day:B0_Wdeep_no_audio",
 )
+DEFAULT_PROTOCOLS = ("cross_subject", "cross_day", "within_subject_day")
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,11 @@ class Branch:
 
 BRANCHES = {
     "eeg": Branch("eeg", "eeg", "eeg/eeg_eegpt_eeg23win_embeddings.npz", "eeg_emb", "eeg_mask", 0),
+    "eeg_eegpt_frozen_v1": Branch("eeg_eegpt_frozen_v1", "eeg", "{eeg_token_root}/{protocol}/eegpt_frozen_v1/seed_{eeg_seed}.npz", "eeg_emb", "eeg_mask", 0),
+    "eeg_eegpt_partial_ft_v1": Branch("eeg_eegpt_partial_ft_v1", "eeg", "{eeg_token_root}/{protocol}/eegpt_partial_ft_v1/seed_{eeg_seed}.npz", "eeg_emb", "eeg_mask", 0),
+    "eeg_cbramod_frozen_v1": Branch("eeg_cbramod_frozen_v1", "eeg", "{eeg_token_root}/{protocol}/cbramod_frozen_v1/seed_{eeg_seed}.npz", "eeg_emb", "eeg_mask", 0),
+    "eeg_cbramod_partial_ft_v1": Branch("eeg_cbramod_partial_ft_v1", "eeg", "{eeg_token_root}/{protocol}/cbramod_partial_ft_v1/seed_{eeg_seed}.npz", "eeg_emb", "eeg_mask", 0),
+    "eeg_de_5band_1s_avg_v1": Branch("eeg_de_5band_1s_avg_v1", "eeg", "{eeg_token_root}/{protocol}/eeg_de_5band_1s_avg_v1/seed_{eeg_seed}.npz", "eeg_emb", "eeg_mask", 0),
     "wear_physio": Branch("wear_physio", "wear", "wear/wear_physio_preprocessed_eeg23win_embeddings.npz", "wear_emb", "wear_mask", 1),
     "wear_deep": Branch("wear_deep", "wear", "wear/wear_deep_sequence_preprocessed_eeg23win_embeddings.npz", "wear_emb", "wear_mask", 1),
     "video_B0": Branch("video_B0", "video", "video/video_B0_2xroi_eeg23win_embeddings.npz", "video_emb", "video_mask", 2),
@@ -78,6 +84,11 @@ EXPERIMENT_BRANCHES = {
     "A2_Wdeep_full": ("eeg", "wear_deep", "video_A2", "audio"),
     "A2_Wdeep_no_audio": ("eeg", "wear_deep", "video_A2"),
 }
+VIDEO_ONLY_EXPERIMENTS = tuple(
+    name
+    for name in EXPERIMENT_BRANCHES
+    if not name.endswith("_no_video") and not name.endswith("_bio_only")
+)
 
 
 def main() -> int:
@@ -86,6 +97,24 @@ def main() -> int:
     parser.add_argument("--splits-root", type=Path, default=DEFAULT_SPLITS_ROOT)
     parser.add_argument("--embeddings-root", type=Path, default=DEFAULT_EMBEDDINGS_ROOT)
     parser.add_argument("--experiments", default=",".join(DEFAULT_EXPERIMENTS), help="protocol:experiment pairs")
+    parser.add_argument(
+        "--experiment-set",
+        choices=("custom", "video_only"),
+        default="custom",
+        help="Use video_only to run all full/no_audio video-using routes and drop no_video/bio_only controls.",
+    )
+    parser.add_argument("--protocols", default=",".join(DEFAULT_PROTOCOLS), help="Protocols used when --experiment-set is not custom.")
+    parser.add_argument(
+        "--eeg-branches",
+        default="eeg",
+        help="Comma-separated EEG branches. Additional options include eeg_eegpt_frozen_v1,eeg_eegpt_partial_ft_v1,eeg_cbramod_frozen_v1,eeg_cbramod_partial_ft_v1,eeg_de_5band_1s_avg_v1.",
+    )
+    parser.add_argument("--eeg-token-seed", type=int, default=240800, help="Seed used in protocol-specific EEG prediction-token filenames.")
+    parser.add_argument(
+        "--eeg-token-root",
+        default="eeg_encoder_tokens",
+        help="Directory under --embeddings-root for protocol/profile EEG branch files. Use eeg_encoder_256d_tokens for full hidden embeddings.",
+    )
     parser.add_argument("--loss-modes", default="raw_centered_mse,raw_centered_corr")
     parser.add_argument("--lambdas", default="0.1,0.3,0.5,1.0")
     parser.add_argument("--no-raw-baseline", action="store_true")
@@ -114,8 +143,12 @@ def main() -> int:
     subject_id = np.asarray([_norm_subject(row.get("subject_id")) for row in rows], dtype=str)
     event_id = np.asarray([str(row.get("event_id", "")) for row in rows], dtype=str)
     target = np.asarray([_target_value(row, args.target_label) for row in rows], dtype=np.float32)
-    branch_data = _load_all_branches(args.embeddings_root, sample_id)
-    requested = _parse_experiments(args.experiments)
+    requested = _requested_experiments(args)
+    eeg_branches = _split_csv(args.eeg_branches)
+    for eeg_branch in eeg_branches:
+        if eeg_branch not in BRANCHES or BRANCHES[eeg_branch].modality != "eeg":
+            raise ValueError(f"unsupported EEG branch: {eeg_branch}")
+    branch_cache: dict[tuple[str, str], dict[str, Any]] = {}
     loss_modes = [value.strip() for value in args.loss_modes.split(",") if value.strip()]
     lambdas = [float(value.strip()) for value in args.lambdas.split(",") if value.strip()]
     for mode in loss_modes:
@@ -124,100 +157,112 @@ def main() -> int:
     results: list[dict[str, Any]] = []
     run_number = 0
     for protocol, experiment in requested:
-        branches = EXPERIMENT_BRANCHES[experiment]
         split = _load_split(args.splits_root / protocol, len(rows))
-        tokens, token_mask, branch_report = _build_tokens(branch_data, branches)
-        run_specs: list[tuple[str, float]] = []
-        if not args.no_raw_baseline and "raw" not in loss_modes:
-            run_specs.append(("raw", 0.0))
-        for mode in loss_modes:
-            if mode == "raw":
+        for eeg_branch in eeg_branches:
+            branches = _replace_eeg_branch(EXPERIMENT_BRANCHES[experiment], eeg_branch)
+            branch_data = _load_all_branches(
+                args.embeddings_root,
+                sample_id,
+                protocol=protocol,
+                eeg_seed=args.eeg_token_seed,
+                eeg_token_root=args.eeg_token_root,
+                required_names=branches,
+                cache=branch_cache,
+            )
+            tokens, token_mask, branch_report = _build_tokens(branch_data, branches)
+            run_specs: list[tuple[str, float]] = []
+            if not args.no_raw_baseline and "raw" not in loss_modes:
                 run_specs.append(("raw", 0.0))
-            else:
-                run_specs.extend((mode, value) for value in lambdas)
-        for loss_mode, centered_lambda in run_specs:
-            run_seed = int(args.seed) + run_number
-            run_number += 1
-            print(
-                f"starting protocol={protocol} experiment={experiment} "
-                f"loss_mode={loss_mode} lambda={centered_lambda} seed={run_seed}",
-                flush=True,
-            )
-            model, train_audit = _fit_model(
-                tokens=tokens,
-                token_mask=token_mask,
-                target=target,
-                subjects=subject_id,
-                train_idx=split["train"],
-                val_idx=split["val"],
-                loss_mode=loss_mode,
-                centered_lambda=centered_lambda,
-                hidden_dim=args.hidden_dim,
-                epochs=args.epochs,
-                batch_size=args.batch_size,
-                learning_rate=args.learning_rate,
-                weight_decay=args.weight_decay,
-                dropout=args.dropout,
-                patience=args.patience,
-                seed=run_seed,
-                device=args.device,
-                subject_balanced_batches=args.subject_balanced_batches,
-            )
-            predictions = {
-                name: _predict(model, tokens, token_mask, indices=indices, device=args.device)
-                for name, indices in split.items()
-                if name in {"train", "val", "test"}
-            }
-            test_metrics = _metric_aliases(
-                evaluate_regression_with_centered(
-                    target[split["test"]], predictions["test"], subject_id[split["test"]]
+            for mode in loss_modes:
+                if mode == "raw":
+                    run_specs.append(("raw", 0.0))
+                else:
+                    run_specs.extend((mode, value) for value in lambdas)
+            for loss_mode, centered_lambda in run_specs:
+                run_seed = int(args.seed) + run_number
+                run_number += 1
+                print(
+                    f"starting protocol={protocol} experiment={experiment} eeg_branch={eeg_branch} "
+                    f"loss_mode={loss_mode} lambda={centered_lambda} seed={run_seed}",
+                    flush=True,
                 )
-            )
-            result = {
-                "protocol": protocol,
-                "experiment": experiment,
-                "branches": list(branches),
-                "enabled_modalities": [BRANCHES[name].modality for name in branches],
-                "loss_mode": loss_mode,
-                "centered_lambda": float(centered_lambda),
-                "seed": run_seed,
-                "row_count": len(rows),
-                "target_label": args.target_label,
-                "split_counts": {name: int(len(values)) for name, values in split.items()},
-                "mask_coverage_by_split": _mask_coverage(token_mask, branches, split),
-                "train": _metric_aliases(evaluate_regression_with_centered(target[split["train"]], predictions["train"], subject_id[split["train"]])),
-                "val": _metric_aliases(evaluate_regression_with_centered(target[split["val"]], predictions["val"], subject_id[split["val"]])),
-                "test": test_metrics,
-                "train_raw_loss": train_audit.get("best_train_raw_loss"),
-                "train_centered_loss": train_audit.get("best_train_centered_loss"),
-                "batch_centered_subject_count_mean": train_audit.get("batch_centered_subject_count_mean"),
-                "train_audit": train_audit,
-                "branch_report": branch_report,
-            }
-            if args.predictions_dir:
-                pred_path = args.predictions_dir / protocol / experiment / f"{loss_mode}_lambda_{centered_lambda:g}.npz"
-                pred_path.parent.mkdir(parents=True, exist_ok=True)
-                np.savez_compressed(
-                    pred_path,
-                    train_index=split["train"],
-                    val_index=split["val"],
-                    test_index=split["test"],
-                    train_prediction=predictions["train"],
-                    val_prediction=predictions["val"],
-                    test_prediction=predictions["test"],
+                model, train_audit = _fit_model(
+                    tokens=tokens,
+                    token_mask=token_mask,
                     target=target,
-                    sample_id=sample_id,
-                    subject_id=subject_id,
-                    event_id=event_id,
+                    subjects=subject_id,
+                    train_idx=split["train"],
+                    val_idx=split["val"],
+                    loss_mode=loss_mode,
+                    centered_lambda=centered_lambda,
+                    hidden_dim=args.hidden_dim,
+                    epochs=args.epochs,
+                    batch_size=args.batch_size,
+                    learning_rate=args.learning_rate,
+                    weight_decay=args.weight_decay,
+                    dropout=args.dropout,
+                    patience=args.patience,
+                    seed=run_seed,
+                    device=args.device,
+                    subject_balanced_batches=args.subject_balanced_batches,
                 )
-                result["prediction_path"] = str(pred_path)
-            results.append(result)
-            print(
-                f"completed protocol={protocol} experiment={experiment} loss_mode={loss_mode} "
-                f"lambda={centered_lambda} rmse={_fmt(test_metrics['rmse'])} "
-                f"raw_r={_fmt(test_metrics['raw_r'])} centered_r={_fmt(test_metrics['within_subject_centered_r'])}",
-                flush=True,
-            )
+                predictions = {
+                    name: _predict(model, tokens, token_mask, indices=indices, device=args.device)
+                    for name, indices in split.items()
+                    if name in {"train", "val", "test"}
+                }
+                test_metrics = _metric_aliases(
+                    evaluate_regression_with_centered(
+                        target[split["test"]], predictions["test"], subject_id[split["test"]]
+                    )
+                )
+                result = {
+                    "protocol": protocol,
+                    "experiment": experiment,
+                    "eeg_branch": eeg_branch,
+                    "branches": list(branches),
+                    "enabled_modalities": [BRANCHES[name].modality for name in branches],
+                    "loss_mode": loss_mode,
+                    "centered_lambda": float(centered_lambda),
+                    "seed": run_seed,
+                    "eeg_token_seed": int(args.eeg_token_seed),
+                    "row_count": len(rows),
+                    "target_label": args.target_label,
+                    "split_counts": {name: int(len(values)) for name, values in split.items()},
+                    "mask_coverage_by_split": _mask_coverage(token_mask, branches, split),
+                    "train": _metric_aliases(evaluate_regression_with_centered(target[split["train"]], predictions["train"], subject_id[split["train"]])),
+                    "val": _metric_aliases(evaluate_regression_with_centered(target[split["val"]], predictions["val"], subject_id[split["val"]])),
+                    "test": test_metrics,
+                    "train_raw_loss": train_audit.get("best_train_raw_loss"),
+                    "train_centered_loss": train_audit.get("best_train_centered_loss"),
+                    "batch_centered_subject_count_mean": train_audit.get("batch_centered_subject_count_mean"),
+                    "train_audit": train_audit,
+                    "branch_report": branch_report,
+                }
+                if args.predictions_dir:
+                    pred_path = args.predictions_dir / protocol / eeg_branch / experiment / f"{loss_mode}_lambda_{centered_lambda:g}.npz"
+                    pred_path.parent.mkdir(parents=True, exist_ok=True)
+                    np.savez_compressed(
+                        pred_path,
+                        train_index=split["train"],
+                        val_index=split["val"],
+                        test_index=split["test"],
+                        train_prediction=predictions["train"],
+                        val_prediction=predictions["val"],
+                        test_prediction=predictions["test"],
+                        target=target,
+                        sample_id=sample_id,
+                        subject_id=subject_id,
+                        event_id=event_id,
+                    )
+                    result["prediction_path"] = str(pred_path)
+                results.append(result)
+                print(
+                    f"completed protocol={protocol} experiment={experiment} eeg_branch={eeg_branch} "
+                    f"loss_mode={loss_mode} lambda={centered_lambda} rmse={_fmt(test_metrics['rmse'])} "
+                    f"raw_r={_fmt(test_metrics['raw_r'])} centered_r={_fmt(test_metrics['within_subject_centered_r'])}",
+                    flush=True,
+                )
 
     output = {
         "stage": 2,
@@ -235,6 +280,9 @@ def main() -> int:
             "patience": args.patience,
             "seed": args.seed,
             "device": args.device,
+            "eeg_branches": list(eeg_branches),
+            "eeg_token_seed": int(args.eeg_token_seed),
+            "eeg_token_root": args.eeg_token_root,
             "subject_balanced_batches": args.subject_balanced_batches,
             "train_rule": "pretrain + finetune from splits_new",
             "normalization": "train_only",
@@ -317,6 +365,7 @@ def _fit_model(
             val_raw, val_centered, val_subject_count = _loss_components(val_prediction, y_val, val_subjects, loss_mode)
             val_loss = float((val_raw + float(centered_lambda) * val_centered).detach().cpu().item())
         audit = {
+            "epoch": int(epoch + 1),
             "train_loss": float(np.mean(batch_losses)) if batch_losses else math.nan,
             "train_raw_loss": float(np.mean(batch_raw_losses)) if batch_raw_losses else math.nan,
             "train_centered_loss": float(np.mean(batch_centered_losses)) if batch_centered_losses else math.nan,
@@ -359,6 +408,7 @@ def _fit_model(
         "loss_mode": loss_mode,
         "centered_lambda": float(centered_lambda),
         "epoch_count": len(epoch_audits),
+        "history": epoch_audits,
     }
 
 
@@ -458,10 +508,25 @@ def _target_value(row: dict[str, Any], target: str) -> float:
     return float(row[target])
 
 
-def _load_all_branches(embedding_root: Path, sample_id: np.ndarray) -> dict[str, dict[str, Any]]:
+def _load_all_branches(
+    embedding_root: Path,
+    sample_id: np.ndarray,
+    *,
+    protocol: str,
+    eeg_seed: int,
+    eeg_token_root: str,
+    required_names: tuple[str, ...],
+    cache: dict[tuple[str, str], dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
     result = {}
-    for name, branch in BRANCHES.items():
-        path = embedding_root / branch.filename
+    for name in required_names:
+        branch = BRANCHES[name]
+        filename = branch.filename.format(protocol=protocol, eeg_seed=int(eeg_seed), eeg_token_root=eeg_token_root)
+        cache_key = (name, filename)
+        if cache_key in cache:
+            result[name] = cache[cache_key]
+            continue
+        path = embedding_root / filename
         with np.load(path, allow_pickle=True) as loaded:
             loaded_ids = loaded["sample_id"].astype(str)
             if not np.array_equal(loaded_ids, sample_id):
@@ -472,6 +537,7 @@ def _load_all_branches(embedding_root: Path, sample_id: np.ndarray) -> dict[str,
             if embedding.shape != (len(sample_id), 256) or mask.shape != (len(sample_id),):
                 raise ValueError(f"invalid shape for {name}: {embedding.shape}, {mask.shape}")
         result[name] = {"embedding": embedding, "mask": mask, "path": str(path), "mask_sum": int(mask.sum())}
+        cache[cache_key] = result[name]
     return result
 
 
@@ -551,6 +617,21 @@ def _parse_experiments(value: str) -> list[tuple[str, str]]:
     return items
 
 
+def _requested_experiments(args: argparse.Namespace) -> list[tuple[str, str]]:
+    if args.experiment_set == "custom":
+        return _parse_experiments(args.experiments)
+    protocols = _split_csv(args.protocols)
+    return [(protocol, experiment) for protocol in protocols for experiment in VIDEO_ONLY_EXPERIMENTS]
+
+
+def _replace_eeg_branch(branches: tuple[str, ...], eeg_branch: str) -> tuple[str, ...]:
+    return tuple(eeg_branch if name == "eeg" else name for name in branches)
+
+
+def _split_csv(value: str) -> tuple[str, ...]:
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
 def _norm_subject(value: Any) -> str:
     text = str(value)
     if text.startswith("sub-"):
@@ -573,13 +654,13 @@ def _write_markdown(output: dict[str, Any], path: Path) -> None:
         f"target_label: `{output['target_label']}`",
         f"run_count: `{output['run_count']}`",
         "",
-        "| protocol | experiment | loss | lambda | RMSE | MAE | raw r | centered r | per-subject r mean | best epoch |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| protocol | EEG branch | experiment | loss | lambda | RMSE | MAE | raw r | centered r | per-subject r mean | best epoch |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in output["results"]:
         test = row["test"]
         lines.append(
-            f"| {row['protocol']} | {row['experiment']} | {row['loss_mode']} | {row['centered_lambda']:.3g} | "
+            f"| {row['protocol']} | {row.get('eeg_branch', 'eeg')} | {row['experiment']} | {row['loss_mode']} | {row['centered_lambda']:.3g} | "
             f"{_fmt(test['rmse'])} | {_fmt(test['mae'])} | {_fmt(test['raw_r'])} | "
             f"{_fmt(test['within_subject_centered_r'])} | {_fmt(test['per_subject_r_mean'])} | {row['train_audit']['best_epoch']} |"
         )

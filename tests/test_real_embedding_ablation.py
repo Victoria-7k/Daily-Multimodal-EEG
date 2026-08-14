@@ -1,4 +1,4 @@
-import json
+﻿import json
 import subprocess
 import sys
 import tempfile
@@ -110,7 +110,7 @@ class RealEmbeddingAblationTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "scripts/17_run_real_embedding_ablation.py",
+                    "scripts/archive_legacy/17_run_real_embedding_ablation.py",
                     "--basic-embeddings",
                     str(basic),
                     "--real-embeddings",
