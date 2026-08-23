@@ -1,4 +1,5 @@
 import json
+import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
@@ -129,6 +130,44 @@ class EEGEncoderMatrixTests(unittest.TestCase):
             self.assertIn("## CBraMod Acquisition", text)
             token_path = embeddings_dir / "cross_day" / "eeg_de_5band_1s_avg_v1" / "seed_123.npz"
             self.assertTrue(token_path.is_file())
+            with np.load(token_path, allow_pickle=True) as loaded:
+                self.assertEqual(loaded["eeg_emb"].shape, (30, 256))
+                self.assertTrue(np.isfinite(loaded["eeg_emb"]).all())
+                self.assertEqual(loaded["eeg_mask"].tolist(), [1] * 30)
+                self.assertEqual(loaded["modality_mask"][:, 0].tolist(), [1] * 30)
+                self.assertEqual(str(loaded["train_supervision"][0]), "fatigue_supervised_train_val_selected")
+
+    def test_dual_branch_cnn_profile_smoke_writes_metrics_and_256d_tokens(self):
+        if importlib.util.find_spec("torch") is None:
+            self.skipTest("PyTorch is not installed in this local test environment")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_root, index_path, splits_root = _write_mock_eeg_project(root, row_count=30, channel_count=3)
+            out_json = root / "cnn_metrics.json"
+            embeddings_dir = root / "tokens"
+            predictions_dir = root / "predictions"
+
+            result = run_eeg_encoder_matrix(
+                data_root=data_root,
+                index_path=index_path,
+                splits_root=splits_root,
+                profiles=("eeg_cnn_dual_branch_v1",),
+                protocols=("cross_day",),
+                seeds=(123,),
+                runtime=MatrixRuntime(epochs=2, hidden_dim=8, batch_size=4, patience=1, device="cpu", amp=False),
+                out_json=out_json,
+                embeddings_dir=embeddings_dir,
+                predictions_dir=predictions_dir,
+            )
+
+            self.assertEqual(result["run_count"], 1)
+            self.assertEqual(result["results"][0]["status"], "ok")
+            self.assertEqual(result["results"][0]["backend"], "local_dual_branch_cnn_from_attached_networks_py")
+            self.assertTrue(result["results"][0]["train_audit"]["history"])
+            token_path = embeddings_dir / "cross_day" / "eeg_cnn_dual_branch_v1" / "seed_123.npz"
+            prediction_path = predictions_dir / "cross_day" / "eeg_cnn_dual_branch_v1" / "seed_123.npz"
+            self.assertTrue(token_path.is_file())
+            self.assertTrue(prediction_path.is_file())
             with np.load(token_path, allow_pickle=True) as loaded:
                 self.assertEqual(loaded["eeg_emb"].shape, (30, 256))
                 self.assertTrue(np.isfinite(loaded["eeg_emb"]).all())

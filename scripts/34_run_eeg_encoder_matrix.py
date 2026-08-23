@@ -40,7 +40,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--profiles",
-        default="eegpt_frozen_v1,eeg_de_5band_1s_avg_v1,cbramod_frozen_v1,eegpt_partial_ft_v1,cbramod_partial_ft_v1",
+        default="eegpt_frozen_v1,eeg_de_5band_1s_avg_v1,cbramod_frozen_v1,eegpt_partial_ft_v1,cbramod_partial_ft_v1,eeg_cnn_dual_branch_v1",
     )
     parser.add_argument("--seeds", default=",".join(str(seed) for seed in DEFAULT_SEEDS))
     parser.add_argument("--target-label", default="fatigue")

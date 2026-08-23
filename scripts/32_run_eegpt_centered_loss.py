@@ -60,6 +60,8 @@ BRANCHES = {
     "eeg_de_5band_1s_avg_v1": Branch("eeg_de_5band_1s_avg_v1", "eeg", "{eeg_token_root}/{protocol}/eeg_de_5band_1s_avg_v1/seed_{eeg_seed}.npz", "eeg_emb", "eeg_mask", 0),
     "wear_physio": Branch("wear_physio", "wear", "wear/wear_physio_preprocessed_eeg23win_embeddings.npz", "wear_emb", "wear_mask", 1),
     "wear_deep": Branch("wear_deep", "wear", "wear/wear_deep_sequence_preprocessed_eeg23win_embeddings.npz", "wear_emb", "wear_mask", 1),
+    "wear_moment_frozen_v1": Branch("wear_moment_frozen_v1", "wear", "wear_tokens/{protocol}/wear_moment_frozen_v1/seed_{wear_seed}.npz", "wear_emb", "wear_mask", 1),
+    "wear_moment_partial_ft_v1": Branch("wear_moment_partial_ft_v1", "wear", "wear_tokens/{protocol}/wear_moment_partial_ft_v1/seed_{wear_seed}.npz", "wear_emb", "wear_mask", 1),
     "video_B0": Branch("video_B0", "video", "video/video_B0_2xroi_eeg23win_embeddings.npz", "video_emb", "video_mask", 2),
     "video_A1": Branch("video_A1", "video", "video/video_A1_2xroi_eeg23win_embeddings.npz", "video_emb", "video_mask", 2),
     "video_A2": Branch("video_A2", "video", "video/video_A2_2xroi_eeg23win_embeddings.npz", "video_emb", "video_mask", 2),
@@ -83,6 +85,18 @@ EXPERIMENT_BRANCHES = {
     "A2_Wphysio_no_audio": ("eeg", "wear_physio", "video_A2"),
     "A2_Wdeep_full": ("eeg", "wear_deep", "video_A2", "audio"),
     "A2_Wdeep_no_audio": ("eeg", "wear_deep", "video_A2"),
+    "A1_Wmoment_frozen_full": ("eeg", "wear_moment_frozen_v1", "video_A1", "audio"),
+    "A1_Wmoment_ft_full": ("eeg", "wear_moment_partial_ft_v1", "video_A1", "audio"),
+    "A1_Wmoment_frozen_no_audio": ("eeg", "wear_moment_frozen_v1", "video_A1"),
+    "A1_Wmoment_ft_no_audio": ("eeg", "wear_moment_partial_ft_v1", "video_A1"),
+    "B0_Wmoment_frozen_full": ("eeg", "wear_moment_frozen_v1", "video_B0", "audio"),
+    "B0_Wmoment_frozen_no_audio": ("eeg", "wear_moment_frozen_v1", "video_B0"),
+    "B0_Wmoment_ft_full": ("eeg", "wear_moment_partial_ft_v1", "video_B0", "audio"),
+    "B0_Wmoment_ft_no_audio": ("eeg", "wear_moment_partial_ft_v1", "video_B0"),
+    "A2_Wmoment_frozen_full": ("eeg", "wear_moment_frozen_v1", "video_A2", "audio"),
+    "A2_Wmoment_frozen_no_audio": ("eeg", "wear_moment_frozen_v1", "video_A2"),
+    "A2_Wmoment_ft_full": ("eeg", "wear_moment_partial_ft_v1", "video_A2", "audio"),
+    "A2_Wmoment_ft_no_audio": ("eeg", "wear_moment_partial_ft_v1", "video_A2"),
 }
 VIDEO_ONLY_EXPERIMENTS = tuple(
     name
@@ -115,8 +129,20 @@ def main() -> int:
         default="eeg_encoder_tokens",
         help="Directory under --embeddings-root for protocol/profile EEG branch files. Use eeg_encoder_256d_tokens for full hidden embeddings.",
     )
+    parser.add_argument(
+        "--wear-token-seed",
+        type=int,
+        default=None,
+        help="Seed used in protocol-specific wear-moment token filenames. Defaults to --eeg-token-seed.",
+    )
     parser.add_argument("--loss-modes", default="raw_centered_mse,raw_centered_corr")
     parser.add_argument("--lambdas", default="0.1,0.3,0.5,1.0")
+    parser.add_argument(
+        "--heads",
+        default="regression",
+        help="Comma-separated heads: regression, ordinal_cumulative, classification_expectation, hybrid_regression_ordinal.",
+    )
+    parser.add_argument("--head-lambdas", default="0.1,0.3,1.0", help="Lambdas for hybrid_regression_ordinal.")
     parser.add_argument("--no-raw-baseline", action="store_true")
     parser.add_argument("--target-label", default="fatigue")
     parser.add_argument("--epochs", type=int, default=80)
@@ -127,9 +153,30 @@ def main() -> int:
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--patience", type=int, default=15)
     parser.add_argument("--seed", type=int, default=240729)
+    parser.add_argument(
+        "--experiment-seed-fixed",
+        action="store_true",
+        help="Use the exact --seed value for every run instead of seed + run_number, so paired "
+        "experiments (e.g. wear routes) share the identical training seed.",
+    )
     parser.add_argument("--torch-threads", type=int, default=4)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--subject-balanced-batches", action="store_true")
+    parser.add_argument(
+        "--sampler",
+        choices=("default", "subject_balanced", "label_balanced", "label_subject_balanced"),
+        default="default",
+        help="Training batch sampler. --subject-balanced-batches maps default to subject_balanced for backwards compatibility.",
+    )
+    parser.add_argument(
+        "--fusion-variant",
+        choices=("attention", "concat", "attention_multihead_pma", "eeg_anchor"),
+        default="attention",
+        help="Fusion encoder variant: attention (current default), concat (no attention), "
+        "attention_multihead_pma (latent-query cross-attention), eeg_anchor (EEG token as query).",
+    )
+    parser.add_argument("--attn-num-heads", type=int, default=4, help="Attention heads for attention_multihead_pma; must divide --hidden-dim.")
+    parser.add_argument("--attn-num-latent", type=int, default=8, help="Number of latent queries for attention_multihead_pma.")
     parser.add_argument("--out-json", type=Path, required=True)
     parser.add_argument("--out-md", type=Path, required=True)
     parser.add_argument("--predictions-dir", type=Path)
@@ -151,9 +198,14 @@ def main() -> int:
     branch_cache: dict[tuple[str, str], dict[str, Any]] = {}
     loss_modes = [value.strip() for value in args.loss_modes.split(",") if value.strip()]
     lambdas = [float(value.strip()) for value in args.lambdas.split(",") if value.strip()]
+    heads = [value.strip() for value in args.heads.split(",") if value.strip()]
+    head_lambdas = [float(value.strip()) for value in args.head_lambdas.split(",") if value.strip()]
     for mode in loss_modes:
-        if mode not in {"raw", "raw_centered_mse", "raw_centered_corr"}:
+        if mode not in {"raw", "raw_centered_mse", "raw_centered_corr", "weighted_mse_label_bins", "huber_extreme_weight", "mse_variance_reg"}:
             raise ValueError(f"unsupported centered loss mode: {mode}")
+    for head in heads:
+        if head not in {"regression", "ordinal_cumulative", "classification_expectation", "hybrid_regression_ordinal"}:
+            raise ValueError(f"unsupported head: {head}")
     results: list[dict[str, Any]] = []
     run_number = 0
     for protocol, experiment in requested:
@@ -165,25 +217,35 @@ def main() -> int:
                 sample_id,
                 protocol=protocol,
                 eeg_seed=args.eeg_token_seed,
+                wear_seed=args.wear_token_seed if args.wear_token_seed is not None else args.eeg_token_seed,
                 eeg_token_root=args.eeg_token_root,
                 required_names=branches,
                 cache=branch_cache,
             )
             tokens, token_mask, branch_report = _build_tokens(branch_data, branches)
-            run_specs: list[tuple[str, float]] = []
+            loss_specs: list[tuple[str, float]] = []
             if not args.no_raw_baseline and "raw" not in loss_modes:
-                run_specs.append(("raw", 0.0))
+                loss_specs.append(("raw", 0.0))
             for mode in loss_modes:
                 if mode == "raw":
-                    run_specs.append(("raw", 0.0))
+                    loss_specs.append(("raw", 0.0))
+                elif _loss_mode_uses_lambda(mode):
+                    loss_specs.extend((mode, value) for value in lambdas)
                 else:
-                    run_specs.extend((mode, value) for value in lambdas)
-            for loss_mode, centered_lambda in run_specs:
-                run_seed = int(args.seed) + run_number
+                    loss_specs.append((mode, 0.0))
+            run_specs: list[tuple[str, float, str, float]] = []
+            for loss_mode, centered_lambda in loss_specs:
+                for head in heads:
+                    if head == "hybrid_regression_ordinal":
+                        run_specs.extend((loss_mode, centered_lambda, head, value) for value in head_lambdas)
+                    else:
+                        run_specs.append((loss_mode, centered_lambda, head, 0.0))
+            for loss_mode, centered_lambda, head, head_lambda in run_specs:
+                run_seed = int(args.seed) if args.experiment_seed_fixed else int(args.seed) + run_number
                 run_number += 1
                 print(
                     f"starting protocol={protocol} experiment={experiment} eeg_branch={eeg_branch} "
-                    f"loss_mode={loss_mode} lambda={centered_lambda} seed={run_seed}",
+                    f"loss_mode={loss_mode} lambda={centered_lambda} head={head} head_lambda={head_lambda} seed={run_seed}",
                     flush=True,
                 )
                 model, train_audit = _fit_model(
@@ -195,6 +257,8 @@ def main() -> int:
                     val_idx=split["val"],
                     loss_mode=loss_mode,
                     centered_lambda=centered_lambda,
+                    head=head,
+                    head_lambda=head_lambda,
                     hidden_dim=args.hidden_dim,
                     epochs=args.epochs,
                     batch_size=args.batch_size,
@@ -205,6 +269,10 @@ def main() -> int:
                     seed=run_seed,
                     device=args.device,
                     subject_balanced_batches=args.subject_balanced_batches,
+                    sampler=args.sampler,
+                    fusion_variant=args.fusion_variant,
+                    attn_num_heads=args.attn_num_heads,
+                    attn_num_latent=args.attn_num_latent,
                 )
                 predictions = {
                     name: _predict(model, tokens, token_mask, indices=indices, device=args.device)
@@ -224,8 +292,13 @@ def main() -> int:
                     "enabled_modalities": [BRANCHES[name].modality for name in branches],
                     "loss_mode": loss_mode,
                     "centered_lambda": float(centered_lambda),
+                    "head": head,
+                    "head_lambda": float(head_lambda),
                     "seed": run_seed,
                     "eeg_token_seed": int(args.eeg_token_seed),
+                    "fusion_variant": args.fusion_variant,
+                    "attn_num_heads": int(args.attn_num_heads),
+                    "attn_num_latent": int(args.attn_num_latent),
                     "row_count": len(rows),
                     "target_label": args.target_label,
                     "split_counts": {name: int(len(values)) for name, values in split.items()},
@@ -240,7 +313,13 @@ def main() -> int:
                     "branch_report": branch_report,
                 }
                 if args.predictions_dir:
-                    pred_path = args.predictions_dir / protocol / eeg_branch / experiment / f"{loss_mode}_lambda_{centered_lambda:g}.npz"
+                    pred_path = (
+                        args.predictions_dir
+                        / protocol
+                        / eeg_branch
+                        / experiment
+                        / f"{head}_{loss_mode}_lambda_{centered_lambda:g}_headlambda_{head_lambda:g}.npz"
+                    )
                     pred_path.parent.mkdir(parents=True, exist_ok=True)
                     np.savez_compressed(
                         pred_path,
@@ -259,7 +338,8 @@ def main() -> int:
                 results.append(result)
                 print(
                     f"completed protocol={protocol} experiment={experiment} eeg_branch={eeg_branch} "
-                    f"loss_mode={loss_mode} lambda={centered_lambda} rmse={_fmt(test_metrics['rmse'])} "
+                    f"loss_mode={loss_mode} lambda={centered_lambda} head={head} head_lambda={head_lambda} "
+                    f"rmse={_fmt(test_metrics['rmse'])} "
                     f"raw_r={_fmt(test_metrics['raw_r'])} centered_r={_fmt(test_metrics['within_subject_centered_r'])}",
                     flush=True,
                 )
@@ -283,7 +363,13 @@ def main() -> int:
             "eeg_branches": list(eeg_branches),
             "eeg_token_seed": int(args.eeg_token_seed),
             "eeg_token_root": args.eeg_token_root,
+            "heads": heads,
+            "head_lambdas": head_lambdas,
             "subject_balanced_batches": args.subject_balanced_batches,
+            "sampler": args.sampler,
+            "fusion_variant": args.fusion_variant,
+            "attn_num_heads": int(args.attn_num_heads),
+            "attn_num_latent": int(args.attn_num_latent),
             "train_rule": "pretrain + finetune from splits_new",
             "normalization": "train_only",
         },
@@ -308,6 +394,8 @@ def _fit_model(
     val_idx: np.ndarray,
     loss_mode: str,
     centered_lambda: float,
+    head: str,
+    head_lambda: float,
     hidden_dim: int,
     epochs: int,
     batch_size: int,
@@ -318,21 +406,45 @@ def _fit_model(
     seed: int,
     device: str,
     subject_balanced_batches: bool,
+    sampler: str,
+    fusion_variant: str = "attention",
+    attn_num_heads: int = 4,
+    attn_num_latent: int = 8,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     _seed_everything(seed)
     x_mean, x_std = _fit_token_normalization(tokens, token_mask, train_idx)
     y_mean = float(target[train_idx].mean())
     y_std = float(target[train_idx].std()) or 1.0
     dev = torch.device(device)
-    module = AttentionRegressor(modality_count=tokens.shape[1], hidden_dim=hidden_dim, dropout=dropout).to(dev)
+    label_values = ((np.arange(1, 6, dtype=np.float32) - y_mean) / y_std).astype(np.float32)
+    module = AttentionRegressor(
+        modality_count=tokens.shape[1],
+        hidden_dim=hidden_dim,
+        dropout=dropout,
+        head=head,
+        normalized_label_values=label_values,
+        variant=fusion_variant,
+        num_heads=attn_num_heads,
+        num_latent=attn_num_latent,
+    ).to(dev)
     optimizer = torch.optim.AdamW(module.parameters(), lr=learning_rate, weight_decay=weight_decay)
     x_train = torch.as_tensor(_normalize_tokens(tokens[train_idx], x_mean, x_std), dtype=torch.float32, device=dev)
     m_train = torch.as_tensor(token_mask[train_idx], dtype=torch.bool, device=dev)
     y_train = torch.as_tensor((target[train_idx] - y_mean) / y_std, dtype=torch.float32, device=dev)
+    raw_y_train = target[train_idx].astype(np.float32)
+    raw_y_train_tensor = torch.as_tensor(raw_y_train, dtype=torch.float32, device=dev)
     train_subjects = subjects[train_idx]
+    resolved_sampler = _resolve_sampler(sampler, subject_balanced_batches)
+    phase2_loss_config = _phase2_loss_config(loss_mode, raw_y_train, y_mean=y_mean, y_std=y_std)
+    train_sample_weights = torch.as_tensor(
+        _sample_weights_for_loss(raw_y_train, phase2_loss_config),
+        dtype=torch.float32,
+        device=dev,
+    )
     x_val = torch.as_tensor(_normalize_tokens(tokens[val_idx], x_mean, x_std), dtype=torch.float32, device=dev)
     m_val = torch.as_tensor(token_mask[val_idx], dtype=torch.bool, device=dev)
     y_val = torch.as_tensor((target[val_idx] - y_mean) / y_std, dtype=torch.float32, device=dev)
+    raw_y_val = torch.as_tensor(target[val_idx].astype(np.float32), dtype=torch.float32, device=dev)
     val_subjects = subjects[val_idx]
     best_state = None
     best_val = float("inf")
@@ -346,24 +458,45 @@ def _fit_model(
         batch_raw_losses: list[float] = []
         batch_centered_losses: list[float] = []
         batch_subject_counts: list[int] = []
-        for batch in _make_batches(train_subjects, batch_size, rng, subject_balanced_batches):
-            prediction = module(x_train[batch], m_train[batch])
-            raw_loss, centered_loss, eligible_subject_count = _loss_components(
-                prediction, y_train[batch], train_subjects[batch], loss_mode
+        for batch in _make_batches(train_subjects, raw_y_train, batch_size, rng, resolved_sampler):
+            loss, loss_audit = _head_loss_components(
+                module,
+                x_train[batch],
+                m_train[batch],
+                y_train[batch],
+                raw_y_train_tensor[batch],
+                train_subjects[batch],
+                loss_mode=loss_mode,
+                centered_lambda=centered_lambda,
+                head=head,
+                head_lambda=head_lambda,
+                sample_weights=train_sample_weights[batch],
+                phase2_config=phase2_loss_config,
             )
-            loss = raw_loss + float(centered_lambda) * centered_loss
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
             batch_losses.append(float(loss.detach().cpu().item()))
-            batch_raw_losses.append(float(raw_loss.detach().cpu().item()))
-            batch_centered_losses.append(float(centered_loss.detach().cpu().item()))
-            batch_subject_counts.append(eligible_subject_count)
+            batch_raw_losses.append(float(loss_audit["raw_loss"]))
+            batch_centered_losses.append(float(loss_audit["aux_loss"]))
+            batch_subject_counts.append(int(loss_audit["eligible_subject_count"]))
         module.eval()
         with torch.no_grad():
-            val_prediction = module(x_val, m_val)
-            val_raw, val_centered, val_subject_count = _loss_components(val_prediction, y_val, val_subjects, loss_mode)
-            val_loss = float((val_raw + float(centered_lambda) * val_centered).detach().cpu().item())
+            val_loss_tensor, val_loss_audit = _head_loss_components(
+                module,
+                x_val,
+                m_val,
+                y_val,
+                raw_y_val,
+                val_subjects,
+                loss_mode=loss_mode,
+                centered_lambda=centered_lambda,
+                head=head,
+                head_lambda=head_lambda,
+                sample_weights=None,
+                phase2_config=phase2_loss_config,
+            )
+            val_loss = float(val_loss_tensor.detach().cpu().item())
         audit = {
             "epoch": int(epoch + 1),
             "train_loss": float(np.mean(batch_losses)) if batch_losses else math.nan,
@@ -371,9 +504,10 @@ def _fit_model(
             "train_centered_loss": float(np.mean(batch_centered_losses)) if batch_centered_losses else math.nan,
             "batch_centered_subject_count_mean": float(np.mean(batch_subject_counts)) if batch_subject_counts else 0.0,
             "val_loss": val_loss,
-            "val_raw_loss": float(val_raw.detach().cpu().item()),
-            "val_centered_loss": float(val_centered.detach().cpu().item()),
-            "val_centered_subject_count": int(val_subject_count),
+            "val_raw_loss": float(val_loss_audit["raw_loss"]),
+            "val_centered_loss": float(val_loss_audit["aux_loss"]),
+            "val_centered_subject_count": int(val_loss_audit["eligible_subject_count"]),
+            "val_head_loss": float(val_loss_audit["head_loss"]),
         }
         epoch_audits.append(audit)
         if val_loss < best_val:
@@ -407,14 +541,37 @@ def _fit_model(
         "train_count": int(len(train_idx)),
         "loss_mode": loss_mode,
         "centered_lambda": float(centered_lambda),
+        "head": head,
+        "head_lambda": float(head_lambda),
+        "sampler": resolved_sampler,
+        "phase2_loss_config": phase2_loss_config,
         "epoch_count": len(epoch_audits),
         "history": epoch_audits,
     }
 
 
 class AttentionRegressor(torch.nn.Module):
-    def __init__(self, *, modality_count: int, hidden_dim: int, dropout: float) -> None:
+    def __init__(
+        self,
+        *,
+        modality_count: int,
+        hidden_dim: int,
+        dropout: float,
+        head: str = "regression",
+        normalized_label_values: np.ndarray | None = None,
+        variant: str = "attention",
+        num_heads: int = 4,
+        num_latent: int = 8,
+    ) -> None:
         super().__init__()
+        if variant not in {"attention", "concat", "attention_multihead_pma", "eeg_anchor"}:
+            raise ValueError(f"unsupported fusion variant: {variant}")
+        if variant == "attention_multihead_pma" and hidden_dim % num_heads != 0:
+            raise ValueError(f"hidden_dim={hidden_dim} must be divisible by num_heads={num_heads}")
+        if variant == "eeg_anchor" and modality_count < 1:
+            raise ValueError("eeg_anchor requires at least one modality token with EEG at index 0")
+        self.variant = variant
+        self.head_kind = head
         self.input_projection = torch.nn.Linear(256, hidden_dim)
         self.modality_embedding = torch.nn.Parameter(torch.zeros(1, modality_count, hidden_dim))
         torch.nn.init.normal_(self.modality_embedding, mean=0.0, std=0.02)
@@ -422,23 +579,154 @@ class AttentionRegressor(torch.nn.Module):
         self.query = torch.nn.Parameter(torch.zeros(hidden_dim))
         torch.nn.init.normal_(self.query, mean=0.0, std=0.02)
         self.dropout = torch.nn.Dropout(dropout)
-        self.head = torch.nn.Sequential(
+        if variant == "concat":
+            self.concat_projection = torch.nn.Linear(256 * modality_count + modality_count, hidden_dim)
+        elif variant == "attention_multihead_pma":
+            self.latent_queries = torch.nn.Parameter(torch.zeros(1, num_latent, hidden_dim))
+            torch.nn.init.normal_(self.latent_queries, mean=0.0, std=0.02)
+            self.cross_attention = torch.nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout, batch_first=True)
+        self.regression_head = torch.nn.Sequential(
             torch.nn.LayerNorm(hidden_dim),
             torch.nn.Linear(hidden_dim, hidden_dim),
             torch.nn.ReLU(),
             torch.nn.Dropout(dropout),
             torch.nn.Linear(hidden_dim, 1),
         )
+        self.ordinal_head = torch.nn.Sequential(
+            torch.nn.LayerNorm(hidden_dim),
+            torch.nn.Linear(hidden_dim, hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(hidden_dim, 4),
+        )
+        self.classification_head = torch.nn.Sequential(
+            torch.nn.LayerNorm(hidden_dim),
+            torch.nn.Linear(hidden_dim, hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(hidden_dim, 5),
+        )
+        values = np.arange(1, 6, dtype=np.float32) if normalized_label_values is None else normalized_label_values.astype(np.float32)
+        self.register_buffer("normalized_label_values", torch.as_tensor(values, dtype=torch.float32))
 
-    def forward(self, tokens: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def encode(self, tokens: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        if self.variant == "concat":
+            masked = tokens * mask[:, :, None].to(tokens.dtype)
+            flat = torch.cat([masked.reshape(tokens.shape[0], -1), mask.to(tokens.dtype)], dim=1)
+            return self.concat_projection(flat)
         x = self.input_projection(tokens) + self.modality_embedding
+        if self.variant == "attention_multihead_pma":
+            x = x.masked_fill(~mask[:, :, None], 0.0)
+            queries = self.latent_queries.expand(tokens.shape[0], -1, -1)
+            attended, _ = self.cross_attention(queries, x, x, key_padding_mask=~mask, need_weights=False)
+            return attended.mean(dim=1)
+        if self.variant == "eeg_anchor":
+            x = x.masked_fill(~mask[:, :, None], 0.0)
+            attended, _ = self.self_attention(x[:, :1], x, x, key_padding_mask=~mask, need_weights=False)
+            return attended[:, 0]
         attended, _ = self.self_attention(x, x, x, key_padding_mask=~mask, need_weights=False)
         attended = self.dropout(attended)
         scores = torch.matmul(attended, self.query).masked_fill(~mask, -1.0e9)
         weights = torch.softmax(scores, dim=1) * mask.to(dtype=scores.dtype)
         weights = weights / weights.sum(dim=1, keepdim=True).clamp_min(1e-6)
-        pooled = torch.sum(attended * weights.unsqueeze(-1), dim=1)
-        return self.head(pooled).reshape(-1)
+        return torch.sum(attended * weights.unsqueeze(-1), dim=1)
+
+    def forward_outputs(self, tokens: torch.Tensor, mask: torch.Tensor) -> dict[str, torch.Tensor]:
+        pooled = self.encode(tokens, mask)
+        outputs: dict[str, torch.Tensor] = {}
+        if self.head_kind in {"regression", "hybrid_regression_ordinal"}:
+            outputs["regression"] = self.regression_head(pooled).reshape(-1)
+        if self.head_kind in {"ordinal_cumulative", "hybrid_regression_ordinal"}:
+            outputs["ordinal_logits"] = self.ordinal_head(pooled)
+        if self.head_kind == "classification_expectation":
+            outputs["class_logits"] = self.classification_head(pooled)
+        return outputs
+
+    def prediction_from_outputs(self, outputs: dict[str, torch.Tensor]) -> torch.Tensor:
+        if self.head_kind in {"regression", "hybrid_regression_ordinal"}:
+            return outputs["regression"].reshape(-1)
+        if self.head_kind == "classification_expectation":
+            probs = torch.softmax(outputs["class_logits"], dim=1)
+            return torch.sum(probs * self.normalized_label_values.reshape(1, -1), dim=1)
+        if self.head_kind == "ordinal_cumulative":
+            return self._ordinal_expectation(outputs["ordinal_logits"])
+        raise ValueError(f"unsupported head: {self.head_kind}")
+
+    def _ordinal_expectation(self, logits: torch.Tensor) -> torch.Tensor:
+        cumulative = torch.sigmoid(logits)
+        cumulative = torch.cummin(cumulative, dim=1).values
+        probs = torch.cat(
+            [
+                1.0 - cumulative[:, :1],
+                cumulative[:, :1] - cumulative[:, 1:2],
+                cumulative[:, 1:2] - cumulative[:, 2:3],
+                cumulative[:, 2:3] - cumulative[:, 3:4],
+                cumulative[:, 3:4],
+            ],
+            dim=1,
+        ).clamp_min(0.0)
+        probs = probs / probs.sum(dim=1, keepdim=True).clamp_min(1e-6)
+        return torch.sum(probs * self.normalized_label_values.reshape(1, -1), dim=1)
+
+    def forward(self, tokens: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        return self.prediction_from_outputs(self.forward_outputs(tokens, mask))
+
+
+def _head_loss_components(
+    module: AttentionRegressor,
+    tokens: torch.Tensor,
+    mask: torch.Tensor,
+    target: torch.Tensor,
+    raw_target: torch.Tensor,
+    subjects: np.ndarray,
+    *,
+    loss_mode: str,
+    centered_lambda: float,
+    head: str,
+    head_lambda: float,
+    sample_weights: torch.Tensor | None,
+    phase2_config: dict[str, Any],
+) -> tuple[torch.Tensor, dict[str, float | int]]:
+    outputs = module.forward_outputs(tokens, mask)
+    prediction = module.prediction_from_outputs(outputs)
+    raw_loss, aux_loss, eligible_subject_count = _loss_components(
+        prediction,
+        target,
+        subjects,
+        loss_mode,
+        sample_weights=sample_weights,
+        phase2_config=phase2_config,
+    )
+    base_loss = raw_loss + float(centered_lambda) * aux_loss
+    head_loss = torch.zeros((), dtype=target.dtype, device=target.device)
+    if head in {"ordinal_cumulative", "hybrid_regression_ordinal"}:
+        head_loss = _ordinal_cumulative_loss(outputs["ordinal_logits"], raw_target)
+    elif head == "classification_expectation":
+        head_loss = _classification_loss(outputs["class_logits"], raw_target)
+    if head == "regression":
+        total = base_loss
+    elif head == "hybrid_regression_ordinal":
+        total = base_loss + float(head_lambda) * head_loss
+    else:
+        total = head_loss + 0.1 * raw_loss
+    return total, {
+        "raw_loss": float(raw_loss.detach().cpu().item()),
+        "aux_loss": float(aux_loss.detach().cpu().item()),
+        "head_loss": float(head_loss.detach().cpu().item()),
+        "eligible_subject_count": int(eligible_subject_count),
+    }
+
+
+def _ordinal_cumulative_loss(logits: torch.Tensor, raw_target: torch.Tensor) -> torch.Tensor:
+    labels = torch.clamp(torch.round(raw_target), 1, 5)
+    thresholds = torch.arange(1, 5, dtype=raw_target.dtype, device=raw_target.device).reshape(1, -1)
+    binary = (labels.reshape(-1, 1) > thresholds).to(dtype=logits.dtype)
+    return torch.nn.functional.binary_cross_entropy_with_logits(logits, binary)
+
+
+def _classification_loss(logits: torch.Tensor, raw_target: torch.Tensor) -> torch.Tensor:
+    labels = torch.clamp(torch.round(raw_target), 1, 5).to(dtype=torch.long) - 1
+    return torch.nn.functional.cross_entropy(logits, labels)
 
 
 def _loss_components(
@@ -446,8 +734,33 @@ def _loss_components(
     target: torch.Tensor,
     subjects: np.ndarray,
     loss_mode: str,
+    *,
+    sample_weights: torch.Tensor | None = None,
+    phase2_config: dict[str, Any] | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, int]:
-    raw_loss = torch.mean((prediction - target) ** 2)
+    residual = prediction - target
+    phase2_config = phase2_config or {}
+    if loss_mode == "weighted_mse_label_bins":
+        if sample_weights is None:
+            raw_loss = torch.mean(residual**2)
+        else:
+            raw_loss = torch.sum(sample_weights * residual**2) / sample_weights.sum().clamp_min(1e-8)
+        return raw_loss, torch.zeros_like(raw_loss), 0
+    if loss_mode == "huber_extreme_weight":
+        delta = float(phase2_config.get("huber_delta_standardized", 1.0))
+        abs_residual = torch.abs(residual)
+        quadratic = torch.minimum(abs_residual, torch.as_tensor(delta, dtype=abs_residual.dtype, device=abs_residual.device))
+        linear = abs_residual - quadratic
+        loss_values = 0.5 * quadratic**2 + delta * linear
+        if sample_weights is not None:
+            raw_loss = torch.sum(sample_weights * loss_values) / sample_weights.sum().clamp_min(1e-8)
+        else:
+            raw_loss = torch.mean(loss_values)
+        return raw_loss, torch.zeros_like(raw_loss), 0
+    raw_loss = torch.mean(residual**2)
+    if loss_mode == "mse_variance_reg":
+        variance_loss, eligible = _variance_regularization_loss(prediction, target, subjects)
+        return raw_loss, variance_loss, eligible
     if loss_mode == "raw":
         return raw_loss, torch.zeros_like(raw_loss), 0
     subject_values = np.asarray(subjects).reshape(-1)
@@ -476,11 +789,46 @@ def _loss_components(
     return raw_loss, centered_loss, eligible
 
 
-def _make_batches(subjects: np.ndarray, batch_size: int, rng: np.random.Generator, balanced: bool) -> list[np.ndarray]:
-    if not balanced:
+def _variance_regularization_loss(prediction: torch.Tensor, target: torch.Tensor, subjects: np.ndarray) -> tuple[torch.Tensor, int]:
+    subject_values = np.asarray(subjects).reshape(-1)
+    losses: list[torch.Tensor] = []
+    for subject in np.unique(subject_values):
+        indices = np.flatnonzero(subject_values == subject)
+        if len(indices) < 2:
+            continue
+        index = torch.as_tensor(indices, dtype=torch.long, device=prediction.device)
+        target_std = torch.std(target[index], unbiased=False)
+        if float(target_std.detach().cpu().item()) <= 1e-6:
+            continue
+        pred_std = torch.std(prediction[index], unbiased=False)
+        losses.append(torch.relu(target_std - pred_std) ** 2)
+    if not losses and len(prediction) >= 2:
+        target_std = torch.std(target, unbiased=False)
+        if float(target_std.detach().cpu().item()) > 1e-6:
+            losses.append(torch.relu(target_std - torch.std(prediction, unbiased=False)) ** 2)
+    if not losses:
+        return torch.zeros((), dtype=prediction.dtype, device=prediction.device), 0
+    return torch.stack(losses).mean(), len(losses)
+
+
+def _make_batches(subjects: np.ndarray, labels: np.ndarray, batch_size: int, rng: np.random.Generator, sampler: str) -> list[np.ndarray]:
+    if sampler == "default":
         order = rng.permutation(len(subjects))
         return [order[start : start + max(1, batch_size)] for start in range(0, len(order), max(1, batch_size))]
-    queues = [list(rng.permutation(np.flatnonzero(subjects == subject)).tolist()) for subject in np.unique(subjects)]
+    if sampler == "subject_balanced":
+        queues = [list(rng.permutation(np.flatnonzero(subjects == subject)).tolist()) for subject in np.unique(subjects)]
+    elif sampler == "label_balanced":
+        label_bins = _label_bins(labels)
+        queues = [list(rng.permutation(np.flatnonzero(label_bins == label_bin)).tolist()) for label_bin in np.unique(label_bins)]
+    elif sampler == "label_subject_balanced":
+        label_bins = _label_bins(labels)
+        keys = sorted({(int(label_bin), str(subject)) for label_bin, subject in zip(label_bins, subjects)})
+        queues = [
+            list(rng.permutation(np.flatnonzero((label_bins == label_bin) & (subjects == subject))).tolist())
+            for label_bin, subject in keys
+        ]
+    else:
+        raise ValueError(f"unsupported sampler: {sampler}")
     order: list[int] = []
     while any(queues):
         subject_order = rng.permutation(len(queues)).tolist()
@@ -488,6 +836,72 @@ def _make_batches(subjects: np.ndarray, batch_size: int, rng: np.random.Generato
             if queues[queue_index]:
                 order.append(queues[queue_index].pop())
     return [np.asarray(order[start : start + max(1, batch_size)], dtype=np.int64) for start in range(0, len(order), max(1, batch_size))]
+
+
+def _resolve_sampler(sampler: str, subject_balanced_batches: bool) -> str:
+    if sampler == "default" and subject_balanced_batches:
+        return "subject_balanced"
+    return sampler
+
+
+def _loss_mode_uses_lambda(loss_mode: str) -> bool:
+    return loss_mode in {"raw_centered_mse", "raw_centered_corr", "mse_variance_reg"}
+
+
+def _label_bins(labels: np.ndarray) -> np.ndarray:
+    return np.clip(np.rint(labels).astype(np.int64), 1, 5)
+
+
+def _phase2_loss_config(loss_mode: str, raw_y_train: np.ndarray, *, y_mean: float, y_std: float) -> dict[str, Any]:
+    label_bins = _label_bins(raw_y_train)
+    counts = {str(label): int(np.sum(label_bins == label)) for label in range(1, 6)}
+    if loss_mode == "weighted_mse_label_bins":
+        nonzero = np.asarray([count for count in counts.values() if count > 0], dtype=np.float64)
+        mean_count = float(np.mean(nonzero)) if len(nonzero) else 1.0
+        weights = {
+            str(label): float(np.clip(mean_count / max(1, counts[str(label)]), 0.5, 3.0))
+            for label in range(1, 6)
+        }
+        return {
+            "kind": loss_mode,
+            "label_counts": counts,
+            "label_weights": weights,
+            "weight_clip": [0.5, 3.0],
+        }
+    if loss_mode == "huber_extreme_weight":
+        return {
+            "kind": loss_mode,
+            "label_counts": counts,
+            "low_threshold": 2.0,
+            "high_threshold": 4.0,
+            "base_weight": 1.0,
+            "extreme_weight": 2.0,
+            "huber_delta_raw": 1.0,
+            "huber_delta_standardized": float(1.0 / (float(y_std) or 1.0)),
+            "target_normalization_mean": float(y_mean),
+            "target_normalization_std": float(y_std),
+        }
+    if loss_mode == "mse_variance_reg":
+        return {
+            "kind": loss_mode,
+            "label_counts": counts,
+            "variance_scope": "subject_in_batch_with_batch_fallback",
+        }
+    return {"kind": loss_mode, "label_counts": counts}
+
+
+def _sample_weights_for_loss(raw_y: np.ndarray, config: dict[str, Any]) -> np.ndarray:
+    kind = config.get("kind")
+    if kind == "weighted_mse_label_bins":
+        label_weights = {int(label): float(weight) for label, weight in config.get("label_weights", {}).items()}
+        bins = _label_bins(raw_y)
+        return np.asarray([label_weights.get(int(label), 1.0) for label in bins], dtype=np.float32)
+    if kind == "huber_extreme_weight":
+        weights = np.ones(len(raw_y), dtype=np.float32) * float(config.get("base_weight", 1.0))
+        extreme = (raw_y <= float(config.get("low_threshold", 2.0))) | (raw_y >= float(config.get("high_threshold", 4.0)))
+        weights[extreme] = float(config.get("extreme_weight", 2.0))
+        return weights
+    return np.ones(len(raw_y), dtype=np.float32)
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -514,6 +928,7 @@ def _load_all_branches(
     *,
     protocol: str,
     eeg_seed: int,
+    wear_seed: int,
     eeg_token_root: str,
     required_names: tuple[str, ...],
     cache: dict[tuple[str, str], dict[str, Any]],
@@ -521,7 +936,9 @@ def _load_all_branches(
     result = {}
     for name in required_names:
         branch = BRANCHES[name]
-        filename = branch.filename.format(protocol=protocol, eeg_seed=int(eeg_seed), eeg_token_root=eeg_token_root)
+        filename = branch.filename.format(
+            protocol=protocol, eeg_seed=int(eeg_seed), wear_seed=int(wear_seed), eeg_token_root=eeg_token_root
+        )
         cache_key = (name, filename)
         if cache_key in cache:
             result[name] = cache[cache_key]
@@ -654,13 +1071,15 @@ def _write_markdown(output: dict[str, Any], path: Path) -> None:
         f"target_label: `{output['target_label']}`",
         f"run_count: `{output['run_count']}`",
         "",
-        "| protocol | EEG branch | experiment | loss | lambda | RMSE | MAE | raw r | centered r | per-subject r mean | best epoch |",
-        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| protocol | EEG branch | experiment | fusion | loss | lambda | head | head lambda | RMSE | MAE | raw r | centered r | per-subject r mean | best epoch |",
+        "| --- | --- | --- | --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in output["results"]:
         test = row["test"]
         lines.append(
-            f"| {row['protocol']} | {row.get('eeg_branch', 'eeg')} | {row['experiment']} | {row['loss_mode']} | {row['centered_lambda']:.3g} | "
+            f"| {row['protocol']} | {row.get('eeg_branch', 'eeg')} | {row['experiment']} | {row.get('fusion_variant', 'attention')} | "
+            f"{row['loss_mode']} | {row['centered_lambda']:.3g} | "
+            f"{row.get('head', 'regression')} | {float(row.get('head_lambda', 0.0)):.3g} | "
             f"{_fmt(test['rmse'])} | {_fmt(test['mae'])} | {_fmt(test['raw_r'])} | "
             f"{_fmt(test['within_subject_centered_r'])} | {_fmt(test['per_subject_r_mean'])} | {row['train_audit']['best_epoch']} |"
         )

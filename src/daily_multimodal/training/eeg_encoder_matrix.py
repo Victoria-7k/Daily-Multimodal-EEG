@@ -48,6 +48,7 @@ EEG_PROFILES = {
     "cbramod_frozen_v1",
     "cbramod_partial_ft_v1",
     "cbramod_full_ft_v1",
+    "eeg_cnn_dual_branch_v1",
 }
 TORCH_PROFILES = {
     "eegpt_partial_ft_v1",
@@ -55,6 +56,7 @@ TORCH_PROFILES = {
     "cbramod_frozen_v1",
     "cbramod_partial_ft_v1",
     "cbramod_full_ft_v1",
+    "eeg_cnn_dual_branch_v1",
 }
 FULL_PROFILE_BY_PARTIAL = {
     "eegpt_partial_ft_v1": "eegpt_full_ft_v1",
@@ -881,6 +883,11 @@ def _run_torch_eeg_profile_once(
     )
     model = _TorchEEGRegressor(encoder=encoder, dropout=float(runtime.dropout)).to(device)
     channel_mean, channel_std = _fit_channel_normalization(x, split.train)
+    cached_x = None
+    if profile == "eeg_cnn_dual_branch_v1":
+        normalized = (np.asarray(x, dtype=np.float32) - channel_mean.reshape(1, 1, -1)) / channel_std.reshape(1, 1, -1)
+        normalized = np.transpose(normalized, (0, 2, 1))
+        cached_x = torch.as_tensor(normalized, dtype=torch.float32, device=device)
     y_mean = float(target[split.train].mean())
     y_std = float(target[split.train].std()) or 1.0
     optimizer = _torch_optimizer_for_profile(model, profile, runtime, torch)
@@ -899,7 +906,11 @@ def _run_torch_eeg_profile_once(
         batch_starts = list(range(0, len(order), max(1, int(batch_size))))
         for offset, start in enumerate(batch_starts):
             batch_idx = order[start : start + max(1, int(batch_size))]
-            batch_x = _torch_eeg_batch(x, batch_idx, channel_mean, channel_std, torch=torch, device=device)
+            batch_x = (
+                cached_x[torch.as_tensor(batch_idx, dtype=torch.long, device=device)]
+                if cached_x is not None
+                else _torch_eeg_batch(x, batch_idx, channel_mean, channel_std, torch=torch, device=device)
+            )
             batch_y = torch.as_tensor((target[batch_idx] - y_mean) / y_std, dtype=torch.float32, device=device)
             with torch.cuda.amp.autocast(enabled=bool(runtime.amp and device.type == "cuda")):
                 prediction = model(batch_x)
@@ -914,7 +925,18 @@ def _run_torch_eeg_profile_once(
                 scaler.update()
                 optimizer.zero_grad(set_to_none=True)
             train_losses.append(float(loss.detach().cpu().item()) * max(1, int(gradient_accumulation_steps)))
-        val_pred = _torch_predict(model, x, split.val, channel_mean, channel_std, y_mean, y_std, torch=torch, device=device)
+        val_pred = _torch_predict(
+            model,
+            x,
+            split.val,
+            channel_mean,
+            channel_std,
+            y_mean,
+            y_std,
+            torch=torch,
+            device=device,
+            cached_x=cached_x,
+        )
         val_metrics = evaluate_regression_with_centered(target[split.val], val_pred, subjects[split.val])
         val_loss = float(val_metrics["rmse"] or float("inf"))
         audit = {
@@ -935,9 +957,9 @@ def _run_torch_eeg_profile_once(
     if best_state is not None:
         model.load_state_dict(best_state)
     predictions = {
-        "train": _torch_predict(model, x, split.train, channel_mean, channel_std, y_mean, y_std, torch=torch, device=device),
-        "val": _torch_predict(model, x, split.val, channel_mean, channel_std, y_mean, y_std, torch=torch, device=device),
-        "test": _torch_predict(model, x, split.test, channel_mean, channel_std, y_mean, y_std, torch=torch, device=device),
+        "train": _torch_predict(model, x, split.train, channel_mean, channel_std, y_mean, y_std, torch=torch, device=device, cached_x=cached_x),
+        "val": _torch_predict(model, x, split.val, channel_mean, channel_std, y_mean, y_std, torch=torch, device=device, cached_x=cached_x),
+        "test": _torch_predict(model, x, split.test, channel_mean, channel_std, y_mean, y_std, torch=torch, device=device, cached_x=cached_x),
     }
     embeddings = _torch_extract_embeddings(
         model,
@@ -947,6 +969,7 @@ def _run_torch_eeg_profile_once(
         channel_std,
         torch=torch,
         device=device,
+        cached_x=cached_x,
     )
     return {
         "protocol": protocol,
@@ -1048,6 +1071,24 @@ def build_torch_encoder(
             load_report = _load_torch_state_if_present(model, Path(eegpt_checkpoint), torch=torch)
             report["load_report"] = load_report
         return model, report
+    if profile == "eeg_cnn_dual_branch_v1":
+        model = _build_dual_branch_cnn_encoder(
+            n_channels=int(n_channels),
+            input_times=int(n_times),
+            seq_len=128,
+            t_size=128,
+            torch=torch,
+        )
+        return model, {
+            "backend": "local_dual_branch_cnn_from_attached_networks_py",
+            "source": "networks.py:CNNEncoder adapted for EEG-aligned 10s windows",
+            "n_channels": int(n_channels),
+            "n_times": int(n_times),
+            "sample_rate_hz": float(sample_rate_hz),
+            "resampled_seq_len": 128,
+            "branch_t_size": 128,
+            "pooled_feature_dim": 256,
+        }
     raise ValueError(f"unsupported torch EEG profile: {profile}")
 
 
@@ -1522,6 +1563,8 @@ def _norm_subject(value: Any) -> str:
 
 
 def _strategy_for_profile(profile: str) -> str:
+    if profile == "eeg_cnn_dual_branch_v1":
+        return "full"
     if profile.endswith("_frozen_v1"):
         return "frozen"
     if profile.endswith("_partial_ft_v1"):
@@ -1676,13 +1719,18 @@ def _torch_predict(
     *,
     torch: Any,
     device: Any,
+    cached_x: Any | None = None,
 ) -> np.ndarray:  # pragma: no cover
     model.eval()
     values = []
     with torch.no_grad():
         for start in range(0, len(indices), 512):
             batch_idx = indices[start : start + 512]
-            batch_x = _torch_eeg_batch(x, batch_idx, channel_mean, channel_std, torch=torch, device=device)
+            batch_x = (
+                cached_x[torch.as_tensor(batch_idx, dtype=torch.long, device=device)]
+                if cached_x is not None
+                else _torch_eeg_batch(x, batch_idx, channel_mean, channel_std, torch=torch, device=device)
+            )
             pred = model(batch_x).detach().cpu().numpy().reshape(-1)
             values.append((pred * float(y_std) + float(y_mean)).astype(np.float32))
     return np.concatenate(values) if values else np.zeros((0,), dtype=np.float32)
@@ -1697,13 +1745,18 @@ def _torch_extract_embeddings(
     *,
     torch: Any,
     device: Any,
+    cached_x: Any | None = None,
 ) -> np.ndarray:  # pragma: no cover
     model.eval()
     values = []
     with torch.no_grad():
         for start in range(0, len(indices), 512):
             batch_idx = indices[start : start + 512]
-            batch_x = _torch_eeg_batch(x, batch_idx, channel_mean, channel_std, torch=torch, device=device)
+            batch_x = (
+                cached_x[torch.as_tensor(batch_idx, dtype=torch.long, device=device)]
+                if cached_x is not None
+                else _torch_eeg_batch(x, batch_idx, channel_mean, channel_std, torch=torch, device=device)
+            )
             emb = model.embedding(batch_x).detach().cpu().numpy()
             values.append(emb.astype(np.float32))
     if not values:
@@ -1717,6 +1770,12 @@ def _torch_extract_embeddings(
 
 
 def _torch_optimizer_for_profile(model: Any, profile: str, runtime: MatrixRuntime, torch: Any) -> Any:  # pragma: no cover
+    if profile == "eeg_cnn_dual_branch_v1":
+        return torch.optim.AdamW(
+            [param for param in model.parameters() if param.requires_grad],
+            lr=float(runtime.learning_rate),
+            weight_decay=float(runtime.weight_decay),
+        )
     strategy = _strategy_for_profile(profile)
     if strategy == "frozen":
         return torch.optim.AdamW(
@@ -1780,6 +1839,77 @@ class _TorchEEGRegressor:  # pragma: no cover - constructed only when torch is i
                 return self.head(self.embedding(x)).reshape(-1)
 
         return Module(encoder, dropout)
+
+
+def _build_dual_branch_cnn_encoder(
+    *,
+    n_channels: int,
+    input_times: int,
+    seq_len: int,
+    t_size: int,
+    torch: Any,
+) -> Any:  # pragma: no cover - constructed only when torch is installed
+    class DualBranchCNN(torch.nn.Module):
+        """Dual-branch CNN from the attached networks.py, adapted to EEG input.
+
+        The attached model expects z shaped [batch, seq_len, channels]. The
+        project loader provides [batch, channels, time], so this wrapper first
+        average-pools each 10-second, 200 Hz window from 2000 samples to 128
+        sequence steps, transposes it, and concatenates the two branch outputs.
+        """
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.seq_len = int(seq_len)
+            self.input_times = int(input_times)
+            self.feature_10 = torch.nn.Sequential(
+                torch.nn.Conv1d(in_channels=int(n_channels), out_channels=128, kernel_size=7, padding=3, bias=False),
+                torch.nn.BatchNorm1d(128),
+                torch.nn.ReLU(),
+                torch.nn.Conv1d(in_channels=128, out_channels=128, kernel_size=5, padding=2, bias=False),
+                torch.nn.BatchNorm1d(128),
+                torch.nn.ReLU(),
+            )
+            self.feature_11 = torch.nn.Sequential(
+                torch.nn.Conv1d(in_channels=128, out_channels=256, kernel_size=5, padding=2, bias=False),
+                torch.nn.BatchNorm1d(256),
+                torch.nn.ReLU(),
+                torch.nn.Conv1d(in_channels=256, out_channels=128, kernel_size=3, padding=1, bias=False),
+                torch.nn.BatchNorm1d(128),
+                torch.nn.ReLU(),
+                torch.nn.AvgPool1d(kernel_size=int(seq_len)),
+            )
+            self.feature_20 = torch.nn.Sequential(
+                torch.nn.Conv1d(in_channels=int(n_channels), out_channels=128, kernel_size=7, padding=3, bias=False),
+                torch.nn.BatchNorm1d(128),
+                torch.nn.ReLU(),
+                torch.nn.AvgPool1d(kernel_size=21, stride=1, padding=10),
+            )
+            self.feature_22 = torch.nn.AvgPool1d(kernel_size=int(seq_len))
+            self.feature_21 = torch.nn.Sequential(
+                torch.nn.Conv1d(in_channels=128, out_channels=128, kernel_size=5, padding=1, bias=False),
+                torch.nn.BatchNorm1d(128),
+                torch.nn.ReLU(),
+                torch.nn.AvgPool1d(kernel_size=int(seq_len) - 2),
+            )
+            self.linear1 = torch.nn.Linear(128, 128)
+            self.linear2 = torch.nn.Linear(128, 128)
+            self.fc11 = torch.nn.Linear(128, int(t_size))
+            self.fc21 = torch.nn.Linear(128, int(t_size))
+
+        def forward(self, x: Any) -> Any:
+            data = torch.nn.functional.adaptive_avg_pool1d(x, int(self.seq_len))
+            c = self.feature_10(data)
+            d = self.feature_20(data)
+            e = self.feature_22(d)
+            d2 = d + self.linear1(c.transpose(1, 2)).transpose(1, 2)
+            c2 = c + self.linear2(d.transpose(1, 2)).transpose(1, 2)
+            branch_1 = self.fc11(self.feature_11(c2).flatten(1, 2))
+            branch_2 = self.feature_21(d2) + e
+            branch_2 = self.fc21(branch_2.flatten(1, 2))
+            return torch.cat([branch_1, branch_2], dim=1)
+
+    return DualBranchCNN()
 
 
 def _load_torch_state_if_present(model: Any, checkpoint: Path, *, torch: Any) -> dict[str, Any]:  # pragma: no cover
