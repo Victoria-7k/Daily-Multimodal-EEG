@@ -152,6 +152,12 @@ def main() -> int:
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--patience", type=int, default=15)
+    parser.add_argument(
+        "--token-normalization",
+        choices=("shared", "per_modality"),
+        default="shared",
+        help="Token normalization scope: shared pools all available modality tokens; per_modality fits one mean/std per modality slot.",
+    )
     parser.add_argument("--seed", type=int, default=240729)
     parser.add_argument(
         "--experiment-seed-fixed",
@@ -270,6 +276,7 @@ def main() -> int:
                     device=args.device,
                     subject_balanced_batches=args.subject_balanced_batches,
                     sampler=args.sampler,
+                    token_normalization=args.token_normalization,
                     fusion_variant=args.fusion_variant,
                     attn_num_heads=args.attn_num_heads,
                     attn_num_latent=args.attn_num_latent,
@@ -297,6 +304,7 @@ def main() -> int:
                     "seed": run_seed,
                     "eeg_token_seed": int(args.eeg_token_seed),
                     "fusion_variant": args.fusion_variant,
+                    "token_normalization": args.token_normalization,
                     "attn_num_heads": int(args.attn_num_heads),
                     "attn_num_latent": int(args.attn_num_latent),
                     "row_count": len(rows),
@@ -367,11 +375,12 @@ def main() -> int:
             "head_lambdas": head_lambdas,
             "subject_balanced_batches": args.subject_balanced_batches,
             "sampler": args.sampler,
+            "token_normalization": args.token_normalization,
             "fusion_variant": args.fusion_variant,
             "attn_num_heads": int(args.attn_num_heads),
             "attn_num_latent": int(args.attn_num_latent),
             "train_rule": "pretrain + finetune from splits_new",
-            "normalization": "train_only",
+            "normalization": f"train_only_{args.token_normalization}",
         },
         "run_count": len(results),
         "results": results,
@@ -407,12 +416,13 @@ def _fit_model(
     device: str,
     subject_balanced_batches: bool,
     sampler: str,
+    token_normalization: str = "shared",
     fusion_variant: str = "attention",
     attn_num_heads: int = 4,
     attn_num_latent: int = 8,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     _seed_everything(seed)
-    x_mean, x_std = _fit_token_normalization(tokens, token_mask, train_idx)
+    x_mean, x_std = _fit_token_normalization(tokens, token_mask, train_idx, scope=token_normalization)
     y_mean = float(target[train_idx].mean())
     y_std = float(target[train_idx].std()) or 1.0
     dev = torch.device(device)
@@ -527,6 +537,7 @@ def _fit_model(
         "module": module,
         "x_mean": x_mean,
         "x_std": x_std,
+        "token_normalization": token_normalization,
         "y_mean": y_mean,
         "y_std": y_std,
     }, {
@@ -537,7 +548,8 @@ def _fit_model(
         "best_train_raw_loss": best_audit.get("train_raw_loss"),
         "best_train_centered_loss": best_audit.get("train_centered_loss"),
         "batch_centered_subject_count_mean": best_audit.get("batch_centered_subject_count_mean", 0.0),
-        "normalization": "train_only",
+        "normalization": f"train_only_{token_normalization}",
+        "token_normalization": token_normalization,
         "train_count": int(len(train_idx)),
         "loss_mode": loss_mode,
         "centered_lambda": float(centered_lambda),
@@ -994,10 +1006,22 @@ def _predict(model: dict[str, Any], tokens: np.ndarray, mask: np.ndarray, *, ind
     return np.concatenate(values) if values else np.zeros((0,), dtype=np.float32)
 
 
-def _fit_token_normalization(tokens: np.ndarray, mask: np.ndarray, indices: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _fit_token_normalization(
+    tokens: np.ndarray,
+    mask: np.ndarray,
+    indices: np.ndarray,
+    *,
+    scope: str = "shared",
+) -> tuple[np.ndarray, np.ndarray]:
     available = np.where(mask[indices, :, None], tokens[indices], np.nan)
-    mean = np.nanmean(available, axis=(0, 1), keepdims=True)
-    std = np.nanstd(available, axis=(0, 1), keepdims=True)
+    if scope == "shared":
+        mean = np.nanmean(available, axis=(0, 1), keepdims=True)
+        std = np.nanstd(available, axis=(0, 1), keepdims=True)
+    elif scope == "per_modality":
+        mean = np.nanmean(available, axis=0, keepdims=True)
+        std = np.nanstd(available, axis=0, keepdims=True)
+    else:
+        raise ValueError(f"unsupported token normalization scope: {scope}")
     return np.where(np.isfinite(mean), mean, 0.0).astype(np.float32), np.where(np.isfinite(std) & (std >= 1e-6), std, 1.0).astype(np.float32)
 
 

@@ -50,6 +50,8 @@
 | `label_columns` | 从 manifest 的 `labels` 搬到窗口记录里的标签字典 | [窗口构建函数](../../src/daily_multimodal/alignment/event_windows.py) |
 | `has_wear`、`has_face`、`has_audio` | 窗口层给 embedding 使用的模态可用性 | [窗口构建函数](../../src/daily_multimodal/alignment/event_windows.py) |
 
+上表描述的是 legacy 03 窗口构建入口的字段。daily-affect ordinal route 读取当前 canonical EEG-aligned index，要求每个 EMA event 恰好有 `23` 个 10 秒窗口，`event_window_id=0..22`，窗口 stride 为 5 秒；这些 event-level bag 字段见下方 daily-affect 契约。
+
 ## window index summary 字段
 
 | 字段 | 含义 | 来源 |
@@ -77,6 +79,37 @@
 | `source_paths` | 每个样本使用的源路径 JSON 字符串 | [批处理保存器](../../src/daily_multimodal/embeddings/pipeline.py)、[真实打包器](../../src/daily_multimodal/embeddings/real_pipeline.py) |
 | `quality_flags` | 质量信息；basic 路径写在 JSON 报告中，真实 all-real `.npz` 也会按样本写入 JSON 字符串数组 | [批处理保存器](../../src/daily_multimodal/embeddings/pipeline.py)、[真实打包器](../../src/daily_multimodal/embeddings/real_pipeline.py) |
 | `encoder_versions` | 真实 all-real `.npz` 中每个样本的四模态 encoder profile JSON 字符串 | [真实打包器](../../src/daily_multimodal/embeddings/real_pipeline.py) |
+
+## EQL-CAF temporal token 字段
+
+| 字段 | 含义 | 来源 |
+| --- | --- | --- |
+| `token_start_seconds`、`token_end_seconds` | 每个 10 秒窗口内的固定 temporal token 边界；默认 `[0,2,4,6,8]` 与 `[2,4,6,8,10]` | [temporal 切片模块](../../src/daily_multimodal/temporal/window_slicing.py)、[temporal index 入口](../../scripts/58_build_temporal_token_index.py) |
+| `eeg_tokens`、`wear_tokens`、`video_tokens`、`audio_tokens` | 四模态 temporal token，shape 均为 `(N,5,256)`；`5` 来自 10 秒窗口按 2 秒切片 | [temporal token 契约](../../src/daily_multimodal/temporal/token_contract.py) |
+| `token_mask` | `(N,4,5)` int/bool mask，模态顺序固定为 `[eeg, wear, video, audio]`；训练时按 token 层屏蔽缺失片段 | [temporal token 契约](../../src/daily_multimodal/temporal/token_contract.py) |
+| `modality_mask` | `(N,4)` int mask，由每个模态的 `token_mask.any(axis=2)` 得到，用于窗口级模态可用性审计 | [temporal token 契约](../../src/daily_multimodal/temporal/token_contract.py) |
+| `quality_features` | `(N,4,5,Q)` float 质量特征矩阵；不同模态原始 Q 可不同，合包时按最大 Q 右侧补零 | [temporal token 契约](../../src/daily_multimodal/temporal/token_contract.py)、[temporal pack 入口](../../scripts/63_pack_eql_caf_tokens.py) |
+| `quality_feature_names_json`、`encoder_versions_json`、`source_paths_json` | packed temporal NPZ 的审计 metadata，保存质量特征名、encoder 版本和每个模态来源路径 | [temporal pack 模块](../../src/daily_multimodal/temporal/pack_temporal_tokens.py) |
+| `global_repeat_smoke_v1` | `59-62` 当前 smoke 模式写入的 encoder version：把同一个窗口级 256D token 复制到 5 个时间片，只用于验证管线和契约，不用于证明窗口内 temporal fusion 或 lag bias | [global repeat 模块](../../src/daily_multimodal/temporal/global_repeat_tokens.py) |
+
+## Daily-affect EMA bag 字段
+
+Daily-affect ordinal route 由 `scripts/73_build_daily_affect_bags.py` 调用 [EMA bag 构建模块](../../src/daily_multimodal/daily_affect/ema_bags.py)。它读取窗口级 EEG/Wear/Video/Audio 256D embedding，把同一 EMA event 的 `23` 个 EEG-aligned 窗口聚成一个监督样本；该路线不读取 EQL-CAF packed temporal NPZ，也不使用 `token_mask`。
+
+| 字段 | 含义 | 来源 |
+| --- | --- | --- |
+| `tokens` | `(N_ema,23,4,256)` float，四模态顺序固定为 `[eeg, wear, video, audio]`；23 个窗口来自同一 event 的 `event_window_id=0..22` | [EMA bag 构建模块](../../src/daily_multimodal/daily_affect/ema_bags.py) |
+| `modality_mask` | `(N_ema,23,4)` int/bool 窗口级模态可用性 mask；daily-affect 训练和诊断只用这个 mask 做缺失屏蔽 | [EMA bag 构建模块](../../src/daily_multimodal/daily_affect/ema_bags.py) |
+| `label`、`label_zero_based` | event-level ordinal fatigue 标签；`label` 保留原始 `1..5`，`label_zero_based` 转为分类训练用的 `0..4` | [EMA bag 构建模块](../../src/daily_multimodal/daily_affect/ema_bags.py) |
+| `event_id`、`subject_id`、`day_id` | bag 级身份字段；构建时要求同一 event 的 23 个窗口共享标签，并投影为一个 bag-level split | [EMA bag 构建模块](../../src/daily_multimodal/daily_affect/ema_bags.py) |
+| `sample_id_matrix`、`event_window_id` | 每个 bag 内 23 个窗口的原始 `sample_id` 和窗口序号矩阵，用于回查窗口级 embedding 与 index | [EMA bag 构建模块](../../src/daily_multimodal/daily_affect/ema_bags.py) |
+| `split`、`window_leaf_split_counts_json` | bag-level split 名称和该 event 的 23 个窗口 leaf split 组成；单一 leaf split 直接保留，`pretrain/finetune` 混合归入 train，train/val/test 边界混合按窗口多数票投影，并在 report 中记录 `event_split_policy` | [EMA bag 构建模块](../../src/daily_multimodal/daily_affect/ema_bags.py) |
+| `pretrain_index`、`finetune_index`、`train_index`、`val_index`、`test_index` | bag-level 训练协议索引；`train_index` 是 `pretrain_index + finetune_index`，模型只用 train/val 选型，test 不参与调参 | [EMA bag 构建模块](../../src/daily_multimodal/daily_affect/ema_bags.py) |
+| `route_id`、`source_npz_json`、`supervision_boundary` | 路线名、四模态源 NPZ 路径和监督边界说明；EEG supervised branch 会在有效 `route_id` 中追加 branch 后缀 | [EMA bag 构建模块](../../src/daily_multimodal/daily_affect/ema_bags.py) |
+
+Routefix run 的 `metrics.json` 与 `config.json` 固定记录 `normalization`、`adapter_mode`、`objective_id`、`routing_id` 和 `experiment_id`。`objective_id` 标识 class-weighted CE、soft cumulative ordinal loss 和 ranking 权重；`routing_id` 标识 Probe 类型、难度来源、`beta_ord` 与是否 detach difficulty；`experiment_id` 区分 native/P0-P5、focused、bottleneck 和 routing-factorial。`diagnostics.npz` 仍以 EMA event 为第一维，包含 `modality_weights (N,23,4)`、`modality_difficulty (N,4)`、`temporal_weights (N,23)`、`kernel_mixture (N,3)` 和按 Probe 类型二选一的 `probe_ordinal_logits (N,4,4)` 或 `probe_class_logits (N,4,5)`。
+
+2026-09-03 正式构建使用 `/vePFS-0x0d/DailyEEG/splits_new` 下的 `cross_subject`、`cross_day`、`within_subject_day`。27 个正式 bag 的形状均为 `tokens (1253,23,4,256)` 和 `modality_mask (1253,23,4)`；`cross_subject/cross_day` 各记录 `42` 个 `pretrain/finetune` 训练叶子混合 event，`within_subject_day` 记录 `214` 个 train/val/test 边界投影 event。
 
 ## Face ROI 预处理质量字段
 

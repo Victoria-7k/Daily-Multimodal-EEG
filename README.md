@@ -9,7 +9,7 @@
 -> fatigue regression
 ```
 
-更完整的技术路线见 [technical_route_20260814.md](technical_route_20260814.md)，仓库行为导览见 [repo-docs/README.md](repo-docs/README.md)。当前脚本入口说明见 [scripts/README.md](scripts/README.md)。
+当前技术路线见 [technical_route_20260906.md](technical_route_20260906.md)；[technical_route_20260814.md](technical_route_20260814.md) 保留为窗口级融合历史快照。仓库行为导览见 [repo-docs/README.md](repo-docs/README.md)，当前脚本入口说明见 [scripts/README.md](scripts/README.md)。
 
 ## 当前任务口径
 

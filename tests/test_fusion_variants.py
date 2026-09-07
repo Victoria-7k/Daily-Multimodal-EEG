@@ -115,6 +115,39 @@ class FusionVariantTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._make_module("bogus")
 
+    def test_token_normalization_shared_pools_modalities(self):
+        tokens = np.asarray(
+            [
+                [[1.0, 10.0], [3.0, 30.0]],
+                [[5.0, 50.0], [7.0, 70.0]],
+            ],
+            dtype=np.float32,
+        )
+        mask = np.asarray([[True, True], [True, False]])
+
+        mean, std = self.mod._fit_token_normalization(tokens, mask, np.asarray([0, 1]), scope="shared")
+
+        self.assertEqual(mean.shape, (1, 1, 2))
+        np.testing.assert_allclose(mean.reshape(-1), [3.0, 30.0])
+        np.testing.assert_allclose(std.reshape(-1), [np.std([1.0, 3.0, 5.0]), np.std([10.0, 30.0, 50.0])])
+
+    def test_token_normalization_per_modality_keeps_modality_slots(self):
+        tokens = np.asarray(
+            [
+                [[1.0, 10.0], [3.0, 30.0]],
+                [[5.0, 50.0], [7.0, 70.0]],
+            ],
+            dtype=np.float32,
+        )
+        mask = np.asarray([[True, True], [True, False]])
+
+        mean, std = self.mod._fit_token_normalization(tokens, mask, np.asarray([0, 1]), scope="per_modality")
+
+        self.assertEqual(mean.shape, (1, 2, 2))
+        np.testing.assert_allclose(mean[0], [[3.0, 30.0], [3.0, 30.0]])
+        np.testing.assert_allclose(std[0, 0], [2.0, 20.0])
+        np.testing.assert_allclose(std[0, 1], [1.0, 1.0])
+
     def test_pma_requires_divisible_hidden_dim(self):
         with self.assertRaises(ValueError):
             self._make_module("attention_multihead_pma", hidden_dim=17, num_heads=4)
