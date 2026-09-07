@@ -195,7 +195,7 @@ class AudioRealEmbeddingTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "scripts/12_extract_audio_embeddings.py",
+                    "scripts/embeddings/12_extract_audio_embeddings.py",
                     "--window-index",
                     str(window_index),
                     "--cache-root",

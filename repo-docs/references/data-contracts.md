@@ -1,4 +1,4 @@
-﻿# 字段契约
+# 字段契约
 
 > 这是查表材料。如果还不理解行为路径，先读 [一条事件如何变成 smoke embedding](../walkthroughs/one-real-run.md)。
 
@@ -84,17 +84,17 @@
 
 | 字段 | 含义 | 来源 |
 | --- | --- | --- |
-| `token_start_seconds`、`token_end_seconds` | 每个 10 秒窗口内的固定 temporal token 边界；默认 `[0,2,4,6,8]` 与 `[2,4,6,8,10]` | [temporal 切片模块](../../src/daily_multimodal/temporal/window_slicing.py)、[temporal index 入口](../../scripts/58_build_temporal_token_index.py) |
+| `token_start_seconds`、`token_end_seconds` | 每个 10 秒窗口内的固定 temporal token 边界；默认 `[0,2,4,6,8]` 与 `[2,4,6,8,10]` | [temporal 切片模块](../../src/daily_multimodal/temporal/window_slicing.py)、[temporal index 入口](../../scripts/eql_caf/58_build_temporal_token_index.py) |
 | `eeg_tokens`、`wear_tokens`、`video_tokens`、`audio_tokens` | 四模态 temporal token，shape 均为 `(N,5,256)`；`5` 来自 10 秒窗口按 2 秒切片 | [temporal token 契约](../../src/daily_multimodal/temporal/token_contract.py) |
 | `token_mask` | `(N,4,5)` int/bool mask，模态顺序固定为 `[eeg, wear, video, audio]`；训练时按 token 层屏蔽缺失片段 | [temporal token 契约](../../src/daily_multimodal/temporal/token_contract.py) |
 | `modality_mask` | `(N,4)` int mask，由每个模态的 `token_mask.any(axis=2)` 得到，用于窗口级模态可用性审计 | [temporal token 契约](../../src/daily_multimodal/temporal/token_contract.py) |
-| `quality_features` | `(N,4,5,Q)` float 质量特征矩阵；不同模态原始 Q 可不同，合包时按最大 Q 右侧补零 | [temporal token 契约](../../src/daily_multimodal/temporal/token_contract.py)、[temporal pack 入口](../../scripts/63_pack_eql_caf_tokens.py) |
+| `quality_features` | `(N,4,5,Q)` float 质量特征矩阵；不同模态原始 Q 可不同，合包时按最大 Q 右侧补零 | [temporal token 契约](../../src/daily_multimodal/temporal/token_contract.py)、[temporal pack 入口](../../scripts/eql_caf/63_pack_eql_caf_tokens.py) |
 | `quality_feature_names_json`、`encoder_versions_json`、`source_paths_json` | packed temporal NPZ 的审计 metadata，保存质量特征名、encoder 版本和每个模态来源路径 | [temporal pack 模块](../../src/daily_multimodal/temporal/pack_temporal_tokens.py) |
 | `global_repeat_smoke_v1` | `59-62` 当前 smoke 模式写入的 encoder version：把同一个窗口级 256D token 复制到 5 个时间片，只用于验证管线和契约，不用于证明窗口内 temporal fusion 或 lag bias | [global repeat 模块](../../src/daily_multimodal/temporal/global_repeat_tokens.py) |
 
 ## Daily-affect EMA bag 字段
 
-Daily-affect ordinal route 由 `scripts/73_build_daily_affect_bags.py` 调用 [EMA bag 构建模块](../../src/daily_multimodal/daily_affect/ema_bags.py)。它读取窗口级 EEG/Wear/Video/Audio 256D embedding，把同一 EMA event 的 `23` 个 EEG-aligned 窗口聚成一个监督样本；该路线不读取 EQL-CAF packed temporal NPZ，也不使用 `token_mask`。
+Daily-affect ordinal route 由 `scripts/daily_affect/73_build_daily_affect_bags.py` 调用 [EMA bag 构建模块](../../src/daily_multimodal/daily_affect/ema_bags.py)。它读取窗口级 EEG/Wear/Video/Audio 256D embedding，把同一 EMA event 的 `23` 个 EEG-aligned 窗口聚成一个监督样本；该路线不读取 EQL-CAF packed temporal NPZ，也不使用 `token_mask`。
 
 | 字段 | 含义 | 来源 |
 | --- | --- | --- |
@@ -156,7 +156,7 @@ Routefix run 的 `metrics.json` 与 `config.json` 固定记录 `normalization`�
 | `heart_rate`、`heart_rate_plausible`、`heart_rate_plausible_range_bpm`、`ibi_mean`、`ibi_std`、`rmssd`、`peak_count`、`ppg_peak_insufficient` | Wear v2 从 PPG 估计的心率、IBI/HRV、峰值质量字段和默认 `40-180 bpm` 心率合理性标记 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
 | `tonic_mean`、`phasic_std`、`scr_count`、`gsr_slope` | Wear v2 从 GSR 估计的 tonic/phasic、SCR 和趋势字段 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
 | `motion_intensity`、`stationary_ratio`、`axis_std`、`spectral_energy` | Wear v2 从 ACC 估计的运动强度、静止比例和频域能量字段 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
-| `wear_quality_grade`、`wear_quality_label` | Wear v2 每窗 A/B/C 质量分级；A 为 high、B 为 medium、C 为 low。默认只标记，不丢弃；传 `--mask-low-quality-wear` 时 C 类 wear mask 置 0 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py)、[Wear 真实入口](../../scripts/15_extract_wear_embeddings.py) |
+| `wear_quality_grade`、`wear_quality_label` | Wear v2 每窗 A/B/C 质量分级；A 为 high、B 为 medium、C 为 low。默认只标记，不丢弃；传 `--mask-low-quality-wear` 时 C 类 wear mask 置 0 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py)、[Wear 真实入口](../../scripts/embeddings/15_extract_wear_embeddings.py) |
 | `ppg_hr_plausible`、`ppg_peak_sufficient`、`gsr_slope_abnormal`、`gsr_scr_abnormal`、`acc_motion_high`、`acc_stable`、`motion_artifact_risk`、`wear_invalid_ratio_zero`、`wear_quality_risk_count` | Wear A/B/C 分级和质量 flags；当前阈值写入每窗 `wear_quality_thresholds`，用于复现实验和质量标记训练 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
 | `quality_audit` | Wear v2 summary 中的全量质量汇总，聚合 rows/rate、invalid/source、timestamp 异常、flatline、PPG peak/heart-rate、GSR slope/SCR 异常、ACC motion/stationary | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |
 | `physio_feature_names`、`physio_feature_values` | Wear v2 写入 `quality_flags` 的原始可解释特征名和值，便于后续分析哪些生理信号起作用 | [Wear 真实模块](../../src/daily_multimodal/embeddings/wear_real.py) |

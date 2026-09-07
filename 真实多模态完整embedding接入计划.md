@@ -148,10 +148,10 @@ src/daily_multimodal/embeddings/eeg_real.py
 src/daily_multimodal/embeddings/wear_real.py
 src/daily_multimodal/embeddings/real_pipeline.py
 scripts/11_prepare_real_embedding_cache.py
-scripts/12_extract_audio_embeddings.py
+scripts/embeddings/12_extract_audio_embeddings.py
 scripts/13_extract_face_embeddings.py
 scripts/14_extract_eeg_embeddings.py
-scripts/15_extract_wear_embeddings.py
+scripts/embeddings/15_extract_wear_embeddings.py
 scripts/16_extract_all_real_embeddings.py
 scripts/17_run_real_embedding_ablation.py
 tests/test_embedding_failures.py
@@ -312,7 +312,7 @@ PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py --window-index 
 **Files:**
 
 - Create: `src/daily_multimodal/embeddings/audio_real.py`
-- Create: `scripts/12_extract_audio_embeddings.py`
+- Create: `scripts/embeddings/12_extract_audio_embeddings.py`
 - Create: `tests/test_audio_real_embedding.py`
 - Modify: `configs/encoders.yaml`
 
@@ -340,7 +340,7 @@ No full fine-tuning in this phase
 **Small-run command:**
 
 ```bash
-ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && source /home/lzs/miniconda3/etc/profile.d/conda.sh && conda activate lzs && PYTHONPATH=src python scripts/12_extract_audio_embeddings.py --window-index outputs/window_index/real_cache_complete_10.jsonl --max-windows 10 --cache-root outputs/cache/real_stage12_wav2vec2_10 --encoder-profile wav2vec2_frozen_v1 --checkpoint outputs/checkpoints/wav2vec2-base-960h --device cuda --out outputs/embeddings/audio_real_wav2vec2_10_embeddings.npz --failures-out outputs/reports/audio_real_wav2vec2_10_failures.json --summary-out outputs/reports/audio_real_wav2vec2_10_quality_summary.json"
+ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && source /home/lzs/miniconda3/etc/profile.d/conda.sh && conda activate lzs && PYTHONPATH=src python scripts/embeddings/12_extract_audio_embeddings.py --window-index outputs/window_index/real_cache_complete_10.jsonl --max-windows 10 --cache-root outputs/cache/real_stage12_wav2vec2_10 --encoder-profile wav2vec2_frozen_v1 --checkpoint outputs/checkpoints/wav2vec2-base-960h --device cuda --out outputs/embeddings/audio_real_wav2vec2_10_embeddings.npz --failures-out outputs/reports/audio_real_wav2vec2_10_failures.json --summary-out outputs/reports/audio_real_wav2vec2_10_quality_summary.json"
 ```
 
 注意：`microsoft/wavlm-base-plus` 已下载到 `outputs/checkpoints/wavlm-base-plus`，但该仓库当前可用权重为 `.bin`，在服务器 `torch 2.5.1` + 新版 `transformers` 下会触发 torch>=2.6 的安全限制；阶段 13 先采用带 `model.safetensors` 的 `facebook/wav2vec2-base-960h` 作为 frozen fallback。缺少依赖或 checkpoint 时，该命令仍应写出 `dependency_missing` 或 `checkpoint_missing`，不能生成伪 real embedding。
@@ -348,13 +348,13 @@ ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && sour
 **Single-subject command:**
 
 ```bash
-ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && source /home/lzs/miniconda3/etc/profile.d/conda.sh && conda activate lzs && PYTHONPATH=src python scripts/12_extract_audio_embeddings.py --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl --cache-root outputs/cache/real_stage12_wav2vec2_sub-12 --encoder-profile wav2vec2_frozen_v1 --checkpoint outputs/checkpoints/wav2vec2-base-960h --device cuda --out outputs/embeddings/audio_real_wav2vec2_sub-12_embeddings.npz --failures-out outputs/reports/audio_real_wav2vec2_sub-12_failures.json --summary-out outputs/reports/audio_real_wav2vec2_sub-12_quality_summary.json"
+ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && source /home/lzs/miniconda3/etc/profile.d/conda.sh && conda activate lzs && PYTHONPATH=src python scripts/embeddings/12_extract_audio_embeddings.py --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl --cache-root outputs/cache/real_stage12_wav2vec2_sub-12 --encoder-profile wav2vec2_frozen_v1 --checkpoint outputs/checkpoints/wav2vec2-base-960h --device cuda --out outputs/embeddings/audio_real_wav2vec2_sub-12_embeddings.npz --failures-out outputs/reports/audio_real_wav2vec2_sub-12_failures.json --summary-out outputs/reports/audio_real_wav2vec2_sub-12_quality_summary.json"
 ```
 
 **Full command:**
 
 ```bash
-ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/12_extract_audio_embeddings.py --window-index outputs/window_index/window_index.jsonl --require-all-modalities --encoder-profile wavlm_frozen_v1 --out outputs/embeddings/audio_real_embeddings.npz --failures-out outputs/reports/audio_real_failures.json"
+ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && python scripts/embeddings/12_extract_audio_embeddings.py --window-index outputs/window_index/window_index.jsonl --require-all-modalities --encoder-profile wavlm_frozen_v1 --out outputs/embeddings/audio_real_embeddings.npz --failures-out outputs/reports/audio_real_failures.json"
 ```
 
 **Acceptance:**
@@ -530,7 +530,7 @@ ssh ncc_serve_4090 "cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding && sour
 **Files:**
 
 - Create: `src/daily_multimodal/embeddings/wear_real.py`
-- Create: `scripts/15_extract_wear_embeddings.py`
+- Create: `scripts/embeddings/15_extract_wear_embeddings.py`
 - Create: `tests/test_wear_real_embedding.py`
 - Modify: `configs/encoders.yaml`
 

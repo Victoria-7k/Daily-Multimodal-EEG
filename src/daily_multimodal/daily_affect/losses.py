@@ -71,6 +71,25 @@ def within_subject_ordinal_ranking_loss(
     return F.softplus(-signed_margin[valid]).mean()
 
 
+def expected_score_huber_loss(
+    expected_score: torch.Tensor,
+    raw_labels: torch.Tensor,
+    *,
+    delta: float = 1.0,
+) -> torch.Tensor:
+    """Directly align an event's expected ordinal score with its EMA label."""
+
+    if expected_score.numel() == 0:
+        return expected_score.new_zeros(())
+    if expected_score.shape != raw_labels.shape:
+        raise ValueError(
+            f"expected_score and raw_labels must share shape, got {tuple(expected_score.shape)} and {tuple(raw_labels.shape)}"
+        )
+    if not float(delta) > 0.0:
+        raise ValueError(f"Huber delta must be positive, got {delta}")
+    return F.huber_loss(expected_score, raw_labels.to(dtype=expected_score.dtype), reduction="mean", delta=float(delta))
+
+
 def categorical_probe_loss(
     logits: torch.Tensor,
     labels_zero_based: torch.Tensor,

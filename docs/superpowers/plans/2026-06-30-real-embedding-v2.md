@@ -53,7 +53,7 @@ Planned modified files:
 - `scripts/13_extract_face_embeddings.py`: expose any new clip-cache options if needed.
 - `src/daily_multimodal/embeddings/eeg_real.py`: improve failure classification after EEG coverage audit.
 - `src/daily_multimodal/embeddings/audio_real.py`: add emotion-specific and openSMILE backends behind explicit profiles.
-- `scripts/12_extract_audio_embeddings.py`: accept new audio profiles and dependencies.
+- `scripts/embeddings/12_extract_audio_embeddings.py`: accept new audio profiles and dependencies.
 - `tests/test_audio_real_embedding.py`: cover openSMILE/emotion backend selection and dependency failures.
 - `src/daily_multimodal/embeddings/wear_real.py`: add `wear_physio_features_v2` feature extraction.
 - `tests/test_wear_real_embedding.py`: cover HR/HRV, EDA, ACC, quality flags, and deterministic output.
@@ -365,7 +365,7 @@ git commit -m "Audit EEG coverage before real embedding extraction"
 
 **Files:**
 - Modify: `src/daily_multimodal/embeddings/audio_real.py`
-- Modify: `scripts/12_extract_audio_embeddings.py`
+- Modify: `scripts/embeddings/12_extract_audio_embeddings.py`
 - Modify: `tests/test_audio_real_embedding.py`
 - Modify: `configs/encoders.yaml`
 
@@ -433,7 +433,7 @@ runtime failure -> extraction_failed
 Run 10-window and sub-12 for both profiles:
 
 ```bash
-PYTHONPATH=src python scripts/12_extract_audio_embeddings.py \
+PYTHONPATH=src python scripts/embeddings/12_extract_audio_embeddings.py \
   --window-index outputs/window_index/real_cache_complete_10.jsonl \
   --cache-root outputs/cache/real_stage12_full \
   --encoder-profile audio_opensmile_egemaps_v1 \
@@ -453,7 +453,7 @@ failure_count=0 or dependency_missing with clear message
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/daily_multimodal/embeddings/audio_real.py scripts/12_extract_audio_embeddings.py tests/test_audio_real_embedding.py configs/encoders.yaml
+git add src/daily_multimodal/embeddings/audio_real.py scripts/embeddings/12_extract_audio_embeddings.py tests/test_audio_real_embedding.py configs/encoders.yaml
 git commit -m "Add emotion-oriented audio embedding profiles"
 ```
 
@@ -500,7 +500,7 @@ Keep deterministic projection to 256 dimensions. Store raw feature names and val
 Run:
 
 ```bash
-PYTHONPATH=src python scripts/15_extract_wear_embeddings.py \
+PYTHONPATH=src python scripts/embeddings/15_extract_wear_embeddings.py \
   --window-index outputs/window_index/real_cache_complete_10.jsonl \
   --cache-root outputs/cache/real_stage12_full \
   --encoder-profile wear_physio_features_v2 \

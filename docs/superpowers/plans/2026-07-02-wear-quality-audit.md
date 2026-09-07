@@ -74,4 +74,4 @@ Run: `python -m compileall -q src scripts tests`
 
 - [x] **Step 3: Run server full verification**
 
-Run `scripts/15_extract_wear_embeddings.py` on the 8328 face-filtered index with `wear_physio_features_v2`, then inspect the summary for `quality_audit.window_count=8328`.
+Run `scripts/embeddings/15_extract_wear_embeddings.py` on the 8328 face-filtered index with `wear_physio_features_v2`, then inspect the summary for `quality_audit.window_count=8328`.

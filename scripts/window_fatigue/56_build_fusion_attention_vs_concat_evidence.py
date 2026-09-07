@@ -19,7 +19,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 ARCHIVE = ROOT / "outputs/server_sync/eeg_encoder_256d_5route_20260814/reports/eeg_encoder_256d_5route_fusion_video_only_seed240800_raw.json"
 SLICE_DIR = ROOT / "outputs/server_sync/fusion_variant_20260820"
 REPRO_JSON = SLICE_DIR / "repro_expected.json"
@@ -234,7 +234,7 @@ def main() -> int:
     add("# 证据文档：当前 modality-token attention 融合相比朴素拼接（concat）没有价值")
     add("")
     add("> 生成时间：2026-08-20。本文档所有数字均由脚本从真实实验 report JSON 读取生成，无手工转录。")
-    add("> 生成脚本：`scripts/56_build_fusion_attention_vs_concat_evidence.py`；源数据与完整 JSON 副本见文末「产物与复现」。")
+    add("> 生成脚本：`scripts/window_fatigue/56_build_fusion_attention_vs_concat_evidence.py`；源数据与完整 JSON 副本见文末「产物与复现」。")
     add("")
     add("---")
     add("")
@@ -250,7 +250,7 @@ def main() -> int:
     add("")
     add("## 2. 背景与问题定义")
     add("")
-    add("当前主线融合器（`scripts/32_run_eegpt_centered_loss.py` 的 `AttentionRegressor`）：每个样本由最多 4 个 256D 模态 token（EEG/Wear/Video/Audio，顺序 `[eeg, wear, video, audio]`，`modality_mask` 屏蔽缺失）表示，融合流程为：共享 `Linear(256→128)` → learnable modality embedding → 单头 `MultiheadAttention`（Q=K=V，模态间 self-attention）→ learnable query 加权 pooling → `LayerNorm + MLP` 回归头。")
+    add("当前主线融合器（`scripts/window_fatigue/32_run_eegpt_centered_loss.py` 的 `AttentionRegressor`）：每个样本由最多 4 个 256D 模态 token（EEG/Wear/Video/Audio，顺序 `[eeg, wear, video, audio]`，`modality_mask` 屏蔽缺失）表示，融合流程为：共享 `Linear(256→128)` → learnable modality embedding → 单头 `MultiheadAttention`（Q=K=V，模态间 self-attention）→ learnable query 加权 pooling → `LayerNorm + MLP` 回归头。")
     add("")
     add("质疑点：序列只有 ≤4 个 token、单头 128 维，attention 实际退化为带 mask 的加权平均，表达上限低于或等于「直接拼接后让 MLP 自己学」。为验证该质疑，实现四个融合变体（同一脚本、同一输入 token、同一训练/评估链路，仅替换 `encode()`）：")
     add("")
@@ -465,7 +465,7 @@ def main() -> int:
     add("| 归档 attention 矩阵（0814） | `outputs/server_sync/eeg_encoder_256d_5route_20260814/reports/eeg_encoder_256d_5route_fusion_video_only_seed240800_raw.json` |")
     add("| 定点复现（3 行） | `outputs/server_sync/fusion_variant_20260820/cross_*_seed*.json` |")
     add("| 运行日志 | `outputs/server_sync/fusion_variant_20260820/fusion_variant_{decision,full}.log` |")
-    add("| 生成脚本 | `scripts/56_build_fusion_attention_vs_concat_evidence.py` |")
+    add("| 生成脚本 | `scripts/window_fatigue/56_build_fusion_attention_vs_concat_evidence.py` |")
     add("")
     add("复现命令见 `repo-docs/references/commands-and-artifacts.md`「Fusion variant 决策切片」「EEG encoder fusion video-only matrix」两行。")
     add("")

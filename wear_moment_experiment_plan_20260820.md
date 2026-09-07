@@ -38,8 +38,8 @@
 | # | 改动 | 位置 | 内容 |
 | --- | --- | --- | --- |
 | T1 | 新训练模块 | `src/daily_multimodal/training/wear_moment_matrix.py`（新） | 仿 `eeg_encoder_matrix.py`：`WEAR_MOMENT_PROFILES = {"wear_moment_frozen_v1", "wear_moment_partial_ft_v1"}`；加载 aligned index + splits + wear 序列 → MOMENT encoder；frozen = encoder 冻结 + 可学习 256D 投影头（fatigue 监督，train/val）；partial FT = 解冻最后 2 个 block + norm + projection（encoder lr `1e-5`，head lr `1e-3`）；输出 `{embeddings_dir}/wear_tokens/{protocol}/{profile}/seed_{seed}.npz` |
-| T2 | 新入口脚本 | `scripts/16_run_wear_moment_matrix.py`（新） | 仿 `34_run_eeg_encoder_matrix.py`：`--profiles --protocols --seeds --embeddings-dir --out-json --out-md --preflight-only` 等 |
-| T3 | 融合挂载 | `scripts/32_run_eegpt_centered_loss.py` | `BRANCHES` 增加 `wear_moment_frozen_v1` / `wear_moment_partial_ft_v1`：filename = `wear_tokens/{protocol}/{profile}/seed_{eeg_seed}.npz`（复用 `--eeg-token-seed`，CLI 零新增参数），`emb_key="wear_emb"`、`mask_key="wear_mask"`、`modality_index=1`；`EXPERIMENT_BRANCHES` 增加 2 个 route：`A1_Wmoment_frozen_full` / `A1_Wmoment_ft_full`（见 §3.4）；另加可选小改 `--experiment-seed-fixed`：每个 experiment 用固定 seed（默认行为不变），保证 Phase 2 的 4 条 wear route 严格同 seed 配对；执行时用 `--experiment-set custom --experiments` 显式列出 12 项（**勿用 `video_only`**，否则会把 B0/A2 与 no_audio 全部带回来） |
+| T2 | 新入口脚本 | `scripts/window_fatigue/16_run_wear_moment_matrix.py`（新） | 仿 `34_run_eeg_encoder_matrix.py`：`--profiles --protocols --seeds --embeddings-dir --out-json --out-md --preflight-only` 等 |
+| T3 | 融合挂载 | `scripts/window_fatigue/32_run_eegpt_centered_loss.py` | `BRANCHES` 增加 `wear_moment_frozen_v1` / `wear_moment_partial_ft_v1`：filename = `wear_tokens/{protocol}/{profile}/seed_{eeg_seed}.npz`（复用 `--eeg-token-seed`，CLI 零新增参数），`emb_key="wear_emb"`、`mask_key="wear_mask"`、`modality_index=1`；`EXPERIMENT_BRANCHES` 增加 2 个 route：`A1_Wmoment_frozen_full` / `A1_Wmoment_ft_full`（见 §3.4）；另加可选小改 `--experiment-seed-fixed`：每个 experiment 用固定 seed（默认行为不变），保证 Phase 2 的 4 条 wear route 严格同 seed 配对；执行时用 `--experiment-set custom --experiments` 显式列出 12 项（**勿用 `video_only`**，否则会把 B0/A2 与 no_audio 全部带回来） |
 | T4 | 单元测试 | `tests/test_wear_moment_matrix.py`（新） | 冒烟：合成 `sequence.npz` → token 形状 `(N,256)`、`sample_id` 顺序、NaN=0、mask 复用；无 torch 时跳过（仿 `test_eeg_encoder_matrix`） |
 | T5 | token npz 契约 | 与 `write_eeg_embedding_npz` 对齐 | `sample_id / wear_emb (N,256) / wear_mask (N,) / modality_mask[:,1] / train_index / val_index / test_index / train_supervision / encoder_profile / encoder_version / protocol / seed` |
 | T6 | 汇总与文档 | `scripts/README.md`、命令参考、`technical_route_20260814.md`（若通过） | 记录新 route 与监督边界 |
@@ -184,7 +184,7 @@ Phase 1/2 结论（frozen 主协议 3/3 稳定优于 Wdeep、partial FT 仅 cros
 **runs = 2 × 24 × 3 = 144**（固定 seed 单轮；旧 180-run 矩阵是 run_number 递增 seed，口径不同不可混比）。
 
 工程改动：
-- `scripts/32_run_eegpt_centered_loss.py` 的 `EXPERIMENT_BRANCHES` 新增 10 个 route：`A1/B0/A2_Wmoment_frozen_full/_no_audio`、`A1/B0/A2_Wmoment_ft_full/_no_audio`（其中 A1 的 full 两个已在 Phase 1/2 使用）。
-- `scripts/53_summarize_wear_moment_gates.py` 泛化为全维度：按 (protocol, eeg_branch, video, audio) 配置组配对，输出 36 个配置组的 G1/G2 delta 与门槛判定。
+- `scripts/window_fatigue/32_run_eegpt_centered_loss.py` 的 `EXPERIMENT_BRANCHES` 新增 10 个 route：`A1/B0/A2_Wmoment_frozen_full/_no_audio`、`A1/B0/A2_Wmoment_ft_full/_no_audio`（其中 A1 的 full 两个已在 Phase 1/2 使用）。
+- `scripts/window_fatigue/53_summarize_wear_moment_gates.py` 泛化为全维度：按 (protocol, eeg_branch, video, audio) 配置组配对，输出 36 个配置组的 G1/G2 delta 与门槛判定。
 
 产物：`outputs/server_sync/wear_moment_20260820/planC_144/`（report JSON/MD + gates 汇总 + 完整结果表）。

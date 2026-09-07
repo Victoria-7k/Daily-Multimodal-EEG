@@ -10,7 +10,7 @@
 
 ## 1. 背景与目标
 
-- 原主线融合器：`scripts/32_run_eegpt_centered_loss.py` 的 `AttentionRegressor`（`technical_route_20260814.md` §Cross-Attention 描述的那个）。
+- 原主线融合器：`scripts/window_fatigue/32_run_eegpt_centered_loss.py` 的 `AttentionRegressor`（`technical_route_20260814.md` §Cross-Attention 描述的那个）。
 - 本轮要回答三个问题：
   1. attention 是否比朴素拼接好（实验 2，`concat`）；
   2. 把 attention 做厚是否有效（实验 3，`attention_multihead_pma`）；
@@ -34,7 +34,7 @@
 
 ## 3. 代码改动清单（详细）
 
-### 3.1 `scripts/32_run_eegpt_centered_loss.py`（修改）
+### 3.1 `scripts/window_fatigue/32_run_eegpt_centered_loss.py`（修改）
 
 - `AttentionRegressor.__init__` 新增 `variant: str = "attention"`、`num_heads: int = 4`、`num_latent: int = 8`，带默认值（**向后兼容**，现有测试不受影响）；加校验：非法 variant 报错、pma 要求 `hidden_dim % num_heads == 0`、eeg_anchor 要求 `modality_count >= 1`。
 - 按 variant 构建子模块：`concat` 加 `concat_projection = Linear(256*M + M, hidden_dim)`；`attention_multihead_pma` 加 `latent_queries (1, num_latent, hidden_dim)` + 多头 `cross_attention`；`eeg_anchor` 复用 `self_attention`。
@@ -51,9 +51,9 @@
 | 脚本 | 用途 |
 | --- | --- |
 | `tests/test_fusion_variants.py` | 9 个单测：四变体标量输出、全 head 兼容、变长 modality、mask 不变性、mask 生效、确定性、非法 variant 拒绝、pma 整除守卫、`_fit_model` 透传 |
-| `scripts/54_summarize_fusion_variants.py` | 汇总决策切片多份 report JSON → 协议×变体均值表 + 逐 run 明细（可选归档参考列） |
-| `scripts/55_summarize_fusion_variant_full_paired.py` | 全量矩阵 vs 归档 attention 按 `(protocol, experiment, eeg_branch, seed)` 逐 run 配对 → Δraw r/Δcentered r/ΔRMSE、胜/负/平、符号检验 p |
-| `scripts/56_build_fusion_attention_vs_concat_evidence.py` | 从真实 JSON 生成证据文档 `fusion_attention_vs_concat_evidence_20260820.md`（零手工转录） |
+| `scripts/window_fatigue/54_summarize_fusion_variants.py` | 汇总决策切片多份 report JSON → 协议×变体均值表 + 逐 run 明细（可选归档参考列） |
+| `scripts/window_fatigue/55_summarize_fusion_variant_full_paired.py` | 全量矩阵 vs 归档 attention 按 `(protocol, experiment, eeg_branch, seed)` 逐 run 配对 → Δraw r/Δcentered r/ΔRMSE、胜/负/平、符号检验 p |
+| `scripts/window_fatigue/56_build_fusion_attention_vs_concat_evidence.py` | 从真实 JSON 生成证据文档 `fusion_attention_vs_concat_evidence_20260820.md`（零手工转录） |
 
 ### 3.3 文档改动
 
@@ -128,7 +128,7 @@
 
 ```bash
 cd /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/32_run_eegpt_centered_loss.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/window_fatigue/32_run_eegpt_centered_loss.py \
   --root /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned \
   --embeddings-root /vePFS-0x0d/DailyEEG_multimodal/embeddings \
   --splits-root /vePFS-0x0d/DailyEEG/splits_new \
@@ -148,7 +148,7 @@ PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/32_run_eegpt_center
 ```bash
 cd /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned
 EXPS="cross_subject:B0_Wphysio_full,cross_subject:B0_Wphysio_no_audio,cross_subject:B0_Wdeep_full,cross_subject:B0_Wdeep_no_audio,cross_subject:A1_Wphysio_full,cross_subject:A1_Wphysio_no_audio,cross_subject:A1_Wdeep_full,cross_subject:A1_Wdeep_no_audio,cross_subject:A2_Wphysio_full,cross_subject:A2_Wphysio_no_audio,cross_subject:A2_Wdeep_full,cross_subject:A2_Wdeep_no_audio,cross_day:B0_Wphysio_full,cross_day:B0_Wphysio_no_audio,cross_day:B0_Wdeep_full,cross_day:B0_Wdeep_no_audio,cross_day:A1_Wphysio_full,cross_day:A1_Wphysio_no_audio,cross_day:A1_Wdeep_full,cross_day:A1_Wdeep_no_audio,cross_day:A2_Wphysio_full,cross_day:A2_Wphysio_no_audio,cross_day:A2_Wdeep_full,cross_day:A2_Wdeep_no_audio,within_subject_day:B0_Wphysio_full,within_subject_day:B0_Wphysio_no_audio,within_subject_day:B0_Wdeep_full,within_subject_day:B0_Wdeep_no_audio,within_subject_day:A1_Wphysio_full,within_subject_day:A1_Wphysio_no_audio,within_subject_day:A1_Wdeep_full,within_subject_day:A1_Wdeep_no_audio,within_subject_day:A2_Wphysio_full,within_subject_day:A2_Wphysio_no_audio,within_subject_day:A2_Wdeep_full,within_subject_day:A2_Wdeep_no_audio"
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/32_run_eegpt_centered_loss.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/window_fatigue/32_run_eegpt_centered_loss.py \
   --root /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned \
   --embeddings-root /vePFS-0x0d/DailyEEG_multimodal/embeddings \
   --splits-root /vePFS-0x0d/DailyEEG/splits_new \
@@ -165,7 +165,7 @@ PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/32_run_eegpt_center
 **全量配对汇总：**
 
 ```bash
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/55_summarize_fusion_variant_full_paired.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/window_fatigue/55_summarize_fusion_variant_full_paired.py \
   --archive-json outputs/reports/eeg_encoder_256d_5route_fusion_video_only_seed240800_raw.json \
   --variant-jsons outputs/reports/fusion_variant_concat_full_seed240800_raw.json
 ```

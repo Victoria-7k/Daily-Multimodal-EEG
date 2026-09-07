@@ -260,7 +260,7 @@ RMSE, MAE, raw r, centered r
 
 实现要求：
 
-- 当前 `scripts/32_run_eegpt_centered_loss.py` 是 `--target-label` 单目标入口，`AttentionRegressor` 输出标量预测；它可以作为结构参考，但不能直接视为 11-label training head。
+- 当前 `scripts/window_fatigue/32_run_eegpt_centered_loss.py` 是 `--target-label` 单目标入口，`AttentionRegressor` 输出标量预测；它可以作为结构参考，但不能直接视为 11-label training head。
 - 第一版需要新增或扩展 multi-output 入口：target 从 `(N,)` 扩展为 `(N, 11)`，head 输出 11 维，并支持逐标签 loss mask、逐标签反标准化和逐标签 metrics。
 - 等权 MSE 的归一化应按标签分别使用 train split 统计量，防止高方差标签主导总 loss。
 

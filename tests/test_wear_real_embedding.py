@@ -135,7 +135,7 @@ class WearRealEmbeddingTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "scripts/15_extract_wear_embeddings.py",
+                    "scripts/embeddings/15_extract_wear_embeddings.py",
                     "--window-index",
                     str(window_index),
                     "--cache-root",

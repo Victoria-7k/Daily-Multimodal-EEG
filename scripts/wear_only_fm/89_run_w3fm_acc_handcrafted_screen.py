@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run diagnostic W3FM internal ablations for the wear-only FM experiment."""
+"""Run a small W3FM ACC replacement screen with handcrafted ACC features."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from typing import Any
 import numpy as np
 import torch
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
@@ -27,10 +27,12 @@ from daily_multimodal.training.centered_metrics import evaluate_regression_with_
 DEFAULT_ROOT = Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned")
 DEFAULT_SPLITS_ROOT = Path("/vePFS-0x0d/DailyEEG/splits_new")
 DEFAULT_WEAR_FM_ROOT = DEFAULT_ROOT / "outputs/wear_fm"
-DEFAULT_PHASE2_ROOT = DEFAULT_ROOT / "outputs/wear_fm/phase2"
+DEFAULT_PHASE2_ROOT = DEFAULT_WEAR_FM_ROOT / "phase2"
+DEFAULT_INTERNAL_ROOT = DEFAULT_WEAR_FM_ROOT / "internal_ablation"
+DEFAULT_OUT_ROOT = DEFAULT_WEAR_FM_ROOT / "acc_replacement_screen"
 DEFAULT_PROTOCOLS = ("cross_day", "within_subject_day")
-DEFAULT_ROUTES = ("W3FM_no_ppg", "W3FM_no_acc", "W3FM_no_gsr", "W3FM_ppg_partial_ft")
 DEFAULT_SEEDS = (240729, 240730, 240731)
+DEFAULT_ROUTES = ("W3FM_acc_handcrafted",)
 LABEL_NAMES = (
     "inspired",
     "alert",
@@ -43,14 +45,13 @@ LABEL_NAMES = (
     "afraid",
     "ashamed",
     "fatigue",
+    "stress",
+    "happy",
 )
-COMPONENT_DIMS = {"ppg": 512, "acc": 1024, "gsr": 768}
 ROUTE_COMPONENTS = {
-    "W3FM_no_ppg": ("acc", "gsr"),
-    "W3FM_no_acc": ("ppg", "gsr"),
-    "W3FM_no_gsr": ("ppg", "acc"),
-    "W3FM_ppg_partial_ft": ("ppg", "acc", "gsr"),
+    "W3FM_acc_handcrafted": ("ppg", "acc_handcrafted", "gsr"),
 }
+REFERENCE_ROUTES = ("W3FM_frozen", "W3FM_no_acc")
 
 
 @dataclass(frozen=True)
@@ -62,9 +63,9 @@ class Dataset:
     target: np.ndarray
     complete_mask: np.ndarray
     ppg: np.ndarray
-    acc: np.ndarray
     gsr: np.ndarray
-    ppg_raw: np.ndarray
+    acc_handcrafted: np.ndarray
+    acc_feature_names: tuple[str, ...]
 
 
 class WearHead(torch.nn.Module):
@@ -82,41 +83,16 @@ class WearHead(torch.nn.Module):
         return self.net(x).reshape(-1)
 
 
-class W3FMDiagnosticModel(torch.nn.Module):
-    def __init__(
-        self,
-        components: tuple[str, ...],
-        *,
-        hidden_dim: int,
-        dropout: float,
-        ppg_encoder: torch.nn.Module | None = None,
-    ) -> None:
+class W3FMReplacementModel(torch.nn.Module):
+    def __init__(self, components: tuple[str, ...], input_dims: dict[str, int], *, hidden_dim: int, dropout: float) -> None:
         super().__init__()
         self.components = tuple(components)
-        self.ppg_encoder = ppg_encoder
-        self.projections = torch.nn.ModuleDict({name: _projector(COMPONENT_DIMS[name], dropout) for name in components})
+        self.projections = torch.nn.ModuleDict({name: _projector(input_dims[name], dropout) for name in self.components})
         self.gate = torch.nn.Linear(256, 1)
         self.head = WearHead(input_dim=256, hidden_dim=hidden_dim, dropout=dropout)
 
-    def train(self, mode: bool = True):  # type: ignore[override]
-        super().train(mode)
-        if self.ppg_encoder is not None:
-            self.ppg_encoder.eval()
-        return self
-
-    def _ppg_features(self, ppg_raw: torch.Tensor) -> torch.Tensor:
-        if self.ppg_encoder is None:
-            return ppg_raw
-        y = self.ppg_encoder(ppg_raw.unsqueeze(1))
-        return y[0] if isinstance(y, tuple) else y
-
     def encode(self, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
-        tokens = []
-        for component in self.components:
-            value = inputs[component]
-            if component == "ppg":
-                value = self._ppg_features(value)
-            tokens.append(self.projections[component](value))
+        tokens = [self.projections[name](inputs[name]) for name in self.components]
         stacked = torch.stack(tokens, dim=1)
         weights = torch.softmax(self.gate(stacked).squeeze(-1), dim=1)
         return (weights.unsqueeze(-1) * stacked).sum(dim=1)
@@ -140,27 +116,25 @@ def main() -> int:
     parser.add_argument("--splits-root", type=Path, default=DEFAULT_SPLITS_ROOT)
     parser.add_argument("--wear-fm-root", type=Path, default=DEFAULT_WEAR_FM_ROOT)
     parser.add_argument("--phase2-root", type=Path, default=DEFAULT_PHASE2_ROOT)
+    parser.add_argument("--internal-root", type=Path, default=DEFAULT_INTERNAL_ROOT)
+    parser.add_argument("--out-root", type=Path, default=DEFAULT_OUT_ROOT)
     parser.add_argument("--protocols", default=",".join(DEFAULT_PROTOCOLS))
     parser.add_argument("--routes", default=",".join(DEFAULT_ROUTES))
     parser.add_argument("--seeds", default=",".join(str(seed) for seed in DEFAULT_SEEDS))
     parser.add_argument("--target-label", default="fatigue")
     parser.add_argument("--epochs", type=int, default=80)
     parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--ppg-partial-batch-size", type=int, default=64)
     parser.add_argument("--eval-batch-size", type=int, default=512)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
-    parser.add_argument("--ppg-encoder-lr", type=float, default=1e-5)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--patience", type=int, default=15)
     parser.add_argument("--selection-metric", choices=("rmse", "raw_r", "centered_r"), default="rmse")
-    parser.add_argument("--ppg-trainable-tail-params", type=int, default=12)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--torch-threads", type=int, default=4)
     parser.add_argument("--limit-runs", type=int, default=0)
     parser.add_argument("--skip-existing", action="store_true")
-    parser.add_argument("--out-root", type=Path, default=DEFAULT_ROOT / "outputs/wear_fm/internal_ablation")
     args = parser.parse_args()
 
     torch.set_num_threads(max(1, int(args.torch_threads)))
@@ -174,7 +148,8 @@ def main() -> int:
     _validate_routes(routes)
 
     args.out_root.mkdir(parents=True, exist_ok=True)
-    _write_preflight(dataset, args.out_root / "internal_ablation_preflight.json")
+    _write_preflight(dataset, args.out_root / "acc_replacement_preflight.json")
+    _write_feature_manifest(dataset, args.out_root)
 
     results: list[dict[str, Any]] = []
     started = time.time()
@@ -206,28 +181,34 @@ def main() -> int:
         if args.limit_runs and run_number >= args.limit_runs:
             break
 
-    phase2 = _load_phase2_results(args.phase2_root)
-    summary = _summarize(results, phase2)
+    references = _load_reference_results(args, protocols, seeds)
+    comparison_rows = _summarize(results + references)
     output = {
         "script": Path(__file__).name,
-        "stage": "wear_only_fm_internal_ablation",
-        "diagnostic_boundary": "post_phase3_failure_diagnostic_not_a_formal_promotion_gate",
+        "stage": "wear_only_fm_acc_replacement_screen",
+        "diagnostic_boundary": "post_phase3_acc_replacement_diagnostic_not_a_formal_promotion_gate",
         "target_label": args.target_label,
         "protocols": list(protocols),
         "routes": list(routes),
+        "reference_routes": list(REFERENCE_ROUTES),
         "seeds": seeds,
         "run_count": len(results),
+        "reference_count": len(references),
         "elapsed_seconds": float(time.time() - started),
         "mask_count": int(dataset.complete_mask.sum()),
+        "acc_feature_count": int(dataset.acc_handcrafted.shape[1]),
+        "acc_feature_names": list(dataset.acc_feature_names),
         "results": results,
-        "summary": summary,
+        "references": references,
+        "summary": comparison_rows,
     }
-    report_json = args.out_root / "wear_only_fm_internal_ablation_report.json"
-    report_md = args.out_root / "wear_only_fm_internal_ablation_report.md"
+    report_json = args.out_root / "w3fm_acc_replacement_screen_report.json"
+    report_md = args.out_root / "w3fm_acc_replacement_screen_report.md"
     report_json.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
-    _write_summary_csv(summary, args.out_root / "internal_ablation_summary.csv")
+    _write_summary_csv(comparison_rows, args.out_root / "w3fm_acc_replacement_summary.csv")
     _write_markdown(output, report_md)
     print(f"run_count={len(results)}")
+    print(f"reference_count={len(references)}")
     print(f"out_json={report_json}")
     print(f"out_md={report_md}")
     return 0
@@ -245,28 +226,130 @@ def _load_dataset(args: argparse.Namespace) -> Dataset:
         raise ValueError(f"invalid wear_complete_mask shape: {complete_mask.shape}")
 
     ppg = _load_array(args.wear_fm_root / "embeddings/ppg_papagei_s_512d.npy", (len(rows), 512), "PPG")
-    acc = _load_array(args.wear_fm_root / "embeddings/acc_harnet10.npy", (len(rows), 1024), "ACC")
     gsr = _load_array(args.wear_fm_root / "embeddings/gsr_normwear_768d.npy", (len(rows), 768), "GSR")
     for name, path in (
         ("PPG", args.wear_fm_root / "embeddings/ppg_papagei_s_valid_mask.npy"),
-        ("ACC", args.wear_fm_root / "embeddings/acc_harnet10_valid_mask.npy"),
         ("GSR", args.wear_fm_root / "embeddings/gsr_normwear_valid_mask.npy"),
     ):
         mask = np.load(path).astype(bool)
         if not np.array_equal(mask, complete_mask):
             raise ValueError(f"{name} embedding mask does not equal wear_complete_mask")
 
-    with np.load(args.wear_fm_root / "staged_inputs/ppg_10s.npz", allow_pickle=True) as loaded:
-        ppg_ids = loaded["sample_id"].astype(str)
-        if not np.array_equal(ppg_ids, sample_id):
-            raise ValueError("staged PPG sample_id does not match canonical index")
-        ppg_raw = loaded["ppg"].astype(np.float32)
-        ppg_mask = loaded["valid_mask"].astype(bool)
-    if ppg_raw.shape != (len(rows), 1250):
-        raise ValueError(f"invalid staged PPG shape: {ppg_raw.shape}")
-    if not np.array_equal(ppg_mask, complete_mask):
-        raise ValueError("staged PPG valid_mask does not equal wear_complete_mask")
-    return Dataset(sample_id, subject_id, day_id, event_id, target, complete_mask, ppg, acc, gsr, ppg_raw)
+    with np.load(args.wear_fm_root / "staged_inputs/acc_10s.npz", allow_pickle=True) as loaded:
+        ids = loaded["sample_id"].astype(str)
+        if not np.array_equal(ids, sample_id):
+            raise ValueError("staged ACC sample_id does not match canonical index")
+        acc_raw = loaded["acc"].astype(np.float32)
+        acc_mask = loaded["valid_mask"].astype(bool)
+        acc_rate = float(np.asarray(loaded["sample_rate_hz"]).reshape(-1)[0])
+    if acc_raw.shape != (len(rows), 3, 300):
+        raise ValueError(f"invalid staged ACC shape: {acc_raw.shape}")
+    if not np.array_equal(acc_mask, complete_mask):
+        raise ValueError("staged ACC valid_mask does not equal wear_complete_mask")
+    acc_handcrafted, acc_feature_names = _acc_handcrafted_features(acc_raw, sample_rate_hz=acc_rate)
+    if not np.isfinite(acc_handcrafted).all():
+        raise ValueError("handcrafted ACC features contain non-finite values")
+    return Dataset(sample_id, subject_id, day_id, event_id, target, complete_mask, ppg, gsr, acc_handcrafted, tuple(acc_feature_names))
+
+
+def _acc_handcrafted_features(acc: np.ndarray, *, sample_rate_hz: float) -> tuple[np.ndarray, list[str]]:
+    x = acc[:, 0, :].astype(np.float32)
+    y = acc[:, 1, :].astype(np.float32)
+    z = acc[:, 2, :].astype(np.float32)
+    mag = np.sqrt(x * x + y * y + z * z).astype(np.float32)
+    jerk = np.diff(acc, axis=2)
+    jerk_mag = np.sqrt(np.sum(jerk * jerk, axis=1)).astype(np.float32)
+    arrays = {
+        "x": x,
+        "y": y,
+        "z": z,
+        "mag": mag,
+        "jerk_mag": jerk_mag,
+    }
+    features: list[np.ndarray] = []
+    names: list[str] = []
+    for prefix, values in arrays.items():
+        _append_stats(features, names, prefix, values)
+    for left_name, left, right_name, right in (("x", x, "y", y), ("x", x, "z", z), ("y", y, "z", z)):
+        features.append(_row_corr(left, right))
+        names.append(f"corr_{left_name}_{right_name}")
+    median_mag = np.median(mag, axis=1)
+    positive_centered = np.maximum(mag - median_mag[:, None], 0.0)
+    features.append(positive_centered.mean(axis=1).astype(np.float32))
+    names.append("mag_positive_centered_mean")
+    features.extend(_spectral_features(mag, sample_rate_hz, names))
+    out = np.stack(features, axis=1).astype(np.float32)
+    return out, names
+
+
+def _append_stats(features: list[np.ndarray], names: list[str], prefix: str, values: np.ndarray) -> None:
+    quantiles = np.quantile(values, [0.05, 0.25, 0.50, 0.75, 0.95], axis=1).astype(np.float32)
+    diff = np.diff(values, axis=1)
+    stats = {
+        "mean": values.mean(axis=1),
+        "std": values.std(axis=1),
+        "min": values.min(axis=1),
+        "max": values.max(axis=1),
+        "p05": quantiles[0],
+        "p25": quantiles[1],
+        "p50": quantiles[2],
+        "p75": quantiles[3],
+        "p95": quantiles[4],
+        "iqr": quantiles[3] - quantiles[1],
+        "range": values.max(axis=1) - values.min(axis=1),
+        "abs_mean": np.mean(np.abs(values), axis=1),
+        "rms": np.sqrt(np.mean(values * values, axis=1)),
+        "diff_abs_mean": np.mean(np.abs(diff), axis=1),
+        "diff_std": diff.std(axis=1),
+    }
+    for suffix, arr in stats.items():
+        features.append(arr.astype(np.float32))
+        names.append(f"{prefix}_{suffix}")
+
+
+def _row_corr(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    a = left.astype(np.float64) - left.astype(np.float64).mean(axis=1, keepdims=True)
+    b = right.astype(np.float64) - right.astype(np.float64).mean(axis=1, keepdims=True)
+    denom = np.sqrt(np.sum(a * a, axis=1) * np.sum(b * b, axis=1))
+    out = np.zeros((left.shape[0],), dtype=np.float64)
+    ok = denom > 0.0
+    out[ok] = np.sum(a[ok] * b[ok], axis=1) / denom[ok]
+    return out.astype(np.float32)
+
+
+def _spectral_features(mag: np.ndarray, sample_rate_hz: float, names: list[str]) -> list[np.ndarray]:
+    centered = mag.astype(np.float64) - mag.astype(np.float64).mean(axis=1, keepdims=True)
+    spectrum = np.fft.rfft(centered, axis=1)
+    power = np.abs(spectrum) ** 2
+    freqs = np.fft.rfftfreq(mag.shape[1], d=1.0 / float(sample_rate_hz))
+    total = power[:, 1:].sum(axis=1)
+    total_safe = np.where(total <= 1e-12, 1.0, total)
+    out: list[np.ndarray] = []
+    bands = (
+        (0.10, 0.50),
+        (0.50, 1.50),
+        (1.50, 3.00),
+        (3.00, 6.00),
+        (6.00, 12.00),
+        (12.00, min(15.00, float(sample_rate_hz) / 2.0)),
+    )
+    for lo, hi in bands:
+        mask = (freqs >= lo) & (freqs < hi)
+        value = power[:, mask].sum(axis=1) / total_safe
+        out.append(value.astype(np.float32))
+        names.append(f"mag_power_ratio_{lo:g}_{hi:g}hz")
+    nonzero = power[:, 1:]
+    nonzero_freqs = freqs[1:]
+    peak = np.argmax(nonzero, axis=1)
+    out.append(nonzero_freqs[peak].astype(np.float32))
+    names.append("mag_dominant_frequency_hz")
+    prob = nonzero / total_safe[:, None]
+    entropy = -np.sum(np.where(prob > 0.0, prob * np.log(prob + 1e-12), 0.0), axis=1) / math.log(max(2, prob.shape[1]))
+    out.append(entropy.astype(np.float32))
+    names.append("mag_spectral_entropy")
+    out.append(np.log1p(total).astype(np.float32))
+    names.append("mag_log_total_power")
+    return out
 
 
 def _run_one(
@@ -289,12 +372,12 @@ def _run_one(
         "protocol": protocol,
         "route": route,
         "seed": int(seed),
-        "source": str(args.wear_fm_root / "embeddings/embedding_manifest.json"),
+        "source": str(args.wear_fm_root / "staged_inputs/acc_10s.npz"),
         "target_label": args.target_label,
         "mask_count": int(dataset.complete_mask.sum()),
         "split_counts": {name: int(len(indices)) for name, indices in _eval_splits(split).items()},
         "components": list(ROUTE_COMPONENTS[route]),
-        "ppg_partial_ft": bool(route == "W3FM_ppg_partial_ft"),
+        "acc_feature_count": int(dataset.acc_handcrafted.shape[1]),
         "train": _metric_aliases(evaluate_regression_with_centered(dataset.target[split["train"]], predictions["train"], dataset.subject_id[split["train"]])),
         "val": _metric_aliases(evaluate_regression_with_centered(dataset.target[split["val"]], predictions["val"], dataset.subject_id[split["val"]])),
         "test": _metric_aliases(evaluate_regression_with_centered(dataset.target[split["test"]], predictions["test"], dataset.subject_id[split["test"]])),
@@ -324,7 +407,7 @@ def _run_one(
     result["metrics_path"] = str(run_dir / "metrics.json")
     result["config_path"] = str(run_dir / "config.json")
     (run_dir / "metrics.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    (run_dir / "config.json").write_text(json.dumps(_config_snapshot(args, protocol, route, seed), ensure_ascii=False, indent=2), encoding="utf-8")
+    (run_dir / "config.json").write_text(json.dumps(_config_snapshot(args, protocol, route, seed, dataset), ensure_ascii=False, indent=2), encoding="utf-8")
     return result
 
 
@@ -332,60 +415,31 @@ def _fit_route(args: argparse.Namespace, dataset: Dataset, split: dict[str, np.n
     _seed_everything(seed)
     device = torch.device(args.device)
     train = split["train"]
-    val = split["val"]
     components = ROUTE_COMPONENTS[route]
-    partial_ppg = route == "W3FM_ppg_partial_ft"
-    frozen_arrays = {"ppg": dataset.ppg, "acc": dataset.acc, "gsr": dataset.gsr}
+    arrays = {"ppg": dataset.ppg, "acc_handcrafted": dataset.acc_handcrafted, "gsr": dataset.gsr}
     means: dict[str, np.ndarray] = {}
     stds: dict[str, np.ndarray] = {}
     for component in components:
-        if component == "ppg" and partial_ppg:
-            continue
-        arr = frozen_arrays[component]
+        arr = arrays[component]
         means[component] = arr[train].mean(axis=0, keepdims=True).astype(np.float32)
         std = arr[train].std(axis=0, keepdims=True).astype(np.float32)
         std[std < 1e-6] = 1.0
         stds[component] = std
-
     y_mean = float(dataset.target[train].mean())
     y_std = float(dataset.target[train].std()) or 1.0
-    ppg_encoder = None
-    ppg_trainable_names: list[str] = []
-    if partial_ppg:
-        ppg_encoder = _papagei_model(args.wear_fm_root, args.device)
-        ppg_trainable_names = _configure_tail_trainable(ppg_encoder, args.ppg_trainable_tail_params)
-    module = W3FMDiagnosticModel(components, hidden_dim=args.hidden_dim, dropout=args.dropout, ppg_encoder=ppg_encoder).to(device)
+    input_dims = {name: arrays[name].shape[1] for name in components}
+    module = W3FMReplacementModel(components, input_dims, hidden_dim=args.hidden_dim, dropout=args.dropout).to(device)
 
     def inputs(indices: np.ndarray) -> dict[str, np.ndarray]:
-        out: dict[str, np.ndarray] = {}
-        for component in components:
-            if component == "ppg" and partial_ppg:
-                out[component] = _zscore_rows(dataset.ppg_raw[indices])
-            else:
-                arr = frozen_arrays[component]
-                out[component] = ((arr[indices] - means[component]) / stds[component]).astype(np.float32)
-        return out
+        return {
+            component: ((arrays[component][indices] - means[component]) / stds[component]).astype(np.float32)
+            for component in components
+        }
 
-    batch_size = int(args.ppg_partial_batch_size if partial_ppg else args.batch_size)
-    audit = _train_loop(
-        args,
-        module,
-        train,
-        val,
-        seed,
-        inputs,
-        dataset.target,
-        dataset.subject_id,
-        y_mean,
-        y_std,
-        batch_size=batch_size,
-        ppg_partial=partial_ppg,
-    )
+    audit = _train_loop(args, module, train, split["val"], seed, inputs, dataset.target, dataset.subject_id, y_mean, y_std)
     audit["components"] = list(components)
-    audit["ppg_partial_ft"] = bool(partial_ppg)
-    audit["ppg_trainable_tail_params"] = int(args.ppg_trainable_tail_params if partial_ppg else 0)
-    audit["ppg_trainable_parameter_names"] = ppg_trainable_names
-    return {"module": module, "components": components, "means": means, "stds": stds, "y_mean": y_mean, "y_std": y_std, "ppg_partial_ft": partial_ppg}, audit
+    audit["input_dims"] = input_dims
+    return {"module": module, "components": components, "means": means, "stds": stds, "y_mean": y_mean, "y_std": y_std}, audit
 
 
 def _train_loop(
@@ -399,12 +453,9 @@ def _train_loop(
     subject_id: np.ndarray,
     y_mean: float,
     y_std: float,
-    *,
-    batch_size: int,
-    ppg_partial: bool,
 ) -> dict[str, Any]:
     device = torch.device(args.device)
-    optimizer = _build_optimizer(module, head_lr=args.learning_rate, encoder_lr=args.ppg_encoder_lr, weight_decay=args.weight_decay)
+    optimizer = torch.optim.AdamW(module.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     best_state: dict[str, torch.Tensor] | None = None
     best_score = -float("inf")
     best_val_rmse = float("inf")
@@ -417,23 +468,22 @@ def _train_loop(
         losses: list[float] = []
         shuffled = train.copy()
         rng.shuffle(shuffled)
-        for start in range(0, len(shuffled), batch_size):
-            batch = shuffled[start : start + batch_size]
+        for start in range(0, len(shuffled), int(args.batch_size)):
+            batch = shuffled[start : start + int(args.batch_size)]
             x = _to_torch(input_fn(batch), device)
             y = torch.as_tensor((target[batch] - y_mean) / y_std, dtype=torch.float32, device=device)
             pred = module(x)
             loss = torch.mean((pred - y) ** 2)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_([param for param in module.parameters() if param.requires_grad], 1.0)
+            torch.nn.utils.clip_grad_norm_(module.parameters(), 1.0)
             optimizer.step()
             losses.append(float(loss.detach().cpu().item()))
         module.eval()
         with torch.no_grad():
             val_pred = []
-            eval_batch = min(int(args.eval_batch_size), batch_size) if ppg_partial else int(args.eval_batch_size)
-            for start in range(0, len(val), eval_batch):
-                batch = val[start : start + eval_batch]
+            for start in range(0, len(val), int(args.eval_batch_size)):
+                batch = val[start : start + int(args.eval_batch_size)]
                 pred = module(_to_torch(input_fn(batch), device)).detach().cpu().numpy()
                 val_pred.append((pred * y_std + y_mean).astype(np.float32))
             val_values = np.concatenate(val_pred) if val_pred else np.zeros((0,), dtype=np.float32)
@@ -479,156 +529,87 @@ def _train_loop(
 def _predict_route(model: dict[str, Any], dataset: Dataset, *, indices: np.ndarray, device: str, eval_batch_size: int) -> np.ndarray:
     module = model["module"]
     module.eval()
-    dev = torch.device(device)
-    frozen_arrays = {"ppg": dataset.ppg, "acc": dataset.acc, "gsr": dataset.gsr}
+    arrays = {"ppg": dataset.ppg, "acc_handcrafted": dataset.acc_handcrafted, "gsr": dataset.gsr}
     values: list[np.ndarray] = []
-    batch_size = min(eval_batch_size, 128) if model["ppg_partial_ft"] else eval_batch_size
+    dev = torch.device(device)
     with torch.no_grad():
-        for start in range(0, len(indices), batch_size):
-            batch = indices[start : start + batch_size]
-            x: dict[str, np.ndarray] = {}
-            for component in model["components"]:
-                if component == "ppg" and model["ppg_partial_ft"]:
-                    x[component] = _zscore_rows(dataset.ppg_raw[batch])
-                else:
-                    arr = frozen_arrays[component]
-                    x[component] = ((arr[batch] - model["means"][component]) / model["stds"][component]).astype(np.float32)
+        for start in range(0, len(indices), int(eval_batch_size)):
+            batch = indices[start : start + int(eval_batch_size)]
+            x = {
+                component: ((arrays[component][batch] - model["means"][component]) / model["stds"][component]).astype(np.float32)
+                for component in model["components"]
+            }
             pred = module(_to_torch(x, dev)).detach().cpu().numpy()
             values.append((pred * float(model["y_std"]) + float(model["y_mean"])).astype(np.float32))
     return np.concatenate(values) if values else np.zeros((0,), dtype=np.float32)
 
 
-def _build_optimizer(module: torch.nn.Module, *, head_lr: float, encoder_lr: float, weight_decay: float) -> torch.optim.Optimizer:
-    encoder_params = []
-    head_params = []
-    for name, param in module.named_parameters():
-        if not param.requires_grad:
-            continue
-        if name.startswith("ppg_encoder."):
-            encoder_params.append(param)
-        else:
-            head_params.append(param)
-    groups = []
-    if head_params:
-        groups.append({"params": head_params, "lr": head_lr, "weight_decay": weight_decay})
-    if encoder_params:
-        groups.append({"params": encoder_params, "lr": encoder_lr, "weight_decay": weight_decay})
-    if not groups:
-        raise ValueError("no trainable parameters")
-    return torch.optim.AdamW(groups)
+def _load_reference_results(args: argparse.Namespace, protocols: tuple[str, ...], seeds: list[int]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for protocol in protocols:
+        for seed in seeds:
+            for path in (
+                args.phase2_root / "runs" / protocol / "W3FM_frozen" / f"seed_{seed}" / "metrics.json",
+                args.internal_root / "runs" / protocol / "W3FM_no_acc" / f"seed_{seed}" / "metrics.json",
+            ):
+                row = _maybe_metric(path)
+                if row is not None:
+                    refs.append(row)
+    return refs
 
 
-def _papagei_model(base: Path, device_name: str) -> torch.nn.Module:
-    repo = base / "third_party/papagei-foundation-model"
-    sys.path.insert(0, str(repo))
-    from models.resnet import ResNet1DMoE
-
-    model = ResNet1DMoE(
-        in_channels=1,
-        base_filters=32,
-        kernel_size=3,
-        stride=2,
-        groups=1,
-        n_block=18,
-        n_classes=512,
-        n_experts=3,
-    )
-    checkpoint = torch.load(base / "weights/papagei_s.pt", map_location="cpu")
-    state = {key[7:] if key.startswith("module.") else key: value for key, value in checkpoint.items()}
-    model.load_state_dict(state)
-    return model.to(torch.device(device_name)).eval()
+def _maybe_metric(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    row = json.loads(path.read_text(encoding="utf-8"))
+    row = dict(row)
+    row["reference_source"] = str(path)
+    return row
 
 
-def _configure_tail_trainable(module: torch.nn.Module, tail_params: int) -> list[str]:
-    for param in module.parameters():
-        param.requires_grad = False
-    named = list(module.named_parameters())
-    selected = named[-max(0, int(tail_params)) :] if tail_params else []
-    for _, param in selected:
-        param.requires_grad = True
-    return [name for name, _ in selected]
-
-
-def _zscore_rows(values: np.ndarray) -> np.ndarray:
-    arr = np.asarray(values, dtype=np.float32)
-    mean = arr.mean(axis=1, keepdims=True)
-    std = arr.std(axis=1, keepdims=True)
-    std[std < 1e-6] = 1.0
-    return ((arr - mean) / std).astype(np.float32)
-
-
-def _to_torch(value: Any, device: torch.device) -> Any:
-    if isinstance(value, dict):
-        return {key: torch.as_tensor(item, dtype=torch.float32, device=device) for key, item in value.items()}
-    return torch.as_tensor(value, dtype=torch.float32, device=device)
-
-
-def _load_phase2_results(phase2_root: Path) -> list[dict[str, Any]]:
-    report = phase2_root / "wear_only_fm_phase2_report.json"
-    if not report.is_file():
-        return []
-    return json.loads(report.read_text(encoding="utf-8")).get("results", [])
-
-
-def _summarize(results: list[dict[str, Any]], phase2: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    phase2_by_key = {(row["protocol"], row["route"], int(row["seed"])): row for row in phase2}
+def _summarize(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    for protocol in sorted({row["protocol"] for row in results}):
-        for route in sorted({row["route"] for row in results if row["protocol"] == protocol}):
-            rows = [row for row in results if row["protocol"] == protocol and row["route"] == route]
-            deltas = []
-            for row in rows:
-                base = phase2_by_key.get((protocol, "W3FM_frozen", int(row["seed"])))
-                best = _best_phase2_baseline(phase2, protocol, int(row["seed"]))
-                deltas.append(
-                    {
-                        "raw_r_vs_w3fm": _delta(row, base, "raw_r"),
-                        "rmse_vs_w3fm": _delta(row, base, "rmse"),
-                        "centered_r_vs_w3fm": _delta(row, base, "within_subject_centered_r"),
-                        "raw_r_vs_best": _delta(row, best, "raw_r"),
-                        "rmse_vs_best": _delta(row, best, "rmse"),
-                        "centered_r_vs_best": _delta(row, best, "within_subject_centered_r"),
-                    }
-                )
+    by_key = {(row["protocol"], row["route"], int(row["seed"])): row for row in rows}
+    order = ("W3FM_frozen", "W3FM_no_acc", "W3FM_acc_handcrafted")
+    for protocol in sorted({row["protocol"] for row in rows}):
+        for route in order:
+            route_rows = [row for row in rows if row["protocol"] == protocol and row["route"] == route]
+            if not route_rows:
+                continue
+            deltas_w3fm = [_delta(row, by_key.get((protocol, "W3FM_frozen", int(row["seed"])))) for row in route_rows]
+            deltas_no_acc = [_delta(row, by_key.get((protocol, "W3FM_no_acc", int(row["seed"])))) for row in route_rows]
             out.append(
                 {
                     "protocol": protocol,
                     "route": route,
-                    "seed_count": int(len(rows)),
-                    "test_rmse_mean": _mean_metric(rows, "rmse"),
-                    "test_rmse_std": _std_metric(rows, "rmse"),
-                    "test_raw_r_mean": _mean_metric(rows, "raw_r"),
-                    "test_raw_r_std": _std_metric(rows, "raw_r"),
-                    "test_centered_r_mean": _mean_metric(rows, "within_subject_centered_r"),
-                    "test_centered_r_std": _std_metric(rows, "within_subject_centered_r"),
-                    "delta_raw_r_vs_W3FM_frozen_mean": _mean_delta(deltas, "raw_r_vs_w3fm"),
-                    "delta_rmse_vs_W3FM_frozen_mean": _mean_delta(deltas, "rmse_vs_w3fm"),
-                    "delta_centered_r_vs_W3FM_frozen_mean": _mean_delta(deltas, "centered_r_vs_w3fm"),
-                    "delta_raw_r_vs_best_baseline_mean": _mean_delta(deltas, "raw_r_vs_best"),
-                    "delta_rmse_vs_best_baseline_mean": _mean_delta(deltas, "rmse_vs_best"),
-                    "delta_centered_r_vs_best_baseline_mean": _mean_delta(deltas, "centered_r_vs_best"),
+                    "seed_count": int(len(route_rows)),
+                    "test_rmse_mean": _mean_metric(route_rows, "rmse"),
+                    "test_rmse_std": _std_metric(route_rows, "rmse"),
+                    "test_raw_r_mean": _mean_metric(route_rows, "raw_r"),
+                    "test_raw_r_std": _std_metric(route_rows, "raw_r"),
+                    "test_centered_r_mean": _mean_metric(route_rows, "within_subject_centered_r"),
+                    "test_centered_r_std": _std_metric(route_rows, "within_subject_centered_r"),
+                    "delta_raw_r_vs_W3FM_frozen_mean": _mean_delta(deltas_w3fm, "raw_r"),
+                    "delta_rmse_vs_W3FM_frozen_mean": _mean_delta(deltas_w3fm, "rmse"),
+                    "delta_centered_r_vs_W3FM_frozen_mean": _mean_delta(deltas_w3fm, "within_subject_centered_r"),
+                    "delta_raw_r_vs_W3FM_no_acc_mean": _mean_delta(deltas_no_acc, "raw_r"),
+                    "delta_rmse_vs_W3FM_no_acc_mean": _mean_delta(deltas_no_acc, "rmse"),
+                    "delta_centered_r_vs_W3FM_no_acc_mean": _mean_delta(deltas_no_acc, "within_subject_centered_r"),
+                    "best_epoch_mean": _mean_audit(route_rows, "best_epoch"),
+                    "trainable_params_mean": _mean_audit(route_rows, "trainable_params"),
                 }
             )
     return out
 
 
-def _best_phase2_baseline(phase2: list[dict[str, Any]], protocol: str, seed: int) -> dict[str, Any] | None:
-    candidates = [
-        row
-        for row in phase2
-        if row.get("protocol") == protocol and int(row.get("seed")) == seed and row.get("route") in {"Wphysio", "Wdeep", "Wmoment_frozen"}
-    ]
-    if not candidates:
-        return None
-    if protocol == "within_subject_day":
-        return max(candidates, key=lambda row: (float(row["test"]["within_subject_centered_r"]), -float(row["test"]["rmse"])))
-    return max(candidates, key=lambda row: (float(row["test"]["raw_r"]), -float(row["test"]["rmse"])))
-
-
-def _delta(row: dict[str, Any], base: dict[str, Any] | None, metric: str) -> float | None:
+def _delta(row: dict[str, Any], base: dict[str, Any] | None) -> dict[str, float | None]:
     if base is None:
-        return None
-    return float(row["test"][metric]) - float(base["test"][metric])
+        return {"raw_r": None, "rmse": None, "within_subject_centered_r": None}
+    return {
+        "raw_r": float(row["test"]["raw_r"]) - float(base["test"]["raw_r"]),
+        "rmse": float(row["test"]["rmse"]) - float(base["test"]["rmse"]),
+        "within_subject_centered_r": float(row["test"]["within_subject_centered_r"]) - float(base["test"]["within_subject_centered_r"]),
+    }
 
 
 def _mean_metric(rows: list[dict[str, Any]], metric: str) -> float:
@@ -644,30 +625,24 @@ def _mean_delta(rows: list[dict[str, float | None]], metric: str) -> float | Non
     return float(np.mean(values)) if values else None
 
 
-def _write_summary_csv(summary: list[dict[str, Any]], path: Path) -> None:
-    if not summary:
-        path.write_text("", encoding="utf-8")
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fields = list(summary[0].keys())
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(summary)
+def _mean_audit(rows: list[dict[str, Any]], field: str) -> float:
+    return float(np.mean([float(row["train_audit"][field]) for row in rows])) if rows else math.nan
 
 
 def _write_markdown(output: dict[str, Any], path: Path) -> None:
     lines = [
-        "# Wear-only FM Internal Ablation Report",
+        "# W3FM ACC Replacement Screen",
         "",
         f"- diagnostic_boundary: `{output['diagnostic_boundary']}`",
         f"- run_count: `{output['run_count']}`",
+        f"- reference_count: `{output['reference_count']}`",
         f"- mask_count: `{output['mask_count']}`",
+        f"- acc_feature_count: `{output['acc_feature_count']}`",
         "",
         "## Route Summary",
         "",
-        "| protocol | route | seeds | RMSE | raw r | centered r | d raw r vs W3FM | d RMSE vs W3FM | d centered r vs W3FM |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| protocol | route | seeds | RMSE | raw r | centered r | d raw r vs W3FM | d RMSE vs W3FM | d centered r vs W3FM | d raw r vs no-ACC | d RMSE vs no-ACC | d centered r vs no-ACC | best epoch |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in output["summary"]:
         lines.append(
@@ -677,7 +652,11 @@ def _write_markdown(output: dict[str, Any], path: Path) -> None:
             f"{_fmt(row['test_centered_r_mean'])} +/- {_fmt(row['test_centered_r_std'])} | "
             f"{_fmt(row['delta_raw_r_vs_W3FM_frozen_mean'])} | "
             f"{_fmt(row['delta_rmse_vs_W3FM_frozen_mean'])} | "
-            f"{_fmt(row['delta_centered_r_vs_W3FM_frozen_mean'])} |"
+            f"{_fmt(row['delta_centered_r_vs_W3FM_frozen_mean'])} | "
+            f"{_fmt(row['delta_raw_r_vs_W3FM_no_acc_mean'])} | "
+            f"{_fmt(row['delta_rmse_vs_W3FM_no_acc_mean'])} | "
+            f"{_fmt(row['delta_centered_r_vs_W3FM_no_acc_mean'])} | "
+            f"{_fmt(row['best_epoch_mean'])} |"
         )
     lines.extend(
         [
@@ -688,7 +667,7 @@ def _write_markdown(output: dict[str, Any], path: Path) -> None:
             "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
-    for row in output["results"]:
+    for row in output["references"] + output["results"]:
         test = row["test"]
         audit = row["train_audit"]
         lines.append(
@@ -696,7 +675,58 @@ def _write_markdown(output: dict[str, Any], path: Path) -> None:
             f"{_fmt(test['raw_r'])} | {_fmt(test['within_subject_centered_r'])} | "
             f"{audit['best_epoch']} | {audit['trainable_params']} |"
         )
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    lines.extend(
+        [
+            "",
+            "## ACC Feature Families",
+            "",
+            "Handcrafted ACC features are deterministic label-free statistics from the 10-second staged ACC window. Downstream train-only normalization is still fitted separately for each protocol and seed.",
+            "",
+            "```json",
+            json.dumps(output["acc_feature_names"], ensure_ascii=False, indent=2),
+            "```",
+            "",
+        ]
+    )
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _write_preflight(dataset: Dataset, path: Path) -> None:
+    payload = {
+        "row_count": int(dataset.sample_id.shape[0]),
+        "wear_complete_count": int(dataset.complete_mask.sum()),
+        "target_finite": bool(np.isfinite(dataset.target).all()),
+        "ppg_embedding_shape": list(dataset.ppg.shape),
+        "gsr_embedding_shape": list(dataset.gsr.shape),
+        "acc_handcrafted_shape": list(dataset.acc_handcrafted.shape),
+        "acc_handcrafted_finite": bool(np.isfinite(dataset.acc_handcrafted).all()),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _write_feature_manifest(dataset: Dataset, out_root: Path) -> None:
+    payload = {
+        "source": "outputs/wear_fm/staged_inputs/acc_10s.npz",
+        "feature_policy": "label_free_deterministic_window_statistics_no_test_selection",
+        "shape": list(dataset.acc_handcrafted.shape),
+        "feature_names": list(dataset.acc_feature_names),
+        "global_mean": float(np.mean(dataset.acc_handcrafted)),
+        "global_std": float(np.std(dataset.acc_handcrafted)),
+        "finite": bool(np.isfinite(dataset.acc_handcrafted).all()),
+    }
+    (out_root / "acc_handcrafted_feature_manifest.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _write_summary_csv(summary: list[dict[str, Any]], path: Path) -> None:
+    if not summary:
+        path.write_text("", encoding="utf-8")
+        return
+    fields = list(summary[0].keys())
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(summary)
 
 
 def _write_predictions_table(path: Path, dataset: Dataset, indices: np.ndarray, prediction: np.ndarray) -> None:
@@ -706,20 +736,6 @@ def _write_predictions_table(path: Path, dataset: Dataset, indices: np.ndarray, 
         writer.writerow(["row_id", "sample_id", "subject_id", "day_id", "event_id", "target", "prediction"])
         for row_id, pred in zip(indices.tolist(), prediction.tolist()):
             writer.writerow([row_id, dataset.sample_id[row_id], dataset.subject_id[row_id], dataset.day_id[row_id], dataset.event_id[row_id], float(dataset.target[row_id]), float(pred)])
-
-
-def _write_preflight(dataset: Dataset, path: Path) -> None:
-    payload = {
-        "row_count": int(dataset.sample_id.shape[0]),
-        "wear_complete_count": int(dataset.complete_mask.sum()),
-        "target_finite": bool(np.isfinite(dataset.target).all()),
-        "ppg_embedding_shape": list(dataset.ppg.shape),
-        "acc_embedding_shape": list(dataset.acc.shape),
-        "gsr_embedding_shape": list(dataset.gsr.shape),
-        "ppg_raw_shape": list(dataset.ppg_raw.shape),
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _history_csv(history: list[dict[str, Any]]) -> str:
@@ -738,26 +754,24 @@ def _history_csv(history: list[dict[str, Any]]) -> str:
     return "\n".join(rows) + "\n"
 
 
-def _config_snapshot(args: argparse.Namespace, protocol: str, route: str, seed: int) -> dict[str, Any]:
+def _config_snapshot(args: argparse.Namespace, protocol: str, route: str, seed: int, dataset: Dataset) -> dict[str, Any]:
     return {
         "protocol": protocol,
         "route": route,
         "seed": int(seed),
         "components": list(ROUTE_COMPONENTS[route]),
+        "acc_feature_count": int(dataset.acc_handcrafted.shape[1]),
         "epochs": int(args.epochs),
         "batch_size": int(args.batch_size),
-        "ppg_partial_batch_size": int(args.ppg_partial_batch_size),
         "learning_rate": float(args.learning_rate),
-        "ppg_encoder_lr": float(args.ppg_encoder_lr),
         "weight_decay": float(args.weight_decay),
         "dropout": float(args.dropout),
         "hidden_dim": int(args.hidden_dim),
         "patience": int(args.patience),
         "selection_metric": str(args.selection_metric),
-        "ppg_trainable_tail_params": int(args.ppg_trainable_tail_params if route == "W3FM_ppg_partial_ft" else 0),
         "train_supervision": "pretrain_plus_finetune_train_val_early_stop_test_once",
-        "mask_policy": "wear_complete_mask intersected with split indices for all routes",
-        "diagnostic_boundary": "post_phase3_failure_diagnostic_not_a_formal_promotion_gate",
+        "mask_policy": "same wear_complete_mask intersected with split indices",
+        "diagnostic_boundary": "post_phase3_acc_replacement_diagnostic_not_a_formal_promotion_gate",
     }
 
 
@@ -834,6 +848,12 @@ def _selection_score(metrics: dict[str, Any], metric: str) -> float:
     raise ValueError(f"unsupported selection metric: {metric}")
 
 
+def _to_torch(value: Any, device: torch.device) -> Any:
+    if isinstance(value, dict):
+        return {key: torch.as_tensor(item, dtype=torch.float32, device=device) for key, item in value.items()}
+    return torch.as_tensor(value, dtype=torch.float32, device=device)
+
+
 def _split_csv(value: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
 
@@ -863,7 +883,12 @@ def _seed_everything(seed: int) -> None:
 
 
 def _fmt(value: Any) -> str:
-    return "NA" if value is None else f"{float(value):.4f}"
+    if value is None:
+        return "NA"
+    number = float(value)
+    if not math.isfinite(number):
+        return "NA"
+    return f"{number:.4f}"
 
 
 if __name__ == "__main__":

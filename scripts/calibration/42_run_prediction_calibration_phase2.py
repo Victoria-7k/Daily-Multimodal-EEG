@@ -73,7 +73,7 @@ def command_for(args: argparse.Namespace, config: dict[str, str]) -> list[str]:
     name = config["name"]
     return [
         args.python,
-        "scripts/32_run_eegpt_centered_loss.py",
+        "scripts/window_fatigue/32_run_eegpt_centered_loss.py",
         "--root",
         args.root,
         "--splits-root",
@@ -196,7 +196,7 @@ def write_phase2_summary(out_root: Path, manifest: list[dict[str, Any]]) -> None
     lines = [
         "# Phase 2 Loss/Sampler Summary",
         "",
-        "This summary is populated after running `scripts/42_run_prediction_calibration_phase2.py --execute` in an environment with the canonical EEG-aligned index, splits, embeddings, and CUDA runtime.",
+        "This summary is populated after running `scripts/calibration/42_run_prediction_calibration_phase2.py --execute` in an environment with the canonical EEG-aligned index, splits, embeddings, and CUDA runtime.",
         "",
     ]
     if rows:

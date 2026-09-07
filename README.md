@@ -113,15 +113,15 @@
 1. 如需重新生成非 EEG 模态 embedding，运行：
 
 ```bash
-python scripts/12_extract_audio_embeddings.py
-python scripts/15_extract_wear_embeddings.py
-python scripts/27_extract_dinov2_roi_embeddings.py
+python scripts/embeddings/12_extract_audio_embeddings.py
+python scripts/embeddings/15_extract_wear_embeddings.py
+python scripts/embeddings/27_extract_dinov2_roi_embeddings.py
 ```
 
 2. 生成五条 EEG 256D token：
 
 ```bash
-python scripts/34_run_eeg_encoder_matrix.py \
+python scripts/embeddings/34_run_eeg_encoder_matrix.py \
   --profiles eegpt_frozen_v1,eegpt_partial_ft_v1,cbramod_frozen_v1,cbramod_partial_ft_v1,eeg_de_5band_1s_avg_v1 \
   --protocols cross_subject,cross_day,within_subject_day \
   --seeds 240800 \
@@ -135,7 +135,7 @@ python scripts/34_run_eeg_encoder_matrix.py \
 3. 运行当前 full/no_audio video-only fusion matrix：
 
 ```bash
-python scripts/32_run_eegpt_centered_loss.py \
+python scripts/window_fatigue/32_run_eegpt_centered_loss.py \
   --root /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned \
   --embeddings-root /vePFS-0x0d/DailyEEG_multimodal/embeddings \
   --splits-root /vePFS-0x0d/DailyEEG/splits_new \

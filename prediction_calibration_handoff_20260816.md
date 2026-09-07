@@ -30,8 +30,8 @@
 
 - 技术路线文档：`technical_route_20260814.md`
 - 当前脚本入口说明：`scripts/README.md`
-- EEG 256D token 生成：`scripts/34_run_eeg_encoder_matrix.py`
-- 当前 fusion 训练入口：`scripts/32_run_eegpt_centered_loss.py`
+- EEG 256D token 生成：`scripts/embeddings/34_run_eeg_encoder_matrix.py`
+- 当前 fusion 训练入口：`scripts/window_fatigue/32_run_eegpt_centered_loss.py`
 - 当前 fusion report：`outputs/server_sync/eeg_encoder_256d_5route_20260814/reports/eeg_encoder_256d_5route_fusion_video_only_seed240800_raw.json`
 - 当前 prediction NPZ：`outputs/server_sync/eeg_encoder_256d_5route_20260814/predictions/eeg_encoder_256d_5route_fusion_video_only_seed240800_raw/`
 - 可视化参考：
@@ -148,7 +148,7 @@ MSE 训练让模型偏向条件均值，导致预测范围压缩。通过 loss w
 
 ### 实验设置
 
-在 `scripts/32_run_eegpt_centered_loss.py` 中新增或分支实现以下模式：
+在 `scripts/window_fatigue/32_run_eegpt_centered_loss.py` 中新增或分支实现以下模式：
 
 1. `weighted_mse_label_bins`
    - 只用 train label 统计分箱。
@@ -361,7 +361,7 @@ Phase 5 至少一个候选通过正式门槛。
 
 优先扩展当前 fusion 脚本，而不是新建一批互相平行的实验脚本：
 
-- 在 `scripts/32_run_eegpt_centered_loss.py` 增加：
+- 在 `scripts/window_fatigue/32_run_eegpt_centered_loss.py` 增加：
   - `--loss-mode weighted_mse_label_bins|huber_extreme_weight|mse_variance_reg|hybrid_ordinal`
   - `--calibration none|linear|variance|clipped_variance|isotonic`
   - `--sampler default|label_balanced|label_subject_balanced`

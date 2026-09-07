@@ -1,6 +1,6 @@
 # Cross-Attention 融合实现说明
 
-本文解释 `technical_route_20260814.md` 中 “Cross-Attention 融合” 一节对应的代码实现。该路线对应当前 `scripts/32_run_eegpt_centered_loss.py` 中 `AttentionRegressor` 的默认 `variant="attention"` 分支。
+本文解释 `technical_route_20260814.md` 中 “Cross-Attention 融合” 一节对应的代码实现。该路线对应当前 `scripts/window_fatigue/32_run_eegpt_centered_loss.py` 中 `AttentionRegressor` 的默认 `variant="attention"` 分支。
 
 ## 一句话概括
 
@@ -34,8 +34,8 @@ mask shape      == (N,)
 
 对应代码位置：
 
-- `scripts/32_run_eegpt_centered_loss.py::_load_all_branches`
-- `scripts/32_run_eegpt_centered_loss.py::_build_tokens`
+- `scripts/window_fatigue/32_run_eegpt_centered_loss.py::_load_all_branches`
+- `scripts/window_fatigue/32_run_eegpt_centered_loss.py::_build_tokens`
 
 `_build_tokens` 会把模态 embedding 堆成：
 

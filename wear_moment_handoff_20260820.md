@@ -29,15 +29,15 @@
 | 文件 | 说明 |
 | --- | --- |
 | `src/daily_multimodal/training/wear_moment_matrix.py` | Wear × MOMENT token 训练模块。`wear_moment_frozen_v1`（encoder 冻结 + 可学习 256D 投影头，lr 1e-3）/ `wear_moment_partial_ft_v1`（解冻最后 2 block + final norm，encoder lr 1e-5）；数据侧从 `wear_physio_preprocessed_eeg23win_embeddings.npz` 读 mask/source 映射，按 basename 重定位源 CSV，构造 320×5 通道在前矩阵；输出契约仿 `write_eeg_embedding_npz`（`wear_emb (N,256)` / `wear_mask` / `modality_mask[:,1]` / `train_index` 等） |
-| `scripts/16_run_wear_moment_matrix.py` | token 矩阵入口（仿 34 号脚本）；`--preflight-only` 输出数据覆盖率与 MOMENT 耗时 |
-| `scripts/53_summarize_wear_moment_gates.py` | 门槛汇总（全维度泛化版）：按 (protocol, eeg_branch, video, audio) 配置组配对，输出 G1/G2/G3 判定 + 36 配置组 delta + 完整指标表 |
+| `scripts/window_fatigue/16_run_wear_moment_matrix.py` | token 矩阵入口（仿 34 号脚本）；`--preflight-only` 输出数据覆盖率与 MOMENT 耗时 |
+| `scripts/window_fatigue/53_summarize_wear_moment_gates.py` | 门槛汇总（全维度泛化版）：按 (protocol, eeg_branch, video, audio) 配置组配对，输出 G1/G2/G3 判定 + 36 配置组 delta + 完整指标表 |
 | `tests/test_wear_moment_matrix.py` | 6 个单元测试（本地与服务器均通过） |
 
 ### 2.2 修改文件
 
 | 文件 | 改动 |
 | --- | --- |
-| `scripts/32_run_eegpt_centered_loss.py` | ① `BRANCHES` 新增 `wear_moment_frozen_v1` / `wear_moment_partial_ft_v1`（filename 用 `{wear_seed}` 占位符）；② `EXPERIMENT_BRANCHES` 新增 10 个 route（`A1/B0/A2 × Wmoment_frozen/Wmoment_ft × full/no_audio`）；③ 新增 `--experiment-seed-fixed`（每个 run 用精确 `--seed`，保证配对）；④ 新增 `--wear-token-seed`（与 `--eeg-token-seed` 解耦，EEG token 只有 seed 240800，wear token 有 240800/240801/240802） |
+| `scripts/window_fatigue/32_run_eegpt_centered_loss.py` | ① `BRANCHES` 新增 `wear_moment_frozen_v1` / `wear_moment_partial_ft_v1`（filename 用 `{wear_seed}` 占位符）；② `EXPERIMENT_BRANCHES` 新增 10 个 route（`A1/B0/A2 × Wmoment_frozen/Wmoment_ft × full/no_audio`）；③ 新增 `--experiment-seed-fixed`（每个 run 用精确 `--seed`，保证配对）；④ 新增 `--wear-token-seed`（与 `--eeg-token-seed` 解耦，EEG token 只有 seed 240800，wear token 有 240800/240801/240802） |
 | `technical_route_20260814.md` | Wear 表新增 `Wmoment_frozen` / `Wmoment_partial_ft` 两档；「各划分协议 Raw R Top 3」「按 EEG Route 分类的四模态平均表现」「附表：全部四模态融合实验结果」三表更新为方案 C 口径（seed 240729 固定）；新增「2026-08-20 更新：Wear × MOMENT」小节 |
 | `wear_model_selection_20260820.md` | 候选模型调研（开放获取核验） |
 | `wear_moment_experiment_plan_20260820.md` | 两阶段矩阵 + 方案 C（§9） |
@@ -130,7 +130,7 @@ phase1 / phase2 / planC 三份 JSON 相同配置 **0 diff**（固定 seed 运行
 ```bash
 cd /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned
 export PYTHONPATH=src
-./runtime/envs/eegpt-gpu-min/bin/python scripts/16_run_wear_moment_matrix.py \
+./runtime/envs/eegpt-gpu-min/bin/python scripts/window_fatigue/16_run_wear_moment_matrix.py \
   --protocols cross_subject,cross_day,within_subject_day \
   --seeds 240800,240801,240802 \
   --profiles wear_moment_frozen_v1,wear_moment_partial_ft_v1 \
@@ -143,7 +143,7 @@ export PYTHONPATH=src
 
 ### 6.2 Phase 1/2 融合矩阵（12 / 36 runs）
 
-用 `scripts/32_run_eegpt_centered_loss.py --experiment-set custom --experiments <12 项>`，关键参数：
+用 `scripts/window_fatigue/32_run_eegpt_centered_loss.py --experiment-set custom --experiments <12 项>`，关键参数：
 `--eeg-branches eeg_eegpt_partial_ft_v1`、`--eeg-token-root eeg_encoder_256d_tokens`、`--eeg-token-seed 240800`、`--wear-token-seed 240800/240801/240802`（按组）、`--seed 240729/240730/240731 --experiment-seed-fixed`、`--loss-modes raw --heads regression`。
 完整命令模板见 `outputs/tmp/run_phase1.sh` / `run_phase2b.sh`（本地）。
 
@@ -154,7 +154,7 @@ export PYTHONPATH=src
 ### 6.4 门槛汇总
 
 ```bash
-./runtime/envs/eegpt-gpu-min/bin/python scripts/53_summarize_wear_moment_gates.py \
+./runtime/envs/eegpt-gpu-min/bin/python scripts/window_fatigue/53_summarize_wear_moment_gates.py \
   --reports <report1.json,report2.json,...> \
   --out-json outputs/server_sync/wear_moment_20260820/planC_144/gates_planC.json \
   --out-md outputs/server_sync/wear_moment_20260820/planC_144/gates_planC.md
@@ -189,6 +189,6 @@ export PYTHONPATH=src
 2026-08-20 同日内，仓库中另有**并行的 fusion variant 消融工作**（见 `repo-docs/change-log.md` 2026-08-20 条目与根目录 `fusion_variant_results_20260820.md` / `fusion_attention_vs_concat_evidence_20260820.md`）：
 
 - **结论**：当前 attention 融合相比朴素拼接**无价值**——concat 全量同 seed 配对在 `within_subject_day` Δraw r `+0.0394`（42 胜/12 负，p=5.2e-5）、ΔRMSE `-0.0143`，`cross_day` Δraw r `+0.0137`；`attention_multihead_pma` 与 `eeg_anchor` 均不作主线。**建议以 `concat + MLP` 作为新融合基线**。
-- 关联：`scripts/32_run_eegpt_centered_loss.py` 已被该工作扩展了 `--fusion-variant / --attn-num-heads / --attn-num-latent`（`AttentionRegressor` 新增 `concat` / `attention_multihead_pma` / `eeg_anchor` 变体）；另有 `scripts/54_summarize_fusion_variants.py`、`scripts/55_summarize_fusion_variant_full_paired.py`、`scripts/56_build_fusion_attention_vs_concat_evidence.py` 与 `tests/test_fusion_variants.py`（9 tests）。
+- 关联：`scripts/window_fatigue/32_run_eegpt_centered_loss.py` 已被该工作扩展了 `--fusion-variant / --attn-num-heads / --attn-num-latent`（`AttentionRegressor` 新增 `concat` / `attention_multihead_pma` / `eeg_anchor` 变体）；另有 `scripts/window_fatigue/54_summarize_fusion_variants.py`、`scripts/window_fatigue/55_summarize_fusion_variant_full_paired.py`、`scripts/window_fatigue/56_build_fusion_attention_vs_concat_evidence.py` 与 `tests/test_fusion_variants.py`（9 tests）。
 - **对 Wear × MOMENT 的含义**：本 handoff 的所有结果（Phase 1/2、方案 C）都是在 **attention 融合口径**下得到的。若按并行结论把融合器换成 `concat + MLP`，`Wmoment_frozen` 相对 `Wdeep` 的增益**需要在新的融合基线下重验**（token 与 token 训练不受融合器影响，只需重跑融合矩阵，成本同方案 C 的 144 runs 量级）。
 - 两侧工作共用同一批 token / 数据 / seed 口径约定，`--experiment-seed-fixed` 与 `--eeg-token-seed 240800` 的用法一致。

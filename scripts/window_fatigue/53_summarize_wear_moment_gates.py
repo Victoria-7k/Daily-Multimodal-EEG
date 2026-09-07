@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """汇总 Wear × MOMENT fusion matrix 并判定 G1/G2/G3 门槛（全维度泛化版）。
 
-输入：scripts/32_run_eegpt_centered_loss.py 的 report JSON（一个 seed 组一个文件）。
+输入：scripts/window_fatigue/32_run_eegpt_centered_loss.py 的 report JSON（一个 seed 组一个文件）。
 
 对每个 (protocol, eeg_branch, video, audio) 配置组，在同 seed 下配对比较四条 wear route：
 - G1: wear_moment_frozen_v1 vs wear_deep（raw r 更高或 RMSE 更低）

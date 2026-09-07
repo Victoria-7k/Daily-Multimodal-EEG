@@ -97,7 +97,7 @@ G1 通过：`wear_moment_frozen_v1` 相对 `Wdeep` 同配置，cross_day raw r +
 | Phase 1 screen | `outputs/server_sync/wear_moment_20260820/phase1_screen/`（12 runs + gates） |
 | Phase 2 confirm | `outputs/server_sync/wear_moment_20260820/phase2_confirm/`（36 runs + gates_phase2 + phase2_full_results.md） |
 | 方案 C 全维度 | `outputs/server_sync/wear_moment_20260820/planC_144/`（144 runs + gates_planC + 完整指标表） |
-| 代码 | `src/daily_multimodal/training/wear_moment_matrix.py`、`scripts/16_run_wear_moment_matrix.py`、`scripts/53_summarize_wear_moment_gates.py`（全维度泛化版）、`tests/test_wear_moment_matrix.py`（6 tests） |
+| 代码 | `src/daily_multimodal/training/wear_moment_matrix.py`、`scripts/window_fatigue/16_run_wear_moment_matrix.py`、`scripts/window_fatigue/53_summarize_wear_moment_gates.py`（全维度泛化版）、`tests/test_wear_moment_matrix.py`（6 tests） |
 
 ## 7. 环境副作用记录
 

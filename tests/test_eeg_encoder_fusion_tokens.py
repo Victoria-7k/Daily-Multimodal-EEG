@@ -17,7 +17,7 @@ if importlib.util.find_spec("torch") is None:
 
 _ROOT = Path(__file__).resolve().parents[1]
 _TOKEN_SCRIPT = _ROOT / "scripts" / "archive_legacy" / "35_prepare_eeg_encoder_prediction_tokens.py"
-_FUSION_SCRIPT = _ROOT / "scripts" / "32_run_eegpt_centered_loss.py"
+_FUSION_SCRIPT = _ROOT / "scripts" / "window_fatigue" / "32_run_eegpt_centered_loss.py"
 _TOKEN_SPEC = importlib.util.spec_from_file_location("eeg_encoder_prediction_tokens", _TOKEN_SCRIPT)
 _FUSION_SPEC = importlib.util.spec_from_file_location("eegpt_centered_loss", _FUSION_SCRIPT)
 tokens_script = importlib.util.module_from_spec(_TOKEN_SPEC)

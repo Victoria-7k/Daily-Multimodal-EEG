@@ -16,6 +16,7 @@ from .losses import (
     categorical_probe_loss,
     classification_loss,
     cumulative_probability_ordinal_loss,
+    expected_score_huber_loss,
     ordinal_probe_loss,
     within_subject_ordinal_ranking_loss,
 )
@@ -130,6 +131,8 @@ def run_daily_affect_run(
     probe_loss_weight: float = 0.1,
     ordinal_loss_weight: float = 0.5,
     rank_loss_weight: float = 0.1,
+    expected_score_loss_weight: float = 0.0,
+    expected_score_huber_delta: float = 1.0,
     modality_dropout_prob: float = 0.1,
     probe_warmup_epochs: int = 5,
     difficulty_ramp_epochs: int = 5,
@@ -167,6 +170,8 @@ def run_daily_affect_run(
         probe_loss_weight=probe_loss_weight,
         ordinal_loss_weight=ordinal_loss_weight,
         rank_loss_weight=rank_loss_weight,
+        expected_score_loss_weight=expected_score_loss_weight,
+        expected_score_huber_delta=expected_score_huber_delta,
         modality_dropout_prob=modality_dropout_prob,
         probe_warmup_epochs=probe_warmup_epochs,
         difficulty_ramp_epochs=difficulty_ramp_epochs,
@@ -208,6 +213,8 @@ def run_daily_affect_run(
             weight_decay=weight_decay,
             rank_loss_weight=rank_loss_weight,
             ordinal_loss_weight=ordinal_loss_weight,
+            expected_score_loss_weight=expected_score_loss_weight,
+            expected_score_huber_delta=expected_score_huber_delta,
             selection_metric=selection_metric,
             epochs=calibration_finetune_epochs,
             device=device,
@@ -310,6 +317,8 @@ def fit_daily_affect_model(
     probe_loss_weight: float,
     ordinal_loss_weight: float,
     rank_loss_weight: float,
+    expected_score_loss_weight: float,
+    expected_score_huber_delta: float,
     modality_dropout_prob: float,
     probe_warmup_epochs: int,
     difficulty_ramp_epochs: int,
@@ -327,6 +336,10 @@ def fit_daily_affect_model(
     adapter_mode = normalization if adapter_mode is None else adapter_mode
     if adapter_mode not in {"shared", "per_modality"}:
         raise ValueError(f"unsupported adapter_mode: {adapter_mode}")
+    if float(expected_score_loss_weight) < 0.0:
+        raise ValueError("expected_score_loss_weight must be nonnegative")
+    if float(expected_score_huber_delta) <= 0.0:
+        raise ValueError("expected_score_huber_delta must be positive")
     _seed_everything(seed)
     train = dataset.train_index
     val = dataset.val_index
@@ -347,6 +360,8 @@ def fit_daily_affect_model(
         temporal_policy=temporal_policy,
     )
     module = DailyAffectOrdinalModel(cfg).to(dev)
+    if module.uses_window_replicated_supervision and float(expected_score_loss_weight) > 0.0:
+        raise ValueError("expected-score Huber supervision is event-level and cannot be applied to window_replicated")
     optimizer = torch.optim.AdamW(module.parameters(), lr=learning_rate, weight_decay=weight_decay)
     class_weights = None
     if class_balanced_loss:
@@ -364,6 +379,7 @@ def fit_daily_affect_model(
         head_losses: list[float] = []
         ordinal_losses: list[float] = []
         rank_losses: list[float] = []
+        expected_score_losses: list[float] = []
         probe_losses: list[float] = []
         scheduled_lambda_d = difficulty_lambda_for_epoch(
             epoch,
@@ -391,8 +407,16 @@ def fit_daily_affect_model(
             ordinal_loss = cumulative_probability_ordinal_loss(loss_logits, loss_labels)
             head_loss = ce_loss + float(ordinal_loss_weight) * ordinal_loss
             rank_loss = within_subject_ordinal_ranking_loss(rank_scores, loss_raw_labels, rank_subject_codes)
+            score_loss = expected_score_huber_loss(
+                outputs["expected_score"], raw_labels, delta=expected_score_huber_delta
+            )
             probe_loss = probe_loss_for_outputs(outputs, labels_zero, raw_labels, module.uses_probe, probe_kind)
-            loss = head_loss + float(rank_loss_weight) * rank_loss + (float(probe_loss_weight) * probe_loss if module.uses_probe else 0.0)
+            loss = (
+                head_loss
+                + float(rank_loss_weight) * rank_loss
+                + float(expected_score_loss_weight) * score_loss
+                + (float(probe_loss_weight) * probe_loss if module.uses_probe else 0.0)
+            )
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(module.parameters(), 1.0)
@@ -401,6 +425,7 @@ def fit_daily_affect_model(
             head_losses.append(float(head_loss.detach().cpu().item()))
             ordinal_losses.append(float(ordinal_loss.detach().cpu().item()))
             rank_losses.append(float(rank_loss.detach().cpu().item()))
+            expected_score_losses.append(float(score_loss.detach().cpu().item()))
             probe_losses.append(float(probe_loss.detach().cpu().item()))
         module.eval()
         val_pred = _predict_module(module, dataset, val, x_mean, x_std, dev, include_diagnostics=False)
@@ -420,6 +445,7 @@ def fit_daily_affect_model(
             "train_head_loss": float(np.mean(head_losses)) if head_losses else math.nan,
             "train_ordinal_loss": float(np.mean(ordinal_losses)) if ordinal_losses else math.nan,
             "train_rank_loss": float(np.mean(rank_losses)) if rank_losses else math.nan,
+            "train_expected_score_huber_loss": float(np.mean(expected_score_losses)) if expected_score_losses else math.nan,
             "train_probe_loss": float(np.mean(probe_losses)) if probe_losses else math.nan,
             "routing_lambda_d": float(scheduled_lambda_d),
             "val_accuracy": val_metrics.get("accuracy"),
@@ -462,12 +488,20 @@ def fit_daily_affect_model(
         "probe_loss_weight": float(probe_loss_weight),
         "ordinal_loss_weight": float(ordinal_loss_weight),
         "rank_loss_weight": float(rank_loss_weight),
+        "expected_score_loss_weight": float(expected_score_loss_weight),
+        "expected_score_huber_delta": float(expected_score_huber_delta),
         "modality_dropout_prob": float(modality_dropout_prob),
         "probe_warmup_epochs": int(probe_warmup_epochs),
         "difficulty_ramp_epochs": int(difficulty_ramp_epochs),
         "selection_metric": selection_metric,
         "class_balanced_loss": bool(class_balanced_loss),
-        "objective_id": objective_id(class_balanced_loss, ordinal_loss_weight, rank_loss_weight),
+        "objective_id": objective_id(
+            class_balanced_loss,
+            ordinal_loss_weight,
+            rank_loss_weight,
+            expected_score_loss_weight,
+            expected_score_huber_delta,
+        ),
         "supervision_unit": "window_replicated" if module.uses_window_replicated_supervision else "ema_bag",
         "resolved_difficulty_mode": module.resolved_difficulty_mode,
         "routing_id": routing_id(probe_kind, module.resolved_difficulty_mode, beta_ord, detach_difficulty),
@@ -503,6 +537,8 @@ def calibrate_and_finetune_probe_routing(
     weight_decay: float,
     rank_loss_weight: float,
     ordinal_loss_weight: float,
+    expected_score_loss_weight: float,
+    expected_score_huber_delta: float,
     selection_metric: str,
     epochs: int,
     device: str,
@@ -561,7 +597,15 @@ def calibrate_and_finetune_probe_routing(
             ordinal_loss = cumulative_probability_ordinal_loss(outputs["class_logits"], labels_zero)
             subject_batch = torch.as_tensor(subject_codes[batch], dtype=torch.long, device=dev)
             rank_loss = within_subject_ordinal_ranking_loss(outputs["expected_score"], raw_labels, subject_batch)
-            loss = ce_loss + float(ordinal_loss_weight) * ordinal_loss + float(rank_loss_weight) * rank_loss
+            score_loss = expected_score_huber_loss(
+                outputs["expected_score"], raw_labels, delta=expected_score_huber_delta
+            )
+            loss = (
+                ce_loss
+                + float(ordinal_loss_weight) * ordinal_loss
+                + float(rank_loss_weight) * rank_loss
+                + float(expected_score_loss_weight) * score_loss
+            )
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(trainable_parameters, 1.0)
@@ -772,9 +816,18 @@ def probe_loss_for_outputs(
     raise ValueError(f"unsupported probe kind: {probe_kind}")
 
 
-def objective_id(class_balanced_loss: bool, ordinal_loss_weight: float, rank_loss_weight: float) -> str:
+def objective_id(
+    class_balanced_loss: bool,
+    ordinal_loss_weight: float,
+    rank_loss_weight: float,
+    expected_score_loss_weight: float,
+    expected_score_huber_delta: float,
+) -> str:
     ce = "weighted_ce" if class_balanced_loss else "ce"
-    return f"{ce}__ord_{float(ordinal_loss_weight):g}__rank_{float(rank_loss_weight):g}"
+    return (
+        f"{ce}__ord_{float(ordinal_loss_weight):g}__rank_{float(rank_loss_weight):g}"
+        f"__scorehuber_{float(expected_score_loss_weight):g}_delta_{float(expected_score_huber_delta):g}"
+    )
 
 
 def routing_id(probe_kind: str, difficulty_mode: str, beta_ord: float, detach_difficulty: bool) -> str:
@@ -901,6 +954,7 @@ def history_csv(history: list[dict[str, Any]]) -> str:
         "train_head_loss",
         "train_ordinal_loss",
         "train_rank_loss",
+        "train_expected_score_huber_loss",
         "train_probe_loss",
         "routing_lambda_d",
         "val_accuracy",

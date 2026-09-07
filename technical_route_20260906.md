@@ -10,7 +10,7 @@
 
 | 工作线 | 监督单位与目标 | 当前地位 | 核心产物 |
 | --- | --- | --- | --- |
-| 窗口级疲劳回归主线 | 一个 EEG-aligned 10 秒窗口，预测连续 `fatigue` | 主线 | `scripts/32_run_eegpt_centered_loss.py` |
+| 窗口级疲劳回归主线 | 一个 EEG-aligned 10 秒窗口，预测连续 `fatigue` | 主线 | `scripts/window_fatigue/32_run_eegpt_centered_loss.py` |
 | Daily-affect ordinal 候选线 | 一个 EMA event 的 23 个窗口，预测 `1..5` 级疲劳 | 已完成 focused 7-seed 候选证据 | `scripts/73` 至 `83` |
 | EQL-CAF temporal-token 探索线 | 一个窗口内的 5 个 2 秒 temporal token | 真实 token 前置条件尚未满足 | `scripts/57` 至 `64` |
 
@@ -128,6 +128,12 @@ Canonical EEG-aligned windows
 同一 bridge 的 dynamic-range audit 量化了图中的范围扩展：窗口、static 和 dynamic 的 prediction P10--P90 分别为 `1.0524 +/- 0.1559`、`1.7484 +/- 0.2530` 和 `1.9567 +/- 0.2408`，daily 相对 window 在每个 seed 的跨度差均为正，subject-day bootstrap 区间也均高于零。raw r 同时从窗口的 `0.3660 +/- 0.0280` 降至 static 的 `0.3020 +/- 0.0214` 和 dynamic 的 `0.2695 +/- 0.0107`。static 的 label-mean span 增加到 `0.8370`，表明 ordinal score 的平均等级分离增强；其 within-label SD 也从窗口的 `0.4106` 升至 `0.6371`，使 label-explained prediction variance 从 `0.1375` 降至 `0.0937`。dynamic 的 within-label SD 为 `0.7025`、label-explained variance 为 `0.0760`。因此范围扩展主要伴随同等级内的 event 波动扩张；它不等价于连续评分精度提升。测试集的 5 级仅有 `3` 个 event，等级尾部的均值曲线仍需在扩展 seed 与尾部样本上复核。
 
 完整记录：`outputs/server_sync/daily_affect_window_event_bridge_20260906/comparison/window_daily_event_comparison.md`。该目录的 `window_daily_affect_matched_event_series_cross_day.png` 按相同 253 个 held-out event 和三组 seed 并列显示窗口主线、`bag_static` 与 dynamic candidate 的 true label、seed 平均 expected score 和 10--90% 区间，用于直观审阅而非新增选型指标。
+
+### 4.3.1 Expected-score Huber 辅助损失 screen
+
+为直接检验 event-level expected score 的数值约束能否降低上述连续评分缺口，在同一 partial-FT bridge bag 上对 `bag_static` 增加 `lambda * Huber(E[p], y)`；其余 class-weighted CE、`0.5` cumulative ordinal、`0.1` within-subject ranking、QWK checkpoint selection、split、seed 和训练预算固定。`88_run_daily_affect_expected_score_huber.py` 对 `lambda={0,0.025,0.05,0.1,0.2}` 与 `delta=1.0` 完成三 seed screen，并且只依据验证集选择权重：非零权重须在至少 `2/3` seed 提升 validation raw r，且平均 validation QWK 相对零权重不低于 `-0.02`。
+
+所有非零权重均通过验证 gate，`lambda=0.2` 以 validation raw-r delta `+0.0142`、`3/3` wins 和 validation QWK delta `+0.0148` 被锁定。测试集随后只审阅锁定候选相对零权重控制：QWK `-0.0029 +/- 0.0368`（`2/3` positive）、expected raw r `+0.0031 +/- 0.0058`（`2/3` positive）、centered r `+0.0093 +/- 0.0075`（`3/3` positive）、RMSE `-0.0106 +/- 0.0170`（`2/3` lower）。预测 P10--P90 从 `1.7484` 小幅到 `1.7054`，within-label SD 从 `0.6371` 到 `0.6361`，说明该 loss 没有主要通过压缩输出范围得到连续指标变化；raw-r 增益也远小于 window-vs-static bridge 的 `0.0640` 差距。此三 seed validation-locked screen 证明 Huber 是可复现的轻量改善候选，但尚不支持替换窗口级主线或将其扩展为 dynamic-kernel 结论。完整产物位于 `outputs/server_sync/daily_affect_expected_score_huber_20260907/`。
 
 ### 4.4 Missing/corruption robustness
 

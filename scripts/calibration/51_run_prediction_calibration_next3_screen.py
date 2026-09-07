@@ -199,7 +199,7 @@ def main() -> int:
 
 
 def load_fusion_source() -> Any:
-    path = Path(__file__).resolve().parent / "32_run_eegpt_centered_loss.py"
+    path = Path(__file__).resolve().parents[1] / "window_fatigue" / "32_run_eegpt_centered_loss.py"
     spec = importlib.util.spec_from_file_location("run_eegpt_centered_loss_phase4", path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"could not load {path}")

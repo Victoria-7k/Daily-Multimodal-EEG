@@ -1,7 +1,7 @@
 # Fusion Variant 消融结果（2026-08-20）
 
 > 目的：回答三个问题 —— (a) 当前 modality-token attention 是否比朴素拼接更好；(b) 多头 + 多 latent query 是否有效；(c) EEG 当锚点的非对称 cross-attention 是否优于平权 self-attention。
-> 实现：`scripts/32_run_eegpt_centered_loss.py` 的 `AttentionRegressor` 新增 `--fusion-variant`（`attention` / `concat` / `attention_multihead_pma` / `eeg_anchor`），所有变体 `encode()` 输出 `(B, hidden_dim)`，head/损失/评估链路不变。
+> 实现：`scripts/window_fatigue/32_run_eegpt_centered_loss.py` 的 `AttentionRegressor` 新增 `--fusion-variant`（`attention` / `concat` / `attention_multihead_pma` / `eeg_anchor`），所有变体 `encode()` 输出 `(B, hidden_dim)`，head/损失/评估链路不变。
 
 ## 1. 基线验证（attention 路径与 0814 逐位一致）
 
@@ -73,4 +73,4 @@
 - 决策切片：`outputs/server_sync/fusion_variant_20260820/`（四变体 json/md + `summary.{json,md}` + 日志）
 - 全量矩阵与配对分析：`outputs/server_sync/fusion_variant_20260820/fusion_variant_{concat,eeg_anchor}_full_seed240800_raw.json`、`fusion_variant_{concat,eeg_anchor}_full_paired.{md,json}`、`fusion_variant_full.log`
 - 定点复现：`outputs/server_sync/fusion_variant_20260820/cross_*_seed*.json`
-- 汇总脚本：`scripts/54_summarize_fusion_variants.py`（切片汇总）、`scripts/55_summarize_fusion_variant_full_paired.py`（全量配对）
+- 汇总脚本：`scripts/window_fatigue/54_summarize_fusion_variants.py`（切片汇总）、`scripts/window_fatigue/55_summarize_fusion_variant_full_paired.py`（全量配对）

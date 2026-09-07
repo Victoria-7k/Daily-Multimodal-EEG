@@ -11,7 +11,7 @@ except ModuleNotFoundError:  # pragma: no cover - depends on local runtime.
 
 
 def _load_script_module():
-    path = Path(__file__).resolve().parents[1] / "scripts" / "32_run_eegpt_centered_loss.py"
+    path = Path(__file__).resolve().parents[1] / "scripts" / "window_fatigue" / "32_run_eegpt_centered_loss.py"
     spec = importlib.util.spec_from_file_location("run_eegpt_centered_loss", path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None

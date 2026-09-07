@@ -66,7 +66,7 @@ PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
 状态：阶段 13 音频真实 embedding 路径已完成全量服务器验证，并进入阶段 17/18 总包与 ablation。
 
 - 新增 `src/daily_multimodal/embeddings/audio_real.py`，从阶段 12 的 `audio_clips` cache 读取 16 kHz mono wav，调用 frozen audio backend 输出 frame embedding，mean pooling 后用固定随机种子投影到 256 维。
-- 新增 `scripts/12_extract_audio_embeddings.py`，写出 `audio_real_embeddings.npz`，包含 `audio_emb`、`sample_id`、`event_id`、`subject_id`、`modality_mask`、`quality_flags` 和 `encoder_version`。
+- 新增 `scripts/embeddings/12_extract_audio_embeddings.py`，写出 `audio_real_embeddings.npz`，包含 `audio_emb`、`sample_id`、`event_id`、`subject_id`、`modality_mask`、`quality_flags` 和 `encoder_version`。
 - checkpoint 不存在时写入 `checkpoint_missing`，缺少 `torch`、`torchaudio` 或 `transformers` 时写入 `dependency_missing`，不静默回退到 metadata 或随机 embedding。
 - 新增 `tests/test_audio_real_embedding.py`，用可注入 fake backend 验证成功路径，用 CLI smoke 验证缺 checkpoint 会写失败清单并返回失败码。
 - `configs/encoders.yaml` 增加 `audio_real_profiles`，记录 `wavlm_frozen_v1` 和 `wav2vec2_frozen_v1` 的 256 维、16 kHz、mean pooling、checkpoint required 约束。
@@ -108,7 +108,7 @@ nan_count=0
 cd /mnt/dataset4/sitian/wzw/DailyMultimodalEmbedding
 source /home/lzs/miniconda3/etc/profile.d/conda.sh
 conda activate lzs
-PYTHONPATH=src python scripts/12_extract_audio_embeddings.py \
+PYTHONPATH=src python scripts/embeddings/12_extract_audio_embeddings.py \
   --window-index outputs/window_index/real_cache_complete_10.jsonl \
   --cache-root outputs/cache/real_stage12_wav2vec2_10 \
   --encoder-profile wav2vec2_frozen_v1 \
@@ -358,7 +358,7 @@ PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
   --audio-encoder-profile wav2vec2_frozen_v1 \
   --out-report outputs/reports/real_embedding_readiness_wav2vec2_sub-12.md \
   --failures-out outputs/reports/real_embedding_failures_wav2vec2_sub-12.json
-PYTHONPATH=src python scripts/12_extract_audio_embeddings.py \
+PYTHONPATH=src python scripts/embeddings/12_extract_audio_embeddings.py \
   --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
   --cache-root outputs/cache/real_stage12_wav2vec2_sub-12 \
   --encoder-profile wav2vec2_frozen_v1 \
@@ -747,7 +747,7 @@ triggered_conditions=["raw_quality_gate_incomplete_or_failed"]
 - PPG 重采样到 64 Hz，10 秒窗口输出 `[640, 1]`；GSR/ACC 重采样到 32 Hz，分别输出 `[320, 1]` 和 `[320, 3]`。
 - 对缺行、重复时间戳、非单调时间戳、有效采样率、motion intensity、stationary ratio 写入 quality flags。
 - 每个窗口写 raw sequence cache `sequence.npz` 和统计质量 cache `stats.json`。
-- 新增 `scripts/15_extract_wear_embeddings.py`，输出 `wear_real_embeddings.npz`、失败清单和质量 summary。
+- 新增 `scripts/embeddings/15_extract_wear_embeddings.py`，输出 `wear_real_embeddings.npz`、失败清单和质量 summary。
 - `configs/encoders.yaml` 增加 `wear_sequence_v1` 与预留的 `wear_deep_sequence_v1` profile。
 
 本地验证：
@@ -796,7 +796,7 @@ PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
   --face-encoder-profile face_raw_openface_stats_v1 \
   --out-report outputs/reports/real_embedding_readiness_wear_sequence_10.md \
   --failures-out outputs/reports/real_embedding_failures_wear_sequence_10.json
-PYTHONPATH=src python scripts/15_extract_wear_embeddings.py \
+PYTHONPATH=src python scripts/embeddings/15_extract_wear_embeddings.py \
   --window-index outputs/window_index/real_cache_complete_10.jsonl \
   --cache-root outputs/cache/real_stage12_wear_sequence_10 \
   --encoder-profile wear_sequence_v1 \
@@ -836,7 +836,7 @@ PYTHONPATH=src python scripts/11_prepare_real_embedding_cache.py \
   --face-encoder-profile face_raw_openface_stats_v1 \
   --out-report outputs/reports/real_embedding_readiness_wear_sequence_sub-12.md \
   --failures-out outputs/reports/real_embedding_failures_wear_sequence_sub-12.json
-PYTHONPATH=src python scripts/15_extract_wear_embeddings.py \
+PYTHONPATH=src python scripts/embeddings/15_extract_wear_embeddings.py \
   --window-index outputs/window_index/audio_real_wav2vec2_sub-12.jsonl \
   --cache-root outputs/cache/real_stage12_wear_sequence_sub-12 \
   --encoder-profile wear_sequence_v1 \

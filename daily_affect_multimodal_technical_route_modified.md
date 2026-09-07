@@ -1220,7 +1220,7 @@ INDEX_PATH=$ALIGN_ROOT/index/eeg_aligned_window_index.jsonl
 SPLITS_ROOT=/vePFS-0x0d/DailyEEG/splits_new
 OUT_ROOT=$ALIGN_ROOT/outputs/$RUN_TAG
 
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/73_build_daily_affect_bags.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/73_build_daily_affect_bags.py \
   --root "$ALIGN_ROOT" \
   --index-path "$INDEX_PATH" \
   --embeddings-root "$EMB_ROOT" \
@@ -1230,7 +1230,7 @@ PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/73_build_daily_affe
   --seeds 240729,240730,240731 \
   --out-root "$OUT_ROOT/bags"
 
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/74_run_daily_affect_phase0_baselines.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/74_run_daily_affect_phase0_baselines.py \
   --bags-root "$OUT_ROOT/bags" \
   --out-root "$OUT_ROOT/phase0" \
   --model-ids window_replicated,bag_static \
@@ -1241,7 +1241,7 @@ PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/74_run_daily_affect
   --device cuda \
   --skip-existing
 
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/75_run_daily_affect_state_matrix.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/75_run_daily_affect_state_matrix.py \
   --bags-root "$OUT_ROOT/bags" \
   --out-root "$OUT_ROOT/runs" \
   --normalizations shared,per_modality \
@@ -1252,11 +1252,11 @@ PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/75_run_daily_affect
   --device cuda \
   --skip-existing
 
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/76_summarize_daily_affect_results.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/76_summarize_daily_affect_results.py \
   --run-root "$OUT_ROOT" \
   --out-root "$OUT_ROOT/reports"
 
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/77_plot_daily_affect_diagnostics.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/77_plot_daily_affect_diagnostics.py \
   --run-root "$OUT_ROOT" \
   --out-root "$OUT_ROOT/figures"
 ```
@@ -1267,7 +1267,7 @@ Focused follow-up 推荐命令：
 FOCUSED_TAG=daily_affect_dynamic_a1_crossday_20260903
 FOCUSED_ROOT=$ALIGN_ROOT/outputs/$FOCUSED_TAG
 
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/78_report_daily_affect_focused_diagnostics.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/78_report_daily_affect_focused_diagnostics.py \
   --run-root "$OUT_ROOT" \
   --out-root "$FOCUSED_ROOT/focused_reports" \
   --protocol cross_day \
@@ -1275,7 +1275,7 @@ PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/78_report_daily_aff
   --normalization per_modality \
   --candidate-model dynamic_kernel
 
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/73_build_daily_affect_bags.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/73_build_daily_affect_bags.py \
   --root "$ALIGN_ROOT" \
   --index-path "$INDEX_PATH" \
   --embeddings-root "$EMB_ROOT" \
@@ -1285,7 +1285,7 @@ PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/73_build_daily_affe
   --seeds 240732,240733,240734,240735 \
   --out-root "$FOCUSED_ROOT/bags"
 
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/79_run_daily_affect_focused_ablation.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/79_run_daily_affect_focused_ablation.py \
   --bags-root "$FOCUSED_ROOT/bags" \
   --out-root "$FOCUSED_ROOT" \
   --protocol cross_day \
@@ -1296,7 +1296,7 @@ PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/79_run_daily_affect
   --device cuda \
   --skip-existing
 
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/79_run_daily_affect_focused_ablation.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/79_run_daily_affect_focused_ablation.py \
   --bags-root "$FOCUSED_ROOT/bags" \
   --out-root "$FOCUSED_ROOT" \
   --protocol cross_day \
@@ -1307,11 +1307,11 @@ PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/79_run_daily_affect
   --device cuda \
   --skip-existing
 
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/76_summarize_daily_affect_results.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/76_summarize_daily_affect_results.py \
   --run-root "$FOCUSED_ROOT" \
   --out-root "$FOCUSED_ROOT/reports"
 
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/80_run_daily_affect_focused_robustness.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/80_run_daily_affect_focused_robustness.py \
   --run-root "$FOCUSED_ROOT" \
   --out-root "$FOCUSED_ROOT/robustness" \
   --protocol cross_day \
@@ -1327,7 +1327,7 @@ PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/80_run_daily_affect
 ```bash
 PRIOR_V2_ROOT=$ALIGN_ROOT/outputs/daily_affect_prior_guidance_v2_20260905
 
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/79_run_daily_affect_focused_ablation.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/79_run_daily_affect_focused_ablation.py \
   --bags-root "$ALIGN_ROOT/outputs/daily_affect_dynamic_a1_crossday_20260903/bags" \
   --out-root "$PRIOR_V2_ROOT" \
   --protocol cross_day \
@@ -1337,7 +1337,7 @@ PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/79_run_daily_affect
   --seeds 240729,240730,240731 \
   --device cuda
 
-PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/81_report_daily_affect_prior_guidance.py \
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/81_report_daily_affect_prior_guidance.py \
   --run-root "$PRIOR_V2_ROOT" \
   --out-root "$PRIOR_V2_ROOT/reports" \
   --protocol cross_day \
@@ -1849,14 +1849,14 @@ states:           (N_ema, 23, 128)
 脚本对应关系：
 
 ```text
-Phase 0: scripts/74_run_daily_affect_phase0_baselines.py
-Phase 1: scripts/73_build_daily_affect_bags.py + scripts/74_run_daily_affect_phase0_baselines.py
-Phase 2: scripts/75_run_daily_affect_state_matrix.py --model-ids bag_static
-Phase 3: scripts/75_run_daily_affect_state_matrix.py --model-ids state_uniform
-Phase 4: scripts/75_run_daily_affect_state_matrix.py --model-ids prior_uniform,prior_ordD_uniform
-Phase 5: scripts/75_run_daily_affect_state_matrix.py --model-ids dynamic_kernel
-Phase 6: scripts/76_summarize_daily_affect_results.py + scripts/77_plot_daily_affect_diagnostics.py
-Phase 7: scripts/78_report_daily_affect_focused_diagnostics.py + scripts/79_run_daily_affect_focused_ablation.py + scripts/80_run_daily_affect_focused_robustness.py
+Phase 0: scripts/daily_affect/74_run_daily_affect_phase0_baselines.py
+Phase 1: scripts/daily_affect/73_build_daily_affect_bags.py + scripts/daily_affect/74_run_daily_affect_phase0_baselines.py
+Phase 2: scripts/daily_affect/75_run_daily_affect_state_matrix.py --model-ids bag_static
+Phase 3: scripts/daily_affect/75_run_daily_affect_state_matrix.py --model-ids state_uniform
+Phase 4: scripts/daily_affect/75_run_daily_affect_state_matrix.py --model-ids prior_uniform,prior_ordD_uniform
+Phase 5: scripts/daily_affect/75_run_daily_affect_state_matrix.py --model-ids dynamic_kernel
+Phase 6: scripts/daily_affect/76_summarize_daily_affect_results.py + scripts/daily_affect/77_plot_daily_affect_diagnostics.py
+Phase 7: scripts/daily_affect/78_report_daily_affect_focused_diagnostics.py + scripts/daily_affect/79_run_daily_affect_focused_ablation.py + scripts/daily_affect/80_run_daily_affect_focused_robustness.py
 ```
 
 ## Phase 0：复现当前 baseline

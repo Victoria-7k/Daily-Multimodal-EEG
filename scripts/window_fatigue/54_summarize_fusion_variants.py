@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Summarize the fusion-variant decision slice (attention vs concat vs pma vs eeg_anchor).
 
-Reads the four variant report JSONs produced by scripts/32_run_eegpt_centered_loss.py
+Reads the four variant report JSONs produced by scripts/window_fatigue/32_run_eegpt_centered_loss.py
 (--experiment-seed-fixed --seed 240800, 8 runs each) and prints per-protocol mean
 test metrics plus an optional reference column from an archived run (e.g. the 0814
 video-only matrix, which used different seeds and is directional reference only).

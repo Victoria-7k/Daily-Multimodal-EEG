@@ -112,7 +112,7 @@ class DailyAffectBagTests(unittest.TestCase):
         self.assertIsNotNone(quadratic_weighted_kappa([0, 1, 2], [0, 1, 2]))
 
     def test_diagnostic_atlas_aggregation_is_seed_aware(self):
-        script_path = Path(__file__).resolve().parents[1] / "scripts" / "77_plot_daily_affect_diagnostics.py"
+        script_path = Path(__file__).resolve().parents[1] / "scripts" / "daily_affect" / "77_plot_daily_affect_diagnostics.py"
         spec = importlib.util.spec_from_file_location("daily_affect_diagnostics_plot", script_path)
         self.assertIsNotNone(spec)
         self.assertIsNotNone(spec.loader)
@@ -149,7 +149,7 @@ class DailyAffectBagTests(unittest.TestCase):
         self.assertTrue(np.array_equal(group["confusion"], 2 * np.eye(5, dtype=np.int64)))
 
     def test_probe_reliability_metrics_respects_test_mask(self):
-        script_path = Path(__file__).resolve().parents[1] / "scripts" / "77_plot_daily_affect_diagnostics.py"
+        script_path = Path(__file__).resolve().parents[1] / "scripts" / "daily_affect" / "77_plot_daily_affect_diagnostics.py"
         spec = importlib.util.spec_from_file_location("daily_affect_probe_reliability", script_path)
         self.assertIsNotNone(spec)
         self.assertIsNotNone(spec.loader)
@@ -169,7 +169,7 @@ class DailyAffectBagTests(unittest.TestCase):
         self.assertTrue(np.isnan(metrics[1]).all())
 
     def test_summary_pairs_across_routing_and_bootstraps_subject_days(self):
-        script_path = Path(__file__).resolve().parents[1] / "scripts" / "76_summarize_daily_affect_results.py"
+        script_path = Path(__file__).resolve().parents[1] / "scripts" / "daily_affect" / "76_summarize_daily_affect_results.py"
         spec = importlib.util.spec_from_file_location("daily_affect_summary", script_path)
         self.assertIsNotNone(spec)
         self.assertIsNotNone(spec.loader)
@@ -222,7 +222,7 @@ class DailyAffectBagTests(unittest.TestCase):
 
     @unittest.skipIf(torch is None, "torch is not installed in this runtime")
     def test_robustness_pair_missing_preserves_one_modality(self):
-        script_path = Path(__file__).resolve().parents[1] / "scripts" / "80_run_daily_affect_focused_robustness.py"
+        script_path = Path(__file__).resolve().parents[1] / "scripts" / "daily_affect" / "80_run_daily_affect_focused_robustness.py"
         spec = importlib.util.spec_from_file_location("daily_affect_robustness", script_path)
         self.assertIsNotNone(spec)
         self.assertIsNotNone(spec.loader)
@@ -330,6 +330,15 @@ class DailyAffectTrainingTests(unittest.TestCase):
             float(cumulative_probability_ordinal_loss(distant_logits, labels)),
             float(cumulative_probability_ordinal_loss(adjacent_logits, labels)),
         )
+
+    def test_expected_score_huber_loss_is_zero_at_target_and_increases_with_error(self):
+        from daily_multimodal.daily_affect.losses import expected_score_huber_loss
+
+        target = torch.tensor([2.0, 4.0])
+        self.assertEqual(float(expected_score_huber_loss(target, target)), 0.0)
+        near = expected_score_huber_loss(torch.tensor([2.2, 3.8]), target)
+        far = expected_score_huber_loss(torch.tensor([3.8, 2.2]), target)
+        self.assertGreater(float(far), float(near))
 
     def test_modality_dropout_and_routing_schedule(self):
         from daily_multimodal.daily_affect.training import apply_modality_dropout, difficulty_lambda_for_epoch
@@ -450,7 +459,7 @@ class DailyAffectTrainingTests(unittest.TestCase):
                 },
             }
             (run_dir / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
-            script = Path(__file__).resolve().parents[1] / "scripts" / "76_summarize_daily_affect_results.py"
+            script = Path(__file__).resolve().parents[1] / "scripts" / "daily_affect" / "76_summarize_daily_affect_results.py"
             result = subprocess.run(
                 [sys.executable, str(script), "--run-root", str(run_root), "--out-root", str(root / "reports")],
                 check=True,
@@ -499,7 +508,7 @@ class DailyAffectTrainingTests(unittest.TestCase):
             legacy = out_root / "cross_day/modality_weights_legacy.png"
             legacy.parent.mkdir(parents=True)
             legacy.write_bytes(b"legacy")
-            script = Path(__file__).resolve().parents[1] / "scripts" / "77_plot_daily_affect_diagnostics.py"
+            script = Path(__file__).resolve().parents[1] / "scripts" / "daily_affect" / "77_plot_daily_affect_diagnostics.py"
             result = subprocess.run(
                 [sys.executable, str(script), "--run-root", str(run_root), "--out-root", str(out_root), "--clean"],
                 check=True,
@@ -543,7 +552,7 @@ class DailyAffectTrainingTests(unittest.TestCase):
                     },
                 }
                 (run_dir / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
-            script = Path(__file__).resolve().parents[1] / "scripts" / "81_report_daily_affect_prior_guidance.py"
+            script = Path(__file__).resolve().parents[1] / "scripts" / "daily_affect" / "81_report_daily_affect_prior_guidance.py"
             result = subprocess.run(
                 [sys.executable, str(script), "--run-root", str(run_root), "--out-root", str(root / "reports")],
                 check=True,

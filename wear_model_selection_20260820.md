@@ -33,7 +33,7 @@
 ### 1.3 接入目标
 
 1. 用**开放获取**（许可证允许 + 权重公开可下载）的预训练模型替换 `Wdeep` 的随机特征提取器，提供更强的生理/运动表征。
-2. 保持 256D token 契约、`modality_mask`、融合器（`scripts/32_run_eegpt_centered_loss.py` 的 AttentionRegressor）完全不变。
+2. 保持 256D token 契约、`modality_mask`、融合器（`scripts/window_fatigue/32_run_eegpt_centered_loss.py` 的 AttentionRegressor）完全不变。
 3. 与 EEG 侧同构：每个预训练 route 提供 `frozen` 与 `partial FT` 两档，融入现有 fusion matrix（B0/A1/A2 × wear-route × full/no_audio），按相同协议（`cross_day` / `within_subject_day` 主，`cross_subject` 诊断）评估。
 
 ---
@@ -121,7 +121,7 @@
 | 预训练 encoder 推理 | `src/daily_multimodal/embeddings/wear_real.py` 新增 encoder profile（或新模块 `wear_pretrained.py`） | 消费 `sequence.npz`（PPG/GSR/ACC 重采样序列已缓存），产出预训练表征 |
 | 离线 token 生成 | 新脚本 `16_extract_wear_pretrained_tokens.py`（或扩展 `15_extract_wear_embeddings.py`） | 逐窗口推理 → `wear_emb (N,256)` npz，对齐 `sample_id` 顺序 |
 | 投影头/微调训练 | 仿 `daily_multimodal.training.eeg_encoder_matrix` 的 profile 机制 | 输出 `{embeddings_root}/wear_tokens/{protocol}/{profile}/seed_{seed}.npz`（对应 EEG 的 `eeg_encoder_256d_tokens`） |
-| 融合矩阵挂载 | `scripts/32_run_eegpt_centered_loss.py` | `BRANCHES` 增加 `wear_moment_frozen_v1` 等分支（指向新 npz，`emb_key="wear_emb"`、`mask_key="wear_mask"`、`modality_index=1`）；`EXPERIMENT_BRANCHES` 增加 `B0_Wmoment_frozen_full` / `_no_audio` 等 route 元组；`--experiment-set video_only` 自动纳入 |
+| 融合矩阵挂载 | `scripts/window_fatigue/32_run_eegpt_centered_loss.py` | `BRANCHES` 增加 `wear_moment_frozen_v1` 等分支（指向新 npz，`emb_key="wear_emb"`、`mask_key="wear_mask"`、`modality_index=1`）；`EXPERIMENT_BRANCHES` 增加 `B0_Wmoment_frozen_full` / `_no_audio` 等 route 元组；`--experiment-set video_only` 自动纳入 |
 | 结果报告 | 现有 matrix 汇总 + 文档 | 同协议、同指标口径；明确记录监督边界 |
 
 依赖安装：MOMENT 通过 `pip install momentfm`（或直接 HF `from_pretrained`）；Pulse-PPG/PRIMUS 按官方仓库 README。服务器环境为 `runtime/envs/eegpt-gpu-min`（参考 change-log 的既有验证方式）。
@@ -164,7 +164,7 @@
 
 ## 9. 参考资料
 
-- 现状：`technical_route_20260814.md`；`src/daily_multimodal/embeddings/wear_real.py`；`scripts/32_run_eegpt_centered_loss.py`；`scripts/34_run_eeg_encoder_matrix.py`
+- 现状：`technical_route_20260814.md`；`src/daily_multimodal/embeddings/wear_real.py`；`scripts/window_fatigue/32_run_eegpt_centered_loss.py`；`scripts/embeddings/34_run_eeg_encoder_matrix.py`
 - MOMENT-1：<https://huggingface.co/AutonLab/MOMENT-1-large>（MIT），<https://arxiv.org/abs/2402.03885>
 - Pulse-PPG：<https://zenodo.org/records/17270931>，<https://arxiv.org/abs/2502.01108>
 - PRIMUS：<https://github.com/Nokia-Bell-Labs/pretrained-imu-encoders>，<https://arxiv.org/abs/2411.15127>

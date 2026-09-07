@@ -1,6 +1,6 @@
 # Token Normalization Scope Probe
 
-本文记录 2026-08-24 对 `scripts/32_run_eegpt_centered_loss.py` 新增 `--token-normalization` 后的快速效果检查。
+本文记录 2026-08-24 对 `scripts/window_fatigue/32_run_eegpt_centered_loss.py` 新增 `--token-normalization` 后的快速效果检查。
 
 ## 改动
 

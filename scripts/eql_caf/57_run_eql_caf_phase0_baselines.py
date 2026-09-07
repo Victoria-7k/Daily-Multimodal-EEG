@@ -48,7 +48,7 @@ def main() -> int:
                     run_dir = args.out_root / protocol / experiment / variant / f"seed_{seed}"
                     command = [
                         sys.executable,
-                        "scripts/32_run_eegpt_centered_loss.py",
+                        "scripts/window_fatigue/32_run_eegpt_centered_loss.py",
                         "--root",
                         str(args.root),
                         "--embeddings-root",

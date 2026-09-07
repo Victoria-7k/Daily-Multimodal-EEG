@@ -1,7 +1,7 @@
 """Wear × MOMENT token 训练模块（EEG-aligned 疲劳预测主线）。
 
 产出 fatigue-supervised 的 256D wear token，直接接入
-``scripts/32_run_eegpt_centered_loss.py`` 的 BRANCHES：
+``scripts/window_fatigue/32_run_eegpt_centered_loss.py`` 的 BRANCHES：
 
 - ``wear_moment_frozen_v1``:     MOMENT-1 encoder 冻结 + 可学习 256D 投影头
 - ``wear_moment_partial_ft_v1``: 解冻最后 N 个 transformer block + final norm + 投影头
