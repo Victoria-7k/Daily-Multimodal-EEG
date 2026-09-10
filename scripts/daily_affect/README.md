@@ -20,3 +20,7 @@ daily-affect EMA-bag ordinal route、focused diagnostics、window-daily event br
 | `86_plot_window_daily_event_bridge_series.py` | 绘制窗口主线、daily static、daily dynamic 的 matched event 三面板图。 |
 | `87_report_window_daily_range_precision.py` | 报告动态范围、raw r、label separation 和 subject-day bootstrap。 |
 | `88_run_daily_affect_expected_score_huber.py` | 扫描 expected-score Huber 辅助损失权重，validation-locked 后输出三 seed exploratory 对照。 |
+| `89_run_daily_affect_label_permutation.py` | 对 label-free/fixed-token 主候选进行 EMA event 级标签置换：先跑 5×1 global-shuffle gate，通过后才能跑 30×3 within-subject null。 |
+| `90_run_daily_affect_scalar_regression.py` | 用 train-only 标准化标量 MSE，成对运行独立窗口 full-mean 与全部 EMA-bag 回归结构；含 preflight、smoke 和完整矩阵入口。 |
+| `91_summarize_daily_affect_scalar_regression.py` | 汇总标量回归 run，报告同 protocol/seed 的窗口配对 raw-r/RMSE delta 与 subject-day bootstrap CI。 |
+| `92_plot_daily_affect_scalar_regression.py` | 从 `91` 的 CSV 输出按协议 raw-r/-RMSE seed 图与 EMA-bag 相对窗口的 raw-r delta 图。 |
