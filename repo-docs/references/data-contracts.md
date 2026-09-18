@@ -92,6 +92,17 @@
 | `quality_feature_names_json`、`encoder_versions_json`、`source_paths_json` | packed temporal NPZ 的审计 metadata，保存质量特征名、encoder 版本和每个模态来源路径 | [temporal pack 模块](../../src/daily_multimodal/temporal/pack_temporal_tokens.py) |
 | `global_repeat_smoke_v1` | `59-62` 当前 smoke 模式写入的 encoder version：把同一个窗口级 256D token 复制到 5 个时间片，只用于验证管线和契约，不用于证明窗口内 temporal fusion 或 lag bias | [global repeat 模块](../../src/daily_multimodal/temporal/global_repeat_tokens.py) |
 
+## `within_subject_day` split 标识
+
+从 2026-09-13 起，`within_subject_day` 是修复后 held-out-day 划分的唯一正式名称。新运行必须读取 `<aligned-root>/outputs/splits/within_subject_day`，并在 manifest 中记录该 split root。
+
+| Split 路径 | 划分单位与含义 | train / val / test 窗口数 | 重叠审计 |
+| --- | --- | --- | --- |
+| `<aligned-root>/outputs/splits/within_subject_day` | 按 `subject-day pair` 整体划分；每个被试按日期排序，约 60% 日期训练、20% 验证、20% 测试 | `17135 / 5658 / 6026` | train/val/test 的 subject-day 与 event overlap 均为 `0` |
+| `/vePFS-0x0d/DailyEEG/splits_new/within_subject_day` | 历史宽松窗口级划分；当前账号无删除权限，已从所有当前入口禁用 | `17243 / 5708 / 5868` | train-val、train-test、val-test 均共享全部 `150` 个 subject-day；train-val 与 val-test 各共享 `107` 个 EMA event |
+
+旧宽松 split 的历史结果只能以 `legacy within-day window split` 标识，不能与 canonical `within_subject_day` 合并。重复的 `within_subject_day_strict` 活动目录已移出 `outputs/splits`；旧报告可保留该名称作为 provenance，新命令和新报告统一使用 `within_subject_day`。构建规则见 [历史 split 构建入口](../../scripts/archive_legacy/33_build_strict_within_subject_day_split.py)，overlap 记录见 [split audit](../../outputs/server_sync/eegpt_centered_improvement/split_audit_subject_day.json)。
+
 ## Daily-affect EMA bag 字段
 
 Daily-affect ordinal route 由 `scripts/daily_affect/73_build_daily_affect_bags.py` 调用 [EMA bag 构建模块](../../src/daily_multimodal/daily_affect/ema_bags.py)。它读取窗口级 EEG/Wear/Video/Audio 256D embedding，把同一 EMA event 的 `23` 个 EEG-aligned 窗口聚成一个监督样本；该路线不读取 EQL-CAF packed temporal NPZ，也不使用 `token_mask`。

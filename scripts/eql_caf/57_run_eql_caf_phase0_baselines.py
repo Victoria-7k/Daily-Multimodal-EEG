@@ -14,7 +14,7 @@ from pathlib import Path
 DEFAULT_ROOT = Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned")
 DEFAULT_EMBEDDINGS_ROOT = Path("/vePFS-0x0d/DailyEEG_multimodal/embeddings")
 DEFAULT_SPLITS_ROOT = DEFAULT_ROOT / "outputs/splits"
-DEFAULT_PROTOCOLS = ("cross_day", "within_subject_day_strict")
+DEFAULT_PROTOCOLS = ("cross_day", "within_subject_day")
 DEFAULT_SEEDS = (240800, 240801, 240802)
 DEFAULT_EXPERIMENTS = ("B0_Wphysio_full", "B0_Wphysio_no_audio", "B0_Wdeep_full", "B0_Wdeep_no_audio")
 DEFAULT_VARIANTS = ("attention", "concat", "eeg_anchor")

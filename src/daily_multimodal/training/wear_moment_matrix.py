@@ -33,6 +33,8 @@ from typing import Any
 
 import numpy as np
 
+from daily_multimodal.split_paths import resolve_protocol_split_root
+
 from daily_multimodal.alignment.time_utils import parse_absolute_time
 from daily_multimodal.embeddings.wear_real import (
     TARGET_SAMPLE_RATES_HZ,
@@ -293,10 +295,11 @@ def load_split_protocols(
     root = Path(splits_root)
     result: dict[str, SplitProtocol] = {}
     for protocol in protocols:
-        pretrain = _load_indices(root / protocol / "pretrain.json", dataset.row_count)
-        finetune = _load_indices(root / protocol / "finetune.json", dataset.row_count)
-        val = _load_indices(root / protocol / "val.json", dataset.row_count)
-        test = _load_indices(root / protocol / "test.json", dataset.row_count)
+        protocol_root = resolve_protocol_split_root(root, protocol)
+        pretrain = _load_indices(protocol_root / "pretrain.json", dataset.row_count)
+        finetune = _load_indices(protocol_root / "finetune.json", dataset.row_count)
+        val = _load_indices(protocol_root / "val.json", dataset.row_count)
+        test = _load_indices(protocol_root / "test.json", dataset.row_count)
         train = np.concatenate([pretrain, finetune]).astype(np.int64)
         _validate_split_no_overlap(protocol, train=train, val=val, test=test)
         result[protocol] = SplitProtocol(
@@ -306,7 +309,7 @@ def load_split_protocols(
             train=train,
             val=val,
             test=test,
-            source_root=root / protocol,
+            source_root=protocol_root,
         )
     return result
 

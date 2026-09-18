@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 
 from daily_multimodal.training.centered_metrics import evaluate_regression_with_centered
+from daily_multimodal.split_paths import resolve_protocol_split_root
 
 
 LABEL_NAMES = [
@@ -214,7 +215,7 @@ def load_split_protocols(
     root = Path(splits_root)
     loaded: dict[str, SplitProtocol] = {}
     for protocol in protocols:
-        protocol_root = root / protocol
+        protocol_root = resolve_protocol_split_root(root, protocol)
         split = {name: _load_indices(protocol_root / f"{name}.json", row_count) for name in ("pretrain", "finetune", "val", "test")}
         train = np.asarray(split["pretrain"].tolist() + split["finetune"].tolist(), dtype=np.int64)
         _validate_split_no_overlap(protocol, train=train, val=split["val"], test=split["test"])

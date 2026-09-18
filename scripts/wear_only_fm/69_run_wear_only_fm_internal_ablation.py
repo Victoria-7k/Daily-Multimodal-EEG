@@ -22,6 +22,7 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from daily_multimodal.training.centered_metrics import evaluate_regression_with_centered
+from daily_multimodal.split_paths import resolve_protocol_split_root
 
 
 DEFAULT_ROOT = Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned")
@@ -180,7 +181,10 @@ def main() -> int:
     started = time.time()
     run_number = 0
     for protocol in protocols:
-        split = _filter_split(_load_split(args.splits_root / protocol, len(dataset.sample_id)), dataset.complete_mask)
+        split = _filter_split(
+            _load_split(resolve_protocol_split_root(args.splits_root, protocol), len(dataset.sample_id)),
+            dataset.complete_mask,
+        )
         for seed in seeds:
             for route in routes:
                 run_number += 1

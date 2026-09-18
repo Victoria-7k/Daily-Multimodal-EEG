@@ -211,7 +211,7 @@ test = test
 - validation / test 不参与任何统计量拟合。
 - 三种协议分别报告，不能把不同协议的窗口、EMA 或指标混成一个主结果。
 
-如果后续需要接入 `within_subject_day_strict` 或新的 subject-independent `8:1:1` split，应作为额外协议单独命名、单独报告，不覆盖当前三协议口径。
+后续同被试 held-out-day 实验统一使用 repaired `within_subject_day`；新的 subject-independent `8:1:1` split 应作为额外协议单独命名、单独报告，不覆盖当前三协议口径。
 
 ---
 

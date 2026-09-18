@@ -17,6 +17,7 @@ import numpy as np
 import torch
 
 from daily_multimodal.training.centered_metrics import evaluate_regression_with_centered
+from daily_multimodal.split_paths import resolve_protocol_split_root
 
 
 DEFAULT_ROOT = Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned")
@@ -137,7 +138,7 @@ def main() -> int:
     started = time.time()
     run_number = 0
     for protocol in protocols:
-        split = _load_split(args.splits_root / protocol, dataset.sample_id.shape[0])
+        split = _load_split(resolve_protocol_split_root(args.splits_root, protocol), dataset.sample_id.shape[0])
         split = _filter_split(split, dataset.complete_mask)
         for seed in seeds:
             for route in routes:

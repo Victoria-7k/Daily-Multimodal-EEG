@@ -15,6 +15,7 @@ import numpy as np
 import torch
 
 from daily_multimodal.training.centered_metrics import evaluate_regression_with_centered, safe_pearsonr
+from daily_multimodal.split_paths import resolve_protocol_split_root
 
 
 DEFAULT_ROOT = Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned")
@@ -133,7 +134,10 @@ def main() -> int:
     args.out_root.mkdir(parents=True, exist_ok=True)
 
     split_by_protocol = {
-        protocol: _filter_split(_load_split(args.splits_root / protocol, dataset.sample_id.shape[0]), dataset.complete_mask)
+        protocol: _filter_split(
+            _load_split(resolve_protocol_split_root(args.splits_root, protocol), dataset.sample_id.shape[0]),
+            dataset.complete_mask,
+        )
         for protocol in protocols
     }
     shift_rows = []

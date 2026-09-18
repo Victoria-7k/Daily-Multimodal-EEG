@@ -204,12 +204,16 @@ class DailyAffectRegressionModel(nn.Module):
             )
         temporal_weights, kernel_mixture = self._temporal_weights(states, window_mask)
         if self.uses_window_regression:
-            window_prediction = self.head(self.dropout(states)).squeeze(-1)
-            prediction = torch.sum(window_prediction * temporal_weights, dim=1)
+            window_prediction = self.head(self.dropout(states))
+            prediction = torch.sum(window_prediction * temporal_weights[:, :, None], dim=1)
         else:
             summary = torch.sum(states * temporal_weights[:, :, None], dim=1)
-            prediction = self.head(self.dropout(summary)).squeeze(-1)
+            prediction = self.head(self.dropout(summary))
             window_prediction = None
+        if prediction.shape[-1] == 1:
+            prediction = prediction.squeeze(-1)
+            if window_prediction is not None:
+                window_prediction = window_prediction.squeeze(-1)
         outputs: dict[str, torch.Tensor] = {
             "prediction": prediction,
             "modality_weights": modality_weights,
@@ -333,4 +337,3 @@ def _masked_softmax(scores: torch.Tensor, mask: torch.Tensor, *, dim: int) -> to
     masked = scores.masked_fill(~safe_mask, torch.finfo(scores.dtype).min)
     weights = torch.softmax(masked, dim=dim) * safe_mask.to(dtype=scores.dtype)
     return weights / weights.sum(dim=dim, keepdim=True).clamp_min(1e-6)
-

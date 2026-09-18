@@ -374,6 +374,10 @@ for protocol in [cross_day, within_subject_day, cross_subject]:
 
 诊断结果：`cross_day` 上 handcrafted ACC 没有修复 W3FM，三 seed 均值 RMSE `1.0289+/-0.0120`、raw r `-0.0001+/-0.0168`、centered r `-0.0605+/-0.0173`，相对完整 `W3FM_frozen` raw r `-0.0291`、RMSE `+0.0007`，相对 `W3FM_no_acc` raw r `-0.0657`、RMSE `+0.0449`。因此跨日协议下最干净的诊断结论仍是删掉 ACC 比替换为简单稳定运动统计更好，问题不只是 HARNet10 高维 embedding 形式，也可能包括 ACC 在跨日 split 中携带的非稳定运动/佩戴状态信号。`within_subject_day` 上 handcrafted ACC 有可用信号：RMSE `1.0038+/-0.0091`、raw r `0.1580+/-0.0212`，raw r 高于完整 W3FM 和 no-ACC；但 centered r `0.0253+/-0.0169` 与完整 W3FM `0.0325+/-0.0131` 接近。结论只作为 post-Phase3 诊断，不改变 Phase 3 formal stop 判定；若继续救 W3FM，下一步应按 protocol 分开设计 ACC 分支过滤/降权或鲁棒 gate，而不是直接把 handcrafted ACC 升为主线。
 
+**2026-09-11 NormWear-all 诊断记录**：按“三个模态都接 NormWear”的追问新增并执行 `scripts/wear_only_fm/90_run_w3fm_normwear_all_screen.py`。该脚本复用 staged 10 秒 PPG/ACC/GSR 输入和 `wear_complete_mask`，将三路都输入 frozen `NormWearModel`：PPG 与 GSR 做 patch mean pooling 得到 768D，ACC 先得到三轴 embedding 再按轴 mean pooling 成单个 768D ACC token，保持 W3FM 的三 token fusion 结构。下游投影、gate 与回归头仍按 protocol/seed 使用疲劳监督训练，并从 Phase 2、internal ablation 和 ACC replacement 结果读取 `Wphysio/Wdeep/Wmoment_frozen/W3FM_frozen/W3FM_no_acc/W3FM_acc_handcrafted` reference。服务器空间复查：运行前 `/vePFS-0x0d` 可用约 `79G`、根分区仅约 `88M`，因此命令显式设置 `TMPDIR/XDG_CACHE_HOME/MPLCONFIGDIR/HF_HOME` 到项目内 `outputs/tmp`；运行后 `/vePFS-0x0d` 可用约 `78G`。完整远端产物为 `outputs/wear_fm/normwear_all_screen/`，本地同步副本为 `outputs/server_sync/wear_fm_normwear_all_screen_20260911/`。
+
+诊断结果：三路 NormWear 缓存均为 `(28819,768)`，有效行均为 `24127`，与 `wear_complete_mask` 一致。`cross_day` 上 `W3FM_normwear_all` 三 seed 均值 RMSE `0.9938+/-0.0198`、raw r `0.1515+/-0.0649`、centered r `0.0353+/-0.0463`；raw r 高于 Wdeep 与 no-ACC，但 RMSE 高于 `W3FM_no_acc`/Wdeep，centered r 低于 `W3FM_no_acc`。`within_subject_day` 上 RMSE `1.0363+/-0.0167`、raw r `0.1879+/-0.0035`、centered r `0.0379+/-0.0177`；raw r 接近 Wdeep，但 RMSE 明显差于 Wdeep `0.9813+/-0.0068`，centered r 也低于 Wdeep `0.0485+/-0.0054`。该分支说明统一 NormWear 表征能改善相关性读数，但仍没有把 W3FM 恢复为优于既有 wear-only baseline 的稳定主线；结论保持 post-Phase3 诊断，不改变 formal stop 判定。
+
 ---
 
 ## 8. 最终结果表模板

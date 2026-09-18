@@ -268,10 +268,10 @@ RMSE, MAE, raw r, centered r
 
 ```text
 cross_day
-within_subject_day_strict
+within_subject_day
 ```
 
-`within_subject_day_strict` 是正式 held-out-day 口径；原始 `within_subject_day` 可保留为窗口级诊断。`cross_subject` 保留为诊断，不作为第一轮主结论。
+从 2026-09-13 起，`within_subject_day` 统一指 repaired held-out-day 口径；原宽松窗口级 split 只作为历史 provenance。`cross_subject` 保留为诊断，不作为第一轮主结论。
 
 ### Step 2：EEG multi-task supervised embedding
 
@@ -293,14 +293,14 @@ within_subject_day_strict
 
 - `eegpt_multitask_11label_v1` 在 `fatigue` 上接近 single-task fatigue。
 - 同时在 `alert/attentive/active` 等其他标签上优于 frozen 或 fatigue-only transfer。
-- 不显著牺牲 `cross_day` 和 `within_subject_day_strict` 的稳定性。
+- 不显著牺牲 `cross_day` 和 `within_subject_day` 的稳定性。
 
 进入下一阶段的硬门槛：
 
 - 至少使用多 seed paired comparison，而不是单 seed 最优值。
 - `fatigue` 相对 `eegpt_partial_ft_fatigue_v1` 的 RMSE / raw r / centered r 不能出现实质性退化；允许的退化阈值应在实验前写入 config 或 report header。
 - `alert/attentive/active` 等 activation 标签相对 `eegpt_frozen_v1` 或 `fatigue_supervised_eeg_transfer_11label_v1` 应有稳定增益，并报告正向 seed 数。
-- `cross_day` 与 `within_subject_day_strict` 两个主协议都需要通过稳定性检查后，再推进 Wear multi-task 或端到端方案。
+- `cross_day` 与 `within_subject_day` 两个主协议都需要通过稳定性检查后，再推进 Wear multi-task 或端到端方案。
 
 ### Step 3：Wear multi-task supervised embedding
 
@@ -362,8 +362,9 @@ test  = final metrics only
 正式汇报协议：
 
 ```text
-primary:    cross_day, within_subject_day_strict
-diagnostic: cross_subject, 原始 within_subject_day
+primary:    cross_day, within_subject_day
+diagnostic: cross_subject
+historical: legacy within-day window split
 ```
 
 原始 `within_subject_day` 只能作为同一 subject-day 内窗口级诊断，不进入 held-out-day 主结论。

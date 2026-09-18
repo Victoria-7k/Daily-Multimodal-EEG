@@ -1,6 +1,6 @@
 # Wear-Only FM Scripts
 
-Wear-only foundation-model 表征路线、W3FM formal gate、post-gate 诊断和 ACC 替换筛查入口。
+Wear-only foundation-model 表征路线、W3FM formal gate、post-gate 诊断和 ACC/NormWear 替换筛查入口。
 
 | 脚本 | 用途 |
 | --- | --- |
@@ -14,3 +14,4 @@ Wear-only foundation-model 表征路线、W3FM formal gate、post-gate 诊断和
 | `71_summarize_wear_fm_training_sweep.py` | 汇总 W3FM training-parameter sweep。 |
 | `72_diagnose_w3fm_failure_modes.py` | 解释 W3FM embedding split shift、feature stability、ridge probe 和 gate/error association。 |
 | `89_run_w3fm_acc_handcrafted_screen.py` | 用 label-free handcrafted ACC 特征替代 HARNet10 ACC embedding 的小筛查。 |
+| `90_run_w3fm_normwear_all_screen.py` | 将 PPG、ACC、GSR 三路都改用 frozen NormWear embedding 的 post-Phase3 诊断筛查。 |

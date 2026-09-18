@@ -112,6 +112,14 @@ BRANCHES = {
     "audio": Branch("audio", "audio", "audio/audio_opensmile_eeg23win_embeddings.npz", "audio_emb", "audio_mask", 3),
 }
 
+for _label in LABEL_NAMES:
+    _name = f"eeg_eegpt_partial_ft_single_{_label}_v1"
+    BRANCHES[_name] = Branch(
+        _name, "eeg",
+        f"{{eeg_token_root}}/single_task/{{protocol}}/{_label}/seed_{{eeg_seed}}.npz",
+        "eeg_emb", "eeg_mask", 0, f"{_label}_supervised_partial_ft",
+    )
+
 
 EXPERIMENT_BRANCHES = {
     "B0_Wphysio_full": ("eeg", "wear_physio", "video_B0", "audio"),
@@ -600,5 +608,6 @@ def norm_subject(value: Any) -> str:
 def supervision_boundary(branches: tuple[str, ...]) -> str:
     controls = [name for name in branches if BRANCHES[name].supervision != "label_free_or_fixed"]
     if controls:
-        return "mixed_with_fatigue_supervised_controls:" + ",".join(controls)
+        prefix = "mixed_with_label_supervised_controls:" if any("_single_" in name for name in controls) else "mixed_with_fatigue_supervised_controls:"
+        return prefix + ",".join(controls)
     return "label_free_or_fixed_embeddings_only"

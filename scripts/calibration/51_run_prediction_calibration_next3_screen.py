@@ -17,6 +17,8 @@ from typing import Any
 import numpy as np
 import torch
 
+from daily_multimodal.split_paths import resolve_protocol_split_root
+
 
 DEFAULT_ROOT = Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned")
 DEFAULT_SPLITS_ROOT = Path("/vePFS-0x0d/DailyEEG/splits_new")
@@ -93,7 +95,7 @@ def main() -> int:
     run_count = 0
     branch_cache: dict[tuple[str, str], dict[str, Any]] = {}
     for protocol, experiment in requested:
-        split = source._load_split(args.splits_root / protocol, len(rows))
+        split = source._load_split(resolve_protocol_split_root(args.splits_root, protocol), len(rows))
         branches = source._replace_eeg_branch(source.EXPERIMENT_BRANCHES[experiment], "eeg_eegpt_partial_ft_v1")
         branch_data = source._load_all_branches(
             args.embeddings_root,

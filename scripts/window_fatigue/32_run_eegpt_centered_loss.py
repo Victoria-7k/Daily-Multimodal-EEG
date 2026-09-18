@@ -15,6 +15,7 @@ import numpy as np
 import torch
 
 from daily_multimodal.training.centered_metrics import evaluate_regression_with_centered
+from daily_multimodal.split_paths import resolve_protocol_split_root
 
 
 LABEL_NAMES = [
@@ -215,7 +216,8 @@ def main() -> int:
     results: list[dict[str, Any]] = []
     run_number = 0
     for protocol, experiment in requested:
-        split = _load_split(args.splits_root / protocol, len(rows))
+        protocol_split_root = resolve_protocol_split_root(args.splits_root, protocol)
+        split = _load_split(protocol_split_root, len(rows))
         for eeg_branch in eeg_branches:
             branches = _replace_eeg_branch(EXPERIMENT_BRANCHES[experiment], eeg_branch)
             branch_data = _load_all_branches(
@@ -293,6 +295,7 @@ def main() -> int:
                 )
                 result = {
                     "protocol": protocol,
+                    "protocol_split_root": str(protocol_split_root),
                     "experiment": experiment,
                     "eeg_branch": eeg_branch,
                     "branches": list(branches),

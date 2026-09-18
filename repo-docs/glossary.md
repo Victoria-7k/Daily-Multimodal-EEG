@@ -17,3 +17,5 @@
 | real embedding ablation | 阶段 18 对 basic、stage10、单模态 real 替换和 all-real 组合的同 split 对照 | [运行命令和产物](references/commands-and-artifacts.md) |
 | fair embedding ablation | 检查 real embedding 提升是否可能来自路径、session、source path 或 sample 元数据泄漏的公平对照 | [字段契约](references/data-contracts.md) |
 | EEG coverage audit | 检查 EEG 窗口 offset 是否落在 BDF 记录范围内的审计，用于区分负 offset、记录尾部之后、部分重叠和整天偏移候选 | [字段契约](references/data-contracts.md) |
+| `within_subject_day` | 修复后的唯一正式 held-out-day 协议；以 subject-day 为不可拆分单位，位于 aligned root 的 `outputs/splits/within_subject_day` | [split 标识](references/data-contracts.md#within_subject_day-split-标识) |
+| legacy within-day window split | 曾位于 `/vePFS-0x0d/DailyEEG/splits_new/within_subject_day` 的宽松窗口级划分；已从当前入口禁用，名称只用于历史 provenance | [split 标识](references/data-contracts.md#within_subject_day-split-标识) |

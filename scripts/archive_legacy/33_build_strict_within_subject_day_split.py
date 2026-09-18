@@ -18,7 +18,7 @@ def main() -> int:
     parser.add_argument("--train-ratio", type=float, default=0.60)
     parser.add_argument("--val-ratio", type=float, default=0.20)
     parser.add_argument("--pretrain-ratio-of-train", type=float, default=0.35)
-    parser.add_argument("--name", default="within_subject_day_strict")
+    parser.add_argument("--name", default="within_subject_day")
     args = parser.parse_args()
 
     rows = _load_jsonl(args.window_index)

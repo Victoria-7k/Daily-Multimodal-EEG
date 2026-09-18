@@ -40,7 +40,7 @@ NEGATIVE_LABELS = {"hostile", "nervous", "upset", "afraid", "ashamed"}
 DEFAULT_ROOT = Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned")
 DEFAULT_SPLITS_ROOT = DEFAULT_ROOT / "outputs/splits"
 DEFAULT_EMBEDDINGS_ROOT = Path("/vePFS-0x0d/DailyEEG_multimodal/embeddings")
-DEFAULT_PROTOCOLS = ("cross_day", "within_subject_day_strict")
+DEFAULT_PROTOCOLS = ("cross_day", "within_subject_day")
 
 
 @dataclass(frozen=True)
