@@ -59,6 +59,15 @@ BRANCHES = {
         0,
         "fatigue_supervised_control",
     ),
+    "eeg_eegpt_partial_ft_multitask_11label_v1": Branch(
+        "eeg_eegpt_partial_ft_multitask_11label_v1",
+        "eeg",
+        "{eeg_token_root}/multitask_11label/{protocol}/seed_{eeg_seed}.npz",
+        "eeg_emb",
+        "eeg_mask",
+        0,
+        "multitask_11label_supervised_partial_ft",
+    ),
     "eeg_cbramod_frozen_v1": Branch(
         "eeg_cbramod_frozen_v1",
         "eeg",
@@ -608,6 +617,11 @@ def norm_subject(value: Any) -> str:
 def supervision_boundary(branches: tuple[str, ...]) -> str:
     controls = [name for name in branches if BRANCHES[name].supervision != "label_free_or_fixed"]
     if controls:
-        prefix = "mixed_with_label_supervised_controls:" if any("_single_" in name for name in controls) else "mixed_with_fatigue_supervised_controls:"
+        if any("_multitask_11label_" in name for name in controls):
+            prefix = "mixed_with_multitask_11label_supervised_controls:"
+        elif any("_single_" in name for name in controls):
+            prefix = "mixed_with_label_supervised_controls:"
+        else:
+            prefix = "mixed_with_fatigue_supervised_controls:"
         return prefix + ",".join(controls)
     return "label_free_or_fixed_embeddings_only"

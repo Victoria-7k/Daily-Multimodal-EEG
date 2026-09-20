@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run 0814 window and 0906 EMA-bag structures with one fixed 11-label input."""
+"""Run 0814/0906 structures with one 11-label-supervised EEGPT input."""
 
 from __future__ import annotations
 
@@ -17,7 +17,8 @@ if str(ROOT / "src") not in sys.path:
 from daily_multimodal.daily_affect.ema_bags import build_daily_affect_bags, load_jsonl
 from daily_multimodal.daily_affect.training import load_bag_dataset
 from daily_multimodal.training.structure_emotion import (
-    EMBEDDING_SEED, ROUTE_ID, audit_bag, audit_common_eeg_token, conditions, event_targets, run_condition,
+    EEG_BRANCH, EMBEDDING_SEED, ROUTE_ID, audit_bag, audit_multitask_eeg_token,
+    conditions, event_targets, run_condition,
 )
 
 
@@ -73,13 +74,13 @@ def main() -> int:
                 index_path=index_path, splits_root=args.root / "outputs/splits",
                 embeddings_root=args.embeddings_root, protocol=protocol,
                 route_id="A1_Wphysio_no_audio", out_dir=bag_dir, target_label="fatigue",
-                eeg_branch="eeg_eegpt_partial_ft_v1", eeg_seed=EMBEDDING_SEED,
+                eeg_branch=EEG_BRANCH, eeg_seed=EMBEDDING_SEED,
             )
         dataset = load_bag_dataset(bag_path)
         targets = event_targets(dataset, index_rows)
         audit = audit_bag(dataset, targets, protocol)
-        audit.update(audit_common_eeg_token(
-            args.embeddings_root / "eeg_encoder_256d_tokens" / protocol / "eegpt_partial_ft_v1" / f"seed_{EMBEDDING_SEED}.npz",
+        audit.update(audit_multitask_eeg_token(
+            args.embeddings_root / "eeg_encoder_256d_tokens" / "multitask_11label" / protocol / f"seed_{EMBEDDING_SEED}.npz",
             index_rows, args.root / "outputs/splits", protocol,
         ))
         audits.append(audit)

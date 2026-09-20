@@ -11,7 +11,7 @@
 | `95_run_multiemotion_fusion.py` | 在 12 条 fixed-token route 上运行 E0/H0/H1 event-aware 多标签回归。 |
 | `96_summarize_multiemotion.py` | 只用 validation 锁定 route，并按 matched seeds 判定 H1 相对 H0 的晋级门槛。 |
 | `97_run_supervised_eeg_fusion.py` | 在锁定 route 上运行 ST11 frozen/PFT scalar fusion 或 MT11 frozen/PFT/fatigue-transfer H1 fusion。 |
-| `98_run_structure_emotion_matrix.py` | 固定 `A1_Wphysio_no_audio__eeg_eegpt_partial_ft_v1` 的上游 `seed_240800`，将0814单一窗口结构与0906的18种事件结构统一接到 H1 11标签回归头，按两个协议和三个下游 seed 训练；preflight 审计标签、事件、修复 split、EEG token split 来源。 |
+| `98_run_structure_emotion_matrix.py` | 固定 `A1_Wphysio_no_audio__eeg_eegpt_partial_ft_multitask_11label_v1` 的上游 `seed_240800`，将0814单一窗口结构与0906的18种事件结构统一接到 H1 11标签回归头，按两个协议和三个下游 seed 训练；preflight 审计标签、事件、修复 split、EEG token 的 11 标签共同监督来源。 |
 | `99_summarize_structure_emotion_matrix.py` | 核对各 run 的 EMA event、标签和输入 provenance，再按协议生成 raw r、standardized RMSE、centered r 的“结构 × 11情绪”表格及 paired-baseline 宏指标 CSV；结构赢家只按 validation macro sRMSE 选。 |
 | `100_audit_eegpt_single_label_bank.py` | 逐份核对22个单标签 EEGPT token 的形状、有限值、canonical sample/split、监督边界及对应 metrics，输出可复查的 `bank_audit.json`。 |
 | `101_run_single_task_structure_matrix.py` | 第一条完整路线：11标签各自的 EEGPT partial-FT token + A1/Wphysio/no_audio，独立训练0814一条和0906的18条标量结构，固定上游1 seed、下游3 seeds；preflight 审计标签专属 EEG、split 和无音频 bag。 |
@@ -21,5 +21,6 @@
 | `106_queue_legacy_eeg_bank.sh` | 等待当前独立微调结束后逐标签、逐协议用独立进程断点续跑旧配置 EEG token bank；失败最多重试3次，不触发下游回归。 |
 | `107_queue_legacy_single_task_matrix.sh` | 逐协议/标签独立进程运行旧配置的19结构 × 3下游 seed 标量矩阵，已完成 run 跳过、失败最多重试3次；日志在 `outputs/multiemotion_legacy_replay_20260917/logs/legacy_single_task_matrix.log`。 |
 | `108_finalize_legacy_single_task_matrix.sh` | 等待 `107` 成功结束后用 `102` 严格核对1254/1254并生成旧配置独立六张表；运行时传入 `107` 的 PID。 |
+| `109_replace_structure_matrix_with_mt11.sh` | 等待 `94` 的两协议 MT11 token 完成并通过审计后，清除当前 fatigue-supervised 共享多头 runs/summary，原位重跑114个结构 run，再由 `99` 生成覆盖后的六张表和 README。 |
 
 当前 repaired held-out-day 协议统一命名为 `within_subject_day`，解析到 aligned `outputs/splits/within_subject_day`。`93`/`94` 的正式 EEG 微调严格只解冻 EEGPT 最后两个 transformer blocks 与 final norm；256D projection、共享 trunk 和任务 head 作为 encoder 外新层训练。

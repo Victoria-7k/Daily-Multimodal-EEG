@@ -21,7 +21,6 @@ LABELS = (
     "inspired", "alert", "determined", "attentive", "active",
     "hostile", "nervous", "upset", "afraid", "ashamed", "fatigue",
 )
-ROUTE_ID = "A1_Wphysio_no_audio__eeg_eegpt_partial_ft_v1"
 METRICS = ("raw_r", "standardized_rmse", "within_subject_centered_r")
 BASELINE = "window_attention_regression_full_mean"
 PROTOCOLS = ("cross_day", "within_subject_day")
@@ -31,6 +30,11 @@ SEEDS = (240800, 240801, 240802)
 def condition_order() -> tuple[str, ...]:
     from daily_multimodal.training.structure_emotion import conditions
     return tuple(conditions())
+
+
+def fixed_route_id() -> str:
+    from daily_multimodal.training.structure_emotion import ROUTE_ID
+    return ROUTE_ID
 
 
 def format_cell(values: list[float]) -> str:
@@ -55,7 +59,7 @@ def read_runs(root: Path, *, allow_partial: bool) -> tuple[dict[tuple[str, str, 
                 row = json.loads(path.read_text(encoding="utf-8"))
                 if row.get("status") != "ok" or row.get("embedding_seed") != 240800 or row.get("downstream_seed") != seed:
                     raise ValueError(f"invalid run provenance: {path}")
-                if row.get("route_id") != ROUTE_ID:
+                if row.get("route_id") != fixed_route_id():
                     raise ValueError(f"mixed embedding routes: {path}")
                 if row.get("head_variant") != "H1_shared2_11xhead2":
                     raise ValueError(f"mixed head architectures: {path}")
@@ -123,7 +127,7 @@ def write_tables(root: Path, out_dir: Path, rows: dict[tuple[str, str, int], dic
         for metric in METRICS:
             table = [
                 f"# {protocol}: {metric}", "",
-                f"Fixed input: `{ROUTE_ID}` (`embedding_seed=240800`). ",
+                f"Fixed input: `{fixed_route_id()}` (`embedding_seed=240800`). ",
                 "Each cell is test EMA-event mean ± sample SD over downstream seeds `240800,240801,240802`. ",
                 f"Validation macro-sRMSE winner: `{selection[protocol] or 'pending'}`. ", "",
                 "| Structure | " + " | ".join(LABELS) + " |",
@@ -158,12 +162,69 @@ def write_tables(root: Path, out_dir: Path, rows: dict[tuple[str, str, int], dic
         "completed_runs": len(rows), "expected_runs": len(PROTOCOLS) * len(condition_order()) * len(SEEDS),
         "missing_count": len(missing), "missing_metrics": missing,
         "embedding_seed": 240800, "downstream_seeds": list(SEEDS),
-        "fixed_route": ROUTE_ID,
+        "fixed_route": fixed_route_id(),
         "validation_macro_srmse_winner": selection,
         "tables": [f"{protocol}_{metric}.md" for protocol in PROTOCOLS for metric in METRICS],
         "condition_summary": "condition_summary.csv",
     }
     (out_dir / "summary.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    preflight_path = root / "preflight.json"
+    if not preflight_path.is_file():
+        raise ValueError(f"missing structure-matrix preflight: {preflight_path}")
+    (out_dir / "preflight.json").write_bytes(preflight_path.read_bytes())
+    overview_rows = []
+    for protocol in PROTOCOLS:
+        protocol_rows = [row for row in condition_rows if row["protocol"] == protocol]
+        window_row = next(row for row in protocol_rows if row["condition_id"] == BASELINE)
+        best_0906 = min(
+            (row for row in protocol_rows if row["condition_id"] != BASELINE),
+            key=lambda row: float(row["val_standardized_rmse_mean"]),
+        )
+        for route_name, row in (("0814 窗口路线", window_row), (f"0906 `{best_0906['condition_id']}`", best_0906)):
+            overview_rows.append(
+                f"| `{protocol}` | {route_name} | {float(row['val_standardized_rmse_mean']):.4f} | "
+                f"{float(row['test_standardized_rmse_mean']):.4f} | {float(row['test_raw_r_mean']):.4f} | "
+                f"{float(row['test_within_subject_centered_r_mean']):.4f} |"
+            )
+    readme = [
+        "# MT11 EEGPT：结构 × 11 情绪结果",
+        "",
+        f"固定输入：`{fixed_route_id()}`；EEGPT 上游 `embedding_seed=240800`，下游 seeds 为 "
+        "`240800,240801,240802`。EEGPT encoder 由 11 个标签共同监督，所有结构行共用同一套 256D EEG token，"
+        "并统一使用两层共享 MLP 与 11 个独立两层回归头。评价单位为 EMA event。",
+        "",
+        f"完成度：`{len(rows)}/{payload['expected_runs']}`，缺失 `{len(missing)}`。结构只按 validation macro "
+        "standardized RMSE 选择。",
+        "",
+        "| 协议 | validation 选中结构 |",
+        "| --- | --- |",
+        *[f"| `{protocol}` | `{selection[protocol] or 'pending'}` |" for protocol in PROTOCOLS],
+        "",
+        "## 0814 与验证集最优 0906 结构",
+        "",
+        "以下 test 指标均为三个下游 seed 的均值；0906 行仅按 validation macro sRMSE 选择。",
+        "",
+        "| 协议 | 路线 | val macro sRMSE ↓ | test macro sRMSE ↓ | test macro raw r ↑ | test macro centered r ↑ |",
+        "| --- | --- | ---: | ---: | ---: | ---: |",
+        *overview_rows,
+        "",
+        "## 完整的结构 × 11 情绪表",
+        "",
+        "| 协议 | raw r ↑ | standardized RMSE ↓ | within-subject centered r ↑ |",
+        "| --- | --- | --- | --- |",
+        *[
+            f"| `{protocol}` | [11 情绪表]({protocol}_raw_r.md) | "
+            f"[11 情绪表]({protocol}_standardized_rmse.md) | "
+            f"[11 情绪表]({protocol}_within_subject_centered_r.md) |"
+            for protocol in PROTOCOLS
+        ],
+        "",
+        "[逐结构宏指标与 matched-seed 0814 基线差值](condition_summary.csv) · "
+        "[逐单元格长表](structure_emotion_long.csv) · "
+        "[完整性与选择摘要](summary.json) · [固定输入与 split preflight](preflight.json)",
+        "",
+    ]
+    (out_dir / "README.md").write_text("\n".join(readme), encoding="utf-8")
     print(f"completed={len(rows)}/{payload['expected_runs']} missing={len(missing)} out={out_dir}")
 
 

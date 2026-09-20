@@ -9,6 +9,24 @@ from daily_multimodal.training.structure_emotion import conditions
 
 
 class SingleTaskStructureMatrixTests(unittest.TestCase):
+    def test_multitask_eeg_branch_and_route(self) -> None:
+        branch = "eeg_eegpt_partial_ft_multitask_11label_v1"
+        self.assertEqual(
+            resolve_route_branches("A1_Wphysio_no_audio", eeg_branch=branch),
+            (branch, "wear_physio", "video_A1"),
+        )
+        self.assertEqual(
+            BRANCHES[branch].filename.format(
+                eeg_token_root="tokens", protocol="cross_day", eeg_seed=240800
+            ),
+            "tokens/multitask_11label/cross_day/seed_240800.npz",
+        )
+        self.assertEqual(
+            effective_route_id("A1_Wphysio_no_audio", eeg_branch=branch),
+            f"A1_Wphysio_no_audio__{branch}",
+        )
+        self.assertIn("multitask_11label", supervision_boundary((branch, "wear_physio", "video_A1")))
+
     def test_label_specific_eeg_branches_and_routes(self) -> None:
         self.assertEqual(len(conditions()), 19)
         for label in LABEL_NAMES:

@@ -28,7 +28,9 @@ from daily_multimodal.daily_affect.training import (
 from daily_multimodal.training.multihead_regression import evaluate_event_level
 
 
-ROUTE_ID = "A1_Wphysio_no_audio__eeg_eegpt_partial_ft_v1"
+EEG_BRANCH = "eeg_eegpt_partial_ft_multitask_11label_v1"
+EEG_PROFILE = "eegpt_partial_ft_multitask_11label_v1"
+ROUTE_ID = f"A1_Wphysio_no_audio__{EEG_BRANCH}"
 EMBEDDING_SEED = 240800
 STATIC_POLICIES = (
     "uniform", "last_10s", "last_30s", "last_60s", "first_30s",
@@ -156,8 +158,9 @@ def audit_bag(dataset: DailyAffectBagDataset, targets: np.ndarray, protocol: str
     ):
         raise ValueError("repaired within_subject_day has subject-day overlap")
     sources = json.loads(dataset.source_npz_json)
-    expected = {"eeg_eegpt_partial_ft_v1", "wear_physio", "video_A1"}
-    if set(sources) != expected or f"/{protocol}/eegpt_partial_ft_v1/seed_240800.npz" not in sources["eeg_eegpt_partial_ft_v1"]:
+    expected = {EEG_BRANCH, "wear_physio", "video_A1"}
+    expected_suffix = f"/multitask_11label/{protocol}/seed_{EMBEDDING_SEED}.npz"
+    if set(sources) != expected or expected_suffix not in sources[EEG_BRANCH].replace("\\", "/"):
         raise ValueError(f"unexpected fixed embedding provenance: {sources}")
     return {
         "protocol": protocol, "route_id": dataset.route_id, "embedding_seed": EMBEDDING_SEED,
@@ -168,8 +171,8 @@ def audit_bag(dataset: DailyAffectBagDataset, targets: np.ndarray, protocol: str
     }
 
 
-def audit_common_eeg_token(path: Path, index_rows: list[dict[str, Any]], split_root: Path, protocol: str) -> dict[str, Any]:
-    """Verify that the fixed fatigue-supervised token used the same repaired split."""
+def audit_multitask_eeg_token(path: Path, index_rows: list[dict[str, Any]], split_root: Path, protocol: str) -> dict[str, Any]:
+    """Verify the fixed 11-label-supervised token and its repaired split provenance."""
 
     install_numpy_core_pickle_aliases()
     expected_sample_ids = np.asarray([str(row["sample_id"]) for row in index_rows])
@@ -186,9 +189,23 @@ def audit_common_eeg_token(path: Path, index_rows: list[dict[str, Any]], split_r
             if not np.array_equal(np.sort(token[key].astype(np.int64)), indices):
                 raise ValueError(f"fixed EEG token {key} differs from canonical split: {path}")
         profile = np.unique(token["encoder_profile"].astype(str)).tolist()
-        if profile != ["eegpt_partial_ft_v1"]:
+        if profile != [EEG_PROFILE]:
             raise ValueError(f"unexpected EEG token profile: {profile}")
-    return {"eeg_token_path": str(path), "sample_order_match": True, "split_indices_match": True}
+        if str(token["protocol"][0]) != protocol or int(token["seed"][0]) != EMBEDDING_SEED:
+            raise ValueError(f"unexpected EEG token protocol/seed: {path}")
+        if str(token["target_label"][0]) != "all_11_labels":
+            raise ValueError(f"unexpected EEG token target_label: {path}")
+        if tuple(token["target_labels"].astype(str).tolist()) != LABEL_NAMES:
+            raise ValueError(f"unexpected EEG token target label order: {path}")
+        if str(token["train_supervision"][0]) != "multitask_event_supervised_eegpt_partial_ft":
+            raise ValueError(f"unexpected EEG token supervision: {path}")
+        if token["eeg_emb"].shape != (len(index_rows), 256) or not np.isfinite(token["eeg_emb"]).all():
+            raise ValueError(f"invalid EEG token values: {path}")
+    return {
+        "eeg_token_path": str(path), "eeg_profile": EEG_PROFILE,
+        "sample_order_match": True, "split_indices_match": True,
+        "target_labels_match": True, "train_supervision": "multitask_event_supervised_eegpt_partial_ft",
+    }
 
 
 def _batch(dataset: DailyAffectBagDataset, targets: np.ndarray, indices: np.ndarray, x_mean: np.ndarray,

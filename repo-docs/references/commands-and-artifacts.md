@@ -197,7 +197,7 @@ python scripts/multilabel/96_summarize_multiemotion.py \
 ```
 
 Phase 2 的12条 embedding-route筛查属于历史阶段。当前结构主矩阵统一锁定
-`A1_Wphysio_no_audio__eeg_eegpt_partial_ft_v1`；0814仅保留
+`A1_Wphysio_no_audio__eeg_eegpt_partial_ft_multitask_11label_v1`；0814仅保留
 `window_attention_regression_full_mean`，0906结构变体不得切换 embedding。
 标签专属 EEGPT token 作为独立可复用资产继续用以下命令生成：
 
@@ -215,6 +215,8 @@ python scripts/multilabel/97_run_supervised_eeg_fusion.py \
 ```
 
 `93`/`94` 的 EEG embedding 正式资产只生成上游 `seed_240800`，并按 protocol 复用 train-only normalized full EEG GPU cache；缓存只消除重复 I/O，不改变 batch、样本顺序、loss 或 selector。单任务 token 写到 `eeg_encoder_256d_tokens/single_task/{protocol}/{label}/seed_240800.npz`，多任务 token 写到 `eeg_encoder_256d_tokens/multitask_11label/{protocol}/seed_240800.npz`。下游结构回归独立使用 `240800,240801,240802` 三个 seed，并显式记录 `embedding_seed=240800`。每个上游 run 的 metrics 和 event prediction位于 `outputs/multiemotion_20260913/phase3_single_task_eeg` 或 `phase4_multitask_eeg`。
+
+2026-09-20，`94` 已完成两个协议的 11 标签共同监督 EEGPT 局部微调，正式资产为 `eeg_encoder_256d_tokens/multitask_11label/{protocol}/seed_240800.npz`；轻量 metrics 与 event predictions 已同步到 `outputs/server_sync/multiemotion_20260913/phase4_multitask_eeg/`。`98` 已固定读取该 MT11 token，并将原 `structure_matrix_A1` 中的 fatigue-supervised runs/summary 原位替换为114个 MT11 runs；`99` 严格汇总 `114/114`、`missing=0`，当前六张共享多头表只包含 MT11 provenance。完整自动接续入口为 `109_replace_structure_matrix_with_mt11.sh <94-pid>`。
 
 单标签 bank 完成后执行 `PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/multilabel/100_audit_eegpt_single_label_bank.py`，默认写入远端 Phase 3 输出目录；[本地审计镜像](../../outputs/server_sync/multiemotion_20260913/phase3_single_task_eeg/bank_audit.json) 已同步。该审计将 token 中的训练索引排序后与 canonical 集合比较，保留写入时的原始训练顺序不变；2026-09-16 结果为22/22通过。
 
