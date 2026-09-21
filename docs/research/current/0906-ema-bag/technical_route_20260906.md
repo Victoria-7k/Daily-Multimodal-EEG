@@ -1,5 +1,8 @@
 # Daily-affect 多模态 EMA-bag 技术路线
 
+> Status: Current parallel route
+> Route role: 0906 EMA-bag；与 0814 window 并列使用
+> Research index: [研究文档索引](../../README.md)
 > 文档版本：2026-09-08
 > 结果数据截止：2026-09-08
 > 范围：本文只说明 Daily-affect。窗口级连续回归和 EQL-CAF temporal-token 使用不同监督单位、模型与评价口径，不纳入本文结果排名。

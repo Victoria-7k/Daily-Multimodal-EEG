@@ -3,6 +3,8 @@
 > 本文是本次「Wear 模态接入预训练模型 MOMENT」工作的完整交接说明。下一个工作者应以此为准绳：先读结论，再读[结果报告](wear_moment_results_20260820.md)与[实验方案](wear_moment_experiment_plan_20260820.md)，按本文的「复现命令」与「注意事项」操作。
 >
 > 一句话结论：**MOMENT-1-small 冻结表征（`wear_moment_frozen_v1`）建议纳入 Wear 新主线**——`cross_day` 上 3/3 seeds 一致优于 `Wdeep`（raw r Δ +0.063、RMSE Δ -0.039），方案 C 全维度（2 EEG × 24 fusion routes）下主线 EEG × cross_day 的 6 个 video/audio 配置全部更优；`wear_moment_partial_ft_v1` 仅在 `cross_subject` 稳定，保留为诊断。
+>
+> Path note: Wear 文档已迁入 `docs/research/supporting/wear/`；文中“根目录文档”表述保留为 2026-08-20 的历史记录。
 
 ---
 

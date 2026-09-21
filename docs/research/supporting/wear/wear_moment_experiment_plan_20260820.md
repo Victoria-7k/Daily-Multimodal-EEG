@@ -1,7 +1,7 @@
 # Wear × MOMENT 接入实验方案（2026-08-20）
 
 > 目标：把 MOMENT-1 预训练时间序列模型接入 Wear 模态，产出与现有 `Wphysio`/`Wdeep` 可 paired 对比的融合矩阵结果。
-> 背景：方案依据 [wear_model_selection_20260820.md](wear_model_selection_20260820.md)；技术口径见 [technical_route_20260814.md](technical_route_20260814.md)。
+> 背景：方案依据 [wear_model_selection_20260820.md](wear_model_selection_20260820.md)；技术口径见 [technical_route_20260814.md](../../current/0814-window/technical_route_20260814.md)。
 > 一句话设计：**两阶段矩阵（1-seed screen → 3-seed paired confirm）+ 固定 EEG 主线（`eegpt_partial_ft_v1`）+ 视频固定 A1 + 音频保留 full + wear 基线同配对照 + 三协议全跑**，全部走现有 `32_run_eegpt_centered_loss.py` 融合链路，融合器零改动。
 
 ---

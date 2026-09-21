@@ -1,6 +1,6 @@
 # Wear 模态预训练模型选择方案（2026-08-20）
 
-> 独立方案文档。背景口径见 [technical_route_20260814.md](technical_route_20260814.md)；本文只讨论 Wear 模态的预训练模型接入，不涉及 EEG/Video/Audio 路线。
+> 独立方案文档。背景口径见 [technical_route_20260814.md](../../current/0814-window/technical_route_20260814.md)；本文只讨论 Wear 模态的预训练模型接入，不涉及 EEG/Video/Audio 路线。
 >
 > 结论先行：**可以接入，且存在多个已核验为开放获取的预训练模型**。推荐按「MOMENT-1（通用多变量时序，MIT，零格式改造）→ Pulse-PPG（PPG 领域专精，Zenodo 发布）→ PRIMUS（ACC/IMU 领域专精，BSD-3-Clause-Clear）」的顺序分阶段验证，全部以 `frozen / partial FT` 两档并入现有融合矩阵，与 EEG 侧 route 矩阵口径同构。
 

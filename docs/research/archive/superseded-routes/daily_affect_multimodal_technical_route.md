@@ -1,5 +1,9 @@
 # 日常情境四模态情绪回归：可执行技术路线
 
+> Status: Superseded
+> Current route: [0906 EMA-bag 技术路线](../../current/0906-ema-bag/technical_route_20260906.md)
+> Historical role: 早期多维情绪回归与 EMA 动态聚合设计
+
 **版本：2026-08-24**  
 **目标：在现有 EEG / Wear / Video / Audio 四模态 256D embedding 基础上，将“窗口级静态融合 + 标签复制”升级为“连续潜在情绪状态估计 + EMA 级动态时间聚合”。**
 

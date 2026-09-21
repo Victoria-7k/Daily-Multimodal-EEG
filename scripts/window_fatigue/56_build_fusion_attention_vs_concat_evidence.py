@@ -8,7 +8,8 @@ All numbers are read from the actual report JSONs:
   outputs/server_sync/fusion_variant_20260820/fusion_variant_{variant}_full_seed240800_raw.json
 - seed-matched repro runs: outputs/server_sync/fusion_variant_20260820/cross_*_seed*.json
 
-Output: fusion_attention_vs_concat_evidence_20260820.md (root) + a JSON copy of every table.
+Output: docs/research/current/0814-window/experiments/fusion_attention_vs_concat_evidence_20260820.md
++ a JSON copy of every table.
 """
 
 from __future__ import annotations
@@ -140,7 +141,12 @@ def group_table(rows: list[dict[str, Any]], key_fn, order: list[str] | None = No
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out-md", type=Path, default=ROOT / "fusion_attention_vs_concat_evidence_20260820.md")
+    parser.add_argument(
+        "--out-md",
+        type=Path,
+        default=ROOT
+        / "docs/research/current/0814-window/experiments/fusion_attention_vs_concat_evidence_20260820.md",
+    )
     parser.add_argument("--out-json", type=Path, default=ROOT / "outputs/reports/fusion_attention_vs_concat_evidence_20260820.json")
     args = parser.parse_args()
 
@@ -457,7 +463,7 @@ def main() -> int:
     add("")
     add("| 用途 | 路径 |")
     add("| --- | --- |")
-    add("| 本文档 | `fusion_attention_vs_concat_evidence_20260820.md`（根目录） |")
+    add("| 本文档 | `docs/research/current/0814-window/experiments/fusion_attention_vs_concat_evidence_20260820.md` |")
     add("| 所有表格 JSON 副本 | `outputs/reports/fusion_attention_vs_concat_evidence_20260820.json` |")
     add("| 决策切片（4 变体 × 8 runs） | `outputs/server_sync/fusion_variant_20260820/{attention,concat,attention_multihead_pma,eeg_anchor}.json` |")
     add("| 切片汇总 | `outputs/server_sync/fusion_variant_20260820/summary.{json,md}` |")

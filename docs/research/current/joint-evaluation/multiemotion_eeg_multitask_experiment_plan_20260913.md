@@ -1,5 +1,7 @@
 # EEG-Aligned 结构 × 多情绪回归矩阵计划
 
+> Status: Current joint evaluation; execution completed
+> Compared structures: 0814 window 与 0906 EMA-bag
 > 状态：第一条独立单标签路线1254/1254、第二条共享多头路线114/114均已完成，分别输出两组结构 × 11情绪表  
 > 更新：2026-09-20
 > 目标：以 0814 窗口结构和 0906 EMA-bag 结构变体为行、11 个情绪标签为列，分别形成“标签专属 EEGPT＋独立标量”和“11 标签共同监督 EEGPT＋共享多头”两组结果矩阵；两组共用 split、下游 seeds 与 EMA-event 评价单位，并保留可复用的标签专属 EEGPT partial-FT embedding 库。
@@ -13,7 +15,7 @@
 - 两组矩阵均将0814收敛为 `window_attention_regression_full_mean` 一行，0906保留18个结构变体。共享多头组固定 `A1_Wphysio_no_audio__eeg_eegpt_partial_ft_multitask_11label_v1`；独立标量组每列读取对应标签专属 EEGPT token，A1/Wphysio/no_audio 与 split 保持一致。
 - Phase 3 的 `11 labels × 2 protocols × 1 upstream seed` 已完成22/22，全部 `metrics.status=ok`。2026-09-16 使用 `100_audit_eegpt_single_label_bank.py` 复核22份 token 的 `(28819,256)` shape、有限值、canonical sample 顺序、split indices、protocol/label/seed 与监督边界，22/22 通过；证据保存为 `outputs/multiemotion_20260913/phase3_single_task_eeg/bank_audit.json`。额外的 `cross_day/inspired/240801` 仅保留审计。这些标签专属 token 用于第一条独立标量路线。
 - 2026-09-20，`94` 以 canonical 11 标签共同监督 EEGPT，完成 `cross_day` 与 `within_subject_day` 两份上游 `seed_240800` token；EEG-only event-level macro sRMSE/raw r 分别为 `0.9712/0.3731` 与 `0.8990/0.1844`。`98` 随后在原 `structure_matrix_A1/` 根清除 fatigue-supervised runs/summary，使用 MT11 token 重跑 `19 × 2 × 3 = 114` runs；preflight、token profile、11标签顺序、split indices 和 val/test event/targets 审计均通过。`99` 以 MT11 结果覆盖本地 `structure_matrix_summary/`，两个协议的 validation macro sRMSE 均选中0814窗口结构。
-- 第一条独立路线由 `101` 将每个标签的 EEGPT partial-FT token 接回同一 A1/Wphysio/no_audio 的0814/0906标量回归结构；22/22 bag 与 split 来源审计通过，`11 labels × 19 structures × 2 protocols × 3 downstream seeds = 1254` runs 全部完成。`102` 严格汇总 `missing=0`，生成[独立的六张11标签表](outputs/server_sync/multiemotion_20260913/single_task_structure_matrix_summary/README.md)。固定0814结构下，MT11 共享多头的 test macro raw r 为 `cross_day 0.3733`、`within_subject_day 0.2429`；三seed筛查不作单模块因果或显著性主张。
+- 第一条独立路线由 `101` 将每个标签的 EEGPT partial-FT token 接回同一 A1/Wphysio/no_audio 的0814/0906标量回归结构；22/22 bag 与 split 来源审计通过，`11 labels × 19 structures × 2 protocols × 3 downstream seeds = 1254` runs 全部完成。`102` 严格汇总 `missing=0`，生成[独立的六张11标签表](../../../../outputs/server_sync/multiemotion_20260913/single_task_structure_matrix_summary/README.md)。固定0814结构下，MT11 共享多头的 test macro raw r 为 `cross_day 0.3733`、`within_subject_day 0.2429`；三seed筛查不作单模块因果或显著性主张。
 
 当前轻量证据副本：`outputs/server_sync/multiemotion_20260913/`；完整远端根：`outputs/multiemotion_20260913/`。
 

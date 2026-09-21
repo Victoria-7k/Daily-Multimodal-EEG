@@ -1,6 +1,8 @@
 # Fusion Variant 消融 Handoff 2026-08-20
 
 > 本文档交接本轮「cross-attention 融合是否有价值」的完整工作：改了什么代码、用了哪些脚本、结果在哪里、以及下一个工作者接手需要注意的口径和坑。
+>
+> Path note: 本文及配套证据已从仓库根目录迁入 `docs/research/current/0814-window/experiments/`；文中“根目录”表述保留为 2026-08-20 的历史记录。
 
 ## 0. 一句话结论
 

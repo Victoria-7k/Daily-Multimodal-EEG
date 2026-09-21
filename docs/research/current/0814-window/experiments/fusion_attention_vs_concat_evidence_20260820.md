@@ -437,7 +437,7 @@
 
 | 用途 | 路径 |
 | --- | --- |
-| 本文档 | `fusion_attention_vs_concat_evidence_20260820.md`（根目录） |
+| 本文档 | `docs/research/current/0814-window/experiments/fusion_attention_vs_concat_evidence_20260820.md` |
 | 所有表格 JSON 副本 | `outputs/reports/fusion_attention_vs_concat_evidence_20260820.json` |
 | 决策切片（4 变体 × 8 runs） | `outputs/server_sync/fusion_variant_20260820/{attention,concat,attention_multihead_pma,eeg_anchor}.json` |
 | 切片汇总 | `outputs/server_sync/fusion_variant_20260820/summary.{json,md}` |

@@ -181,7 +181,7 @@ Face 入口的 `--allow-opencv-fallback` 也覆盖 OpenFace 已启动 `Starting 
 
 ## Multi-emotion EEG and multi-head regression（2026-09-14）
 
-主计划为 `multiemotion_eeg_multitask_experiment_plan_20260913.md`。所有命令在 aligned repo 根运行，并设置 `PYTHONPATH=src`。服务器存储紧张时同时把 `TMPDIR` 和 `XDG_CACHE_HOME` 指到 `outputs/tmp`。
+主计划为 `docs/research/current/joint-evaluation/multiemotion_eeg_multitask_experiment_plan_20260913.md`。所有命令在 aligned repo 根运行，并设置 `PYTHONPATH=src`。服务器存储紧张时同时把 `TMPDIR` 和 `XDG_CACHE_HOME` 指到 `outputs/tmp`。
 
 ```bash
 python scripts/multilabel/92_audit_multiemotion_contract.py

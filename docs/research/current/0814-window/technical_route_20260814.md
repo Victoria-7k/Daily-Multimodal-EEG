@@ -1,5 +1,9 @@
 # 当前多模态疲劳预测技术路线总结
 
+> Status: Current parallel route
+> Route role: 0814 window；与 0906 EMA-bag 并列使用
+> Research index: [研究文档索引](../../README.md)
+
 ## 任务与输入
 
 当前任务是基于 EEG 对齐后的多模态 10 秒窗口预测 `fatigue`。主数据口径为：
@@ -159,7 +163,7 @@ Audio 当前使用 openSMILE eGeMAPS Functionals。流程是先从视频音轨�
 
 ## 2026-08-20 更新：Wear × MOMENT
 
-Wear 侧新增两条 MOMENT-1-small 预训练路线（见上表），在 `EEGPT partial FT + A1 + full` 固定配置下做 3-seed paired 实验（融合 seed 240729/240730/240731 × wear token seed 240800/240801/240802，`--experiment-seed-fixed`），结果详见 [wear_moment_results_20260820.md](wear_moment_results_20260820.md)：
+Wear 侧新增两条 MOMENT-1-small 预训练路线（见上表），在 `EEGPT partial FT + A1 + full` 固定配置下做 3-seed paired 实验（融合 seed 240729/240730/240731 × wear token seed 240800/240801/240802，`--experiment-seed-fixed`），结果详见 [wear_moment_results_20260820.md](../../supporting/wear/wear_moment_results_20260820.md)：
 
 - **`Wmoment_frozen` 建议纳入主线候选**：`cross_day` 上 3/3 seeds 一致优于 `Wdeep`（raw r Δ +0.063、RMSE Δ -0.039），`cross_subject` 稳定更优（raw r Δ +0.035、RMSE Δ -0.021），`within_subject_day` 持平（raw r Δ -0.008、RMSE Δ 0.000）；相对 `Wphysio` 三协议均更优。典型数值（`A1_Wmoment_frozen_full` vs `A1_Wdeep_full`，seed 240729）：`cross_day` raw r 0.3319 / RMSE 0.9159（同配置 `Wdeep` 0.2579 / 0.9479）。
   - 方案 C 全维度扩展（144 runs，2 EEG × 24 routes × 3 protocols，seed 240729 固定）进一步确认：主线 EEG（`eegpt_partial_ft_v1`）× `cross_day` 下 frozen 相对 Wdeep 在**全部 6 个 video/audio 配置上都更优**（raw r Δ +0.033~+0.087、RMSE 全部更低），`within_subject_day` 上 RMSE 6/6 更低；低监督 EEG（`eegpt_frozen_v1`）下增益不稳定；推荐主线组合 `eeg_eegpt_partial_ft_v1 + Wmoment_frozen`（cross_day 最佳 `A2_Wmoment_frozen_full`）。

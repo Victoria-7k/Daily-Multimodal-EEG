@@ -84,11 +84,11 @@ centered r 为 undefined 是预期行为：对每个被试输出一个固定均�
 
 ## 产物
 
-- [split audit JSON](../../outputs/server_sync/eegpt_centered_improvement/split_audit_subject_day.json)
-- [split audit Markdown](../../outputs/server_sync/eegpt_centered_improvement/split_audit_subject_day.md)
-- [subject-mean baseline JSON](../../outputs/server_sync/eegpt_centered_improvement/subject_mean_baseline.json)
-- [subject-mean baseline Markdown](../../outputs/server_sync/eegpt_centered_improvement/subject_mean_baseline.md)
-- [multi-task loss matrix JSON](../../outputs/server_sync/eegpt_centered_improvement/multitask_loss_matrix.json)
-- [multi-task loss matrix Markdown](../../outputs/server_sync/eegpt_centered_improvement/multitask_loss_matrix.md)
-- [experiment 3 multiseed summary JSON](../../outputs/server_sync/eegpt_centered_improvement/experiment3_multiseed/experiment3_multiseed_summary.json)
-- [experiment 3 multiseed summary Markdown](../../outputs/server_sync/eegpt_centered_improvement/experiment3_multiseed/experiment3_multiseed_summary.md)
+- [split audit JSON](../../../outputs/server_sync/eegpt_centered_improvement/split_audit_subject_day.json)
+- [split audit Markdown](../../../outputs/server_sync/eegpt_centered_improvement/split_audit_subject_day.md)
+- [subject-mean baseline JSON](../../../outputs/server_sync/eegpt_centered_improvement/subject_mean_baseline.json)
+- [subject-mean baseline Markdown](../../../outputs/server_sync/eegpt_centered_improvement/subject_mean_baseline.md)
+- [multi-task loss matrix JSON](../../../outputs/server_sync/eegpt_centered_improvement/multitask_loss_matrix.json)
+- [multi-task loss matrix Markdown](../../../outputs/server_sync/eegpt_centered_improvement/multitask_loss_matrix.md)
+- [experiment 3 multiseed summary JSON](../../../outputs/server_sync/eegpt_centered_improvement/experiment3_multiseed/experiment3_multiseed_summary.json)
+- [experiment 3 multiseed summary Markdown](../../../outputs/server_sync/eegpt_centered_improvement/experiment3_multiseed/experiment3_multiseed_summary.md)
