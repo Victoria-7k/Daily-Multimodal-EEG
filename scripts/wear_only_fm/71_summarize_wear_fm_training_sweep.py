@@ -47,8 +47,8 @@ def _load_report(path: Path) -> list[dict[str, Any]]:
 
 
 def _summarize(phase2: list[dict[str, Any]], sweep_reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    phase2_w3fm = [row for row in phase2 if row["route"] == "W3FM_frozen" and row["protocol"] in {"cross_day", "within_subject_day"}]
-    baseline_rows = [row for row in phase2 if row["route"] in {"Wphysio", "Wdeep", "Wmoment_frozen"} and row["protocol"] in {"cross_day", "within_subject_day"}]
+    phase2_w3fm = [row for row in phase2 if row["route"] == "W3FM_frozen" and row["protocol"] in {"cross_day", "date_in_order"}]
+    baseline_rows = [row for row in phase2 if row["route"] in {"Wphysio", "Wdeep", "Wmoment_frozen"} and row["protocol"] in {"cross_day", "date_in_order"}]
     all_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for row in phase2_w3fm:
         all_groups.setdefault(("phase2_W3FM_frozen", row["protocol"]), []).append(row)
@@ -92,7 +92,7 @@ def _best_baseline(rows: list[dict[str, Any]], protocol: str) -> dict[str, Any] 
     grouped = {}
     for row in candidates:
         grouped.setdefault(row["route"], []).append(row)
-    metric = "within_subject_centered_r" if protocol == "within_subject_day" else "raw_r"
+    metric = "within_subject_centered_r" if protocol == "date_in_order" else "raw_r"
     route, route_rows = max(grouped.items(), key=lambda item: (_metric_mean(item[1], metric), -_metric_mean(item[1], "rmse")))
     return {
         "route": route,

@@ -30,8 +30,8 @@ LABEL_NAMES = [
     "ashamed",
     "fatigue",
 ]
-DEFAULT_PROTOCOLS = ("cross_subject", "cross_day", "within_subject_day")
-MAIN_PROTOCOLS = ("cross_day", "within_subject_day")
+DEFAULT_PROTOCOLS = ("cross_subject", "cross_day", "date_in_order")
+MAIN_PROTOCOLS = ("cross_day", "date_in_order")
 DEFAULT_SEEDS = (240800, 240801, 240802, 240803, 240804)
 DEFAULT_DATA_ROOT = Path("/vePFS-0x0d/DailyEEG/processed_cadt_addtime_new")
 DEFAULT_ALIGNED_ROOT = Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned")

@@ -26,8 +26,12 @@ def audit(args: argparse.Namespace) -> dict:
     if len(np.unique(sample_ids)) != len(sample_ids):
         raise ValueError("canonical index has duplicate sample_id")
     inventory = []
-    for protocol in ("cross_day", "within_subject_day"):
-        leaf = load_window_split(args.root / "outputs/splits" / protocol, len(rows))
+    protocols = tuple(value.strip() for value in args.protocols.split(",") if value.strip())
+    if not protocols or len(protocols) != len(set(protocols)) or set(protocols) - {"cross_day", "within_subject_day", "date_in_order"}:
+        raise ValueError("unsupported or duplicated protocols")
+    split_root = args.splits_root or args.root / "outputs/splits"
+    for protocol in protocols:
+        leaf = load_window_split(split_root / protocol, len(rows))
         expected_split = {
             "train_index": np.flatnonzero(np.isin(leaf, ("pretrain", "finetune"))),
             "val_index": np.flatnonzero(leaf == "val"),
@@ -37,6 +41,7 @@ def audit(args: argparse.Namespace) -> dict:
             path = args.embeddings_root / "eeg_encoder_256d_tokens/single_task" / protocol / label / "seed_240800.npz"
             metrics_path = args.root / "outputs/multiemotion_20260913/phase3_single_task_eeg" / protocol / label / "seed_240800/metrics.json"
             item = {"protocol": protocol, "label": label, "embedding_seed": 240800,
+                    "split_root": str(split_root / protocol),
                     "token_path": str(path), "metrics_path": str(metrics_path), "checks": {}, "errors": []}
             checks = item["checks"]
             if not path.is_file():
@@ -73,7 +78,7 @@ def audit(args: argparse.Namespace) -> dict:
                     item["errors"].append(f"metrics_read:{type(exc).__name__}:{exc}")
             item["gate_passed"] = bool(checks and all(checks.values()) and not item["errors"])
             inventory.append(item)
-    return {"expected_count": 22, "passed_count": sum(item["gate_passed"] for item in inventory),
+    return {"expected_count": len(protocols) * len(LABEL_NAMES), "passed_count": sum(item["gate_passed"] for item in inventory),
             "embedding_seed": 240800, "sample_count": len(rows), "embedding_dim": 256,
             "gate_passed": all(item["gate_passed"] for item in inventory), "inventory": inventory}
 
@@ -81,6 +86,8 @@ def audit(args: argparse.Namespace) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned"))
+    parser.add_argument("--splits-root", type=Path)
+    parser.add_argument("--protocols", default="cross_day,date_in_order")
     parser.add_argument("--embeddings-root", type=Path, default=Path("/vePFS-0x0d/DailyEEG_multimodal/embeddings"))
     parser.add_argument("--out", type=Path, default=Path("outputs/multiemotion_20260913/phase3_single_task_eeg/bank_audit.json"))
     args = parser.parse_args()

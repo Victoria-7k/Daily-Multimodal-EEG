@@ -15,8 +15,8 @@ SEEDS = (240800, 240801, 240802)
 ROUTES = (
     {"protocol": "cross_day", "experiment": "B0_Wphysio_full", "role": "primary"},
     {"protocol": "cross_day", "experiment": "B0_Wphysio_no_audio", "role": "primary"},
-    {"protocol": "within_subject_day", "experiment": "B0_Wdeep_no_audio", "role": "primary"},
-    {"protocol": "within_subject_day", "experiment": "A2_Wdeep_full", "role": "primary"},
+    {"protocol": "date_in_order", "experiment": "B0_Wdeep_no_audio", "role": "primary"},
+    {"protocol": "date_in_order", "experiment": "A2_Wdeep_full", "role": "primary"},
 )
 
 HEAD_CANDIDATES = (

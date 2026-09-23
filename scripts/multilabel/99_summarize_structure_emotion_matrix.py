@@ -23,7 +23,7 @@ LABELS = (
 )
 METRICS = ("raw_r", "standardized_rmse", "within_subject_centered_r")
 BASELINE = "window_attention_regression_full_mean"
-PROTOCOLS = ("cross_day", "within_subject_day")
+PROTOCOLS = ("cross_day", "date_in_order")
 SEEDS = (240800, 240801, 240802)
 
 
@@ -45,10 +45,10 @@ def format_cell(values: list[float]) -> str:
     return f"{mean(values):.4f} ± {stdev(values):.4f}"
 
 
-def read_runs(root: Path, *, allow_partial: bool) -> tuple[dict[tuple[str, str, int], dict], list[str]]:
+def read_runs(root: Path, *, allow_partial: bool, protocols: tuple[str, ...]) -> tuple[dict[tuple[str, str, int], dict], list[str]]:
     rows = {}
     missing = []
-    for protocol in PROTOCOLS:
+    for protocol in protocols:
         for condition in condition_order():
             for seed in SEEDS:
                 path = root / "runs" / protocol / condition / f"seed_{seed}" / "metrics.json"
@@ -69,8 +69,8 @@ def read_runs(root: Path, *, allow_partial: bool) -> tuple[dict[tuple[str, str, 
     return rows, missing
 
 
-def audit_matched_events(root: Path, rows: dict[tuple[str, str, int], dict]) -> None:
-    for protocol in PROTOCOLS:
+def audit_matched_events(root: Path, rows: dict[tuple[str, str, int], dict], protocols: tuple[str, ...]) -> None:
+    for protocol in protocols:
         reference = None
         for condition in condition_order():
             for seed in SEEDS:
@@ -91,12 +91,12 @@ def audit_matched_events(root: Path, rows: dict[tuple[str, str, int], dict]) -> 
                     raise ValueError(f"unmatched EMA events or labels: {path}")
 
 
-def write_tables(root: Path, out_dir: Path, rows: dict[tuple[str, str, int], dict], missing: list[str]) -> None:
+def write_tables(root: Path, out_dir: Path, rows: dict[tuple[str, str, int], dict], missing: list[str], protocols: tuple[str, ...]) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     long_rows = []
     condition_rows = []
     selection = {}
-    for protocol in PROTOCOLS:
+    for protocol in protocols:
         scores = {}
         for condition in condition_order():
             available = [rows[(protocol, condition, seed)] for seed in SEEDS if (protocol, condition, seed) in rows]
@@ -125,10 +125,23 @@ def write_tables(root: Path, out_dir: Path, rows: dict[tuple[str, str, int], dic
                 item[f"paired_test_delta_{metric}_mean"] = mean(deltas) if deltas else ""
             condition_rows.append(item)
         for metric in METRICS:
+            best_raw_condition = {}
+            if metric == "raw_r":
+                for label in LABELS:
+                    candidates = []
+                    for condition in condition_order():
+                        values = [rows[(protocol, condition, seed)]["test"]["per_label"][label][metric]
+                                  for seed in SEEDS if (protocol, condition, seed) in rows]
+                        finite = [float(value) for value in values if value is not None and np.isfinite(float(value))]
+                        if finite:
+                            candidates.append((mean(finite), condition))
+                    if candidates:
+                        best_raw_condition[label] = max(candidates, key=lambda item: item[0])[1]
             table = [
                 f"# {protocol}: {metric}", "",
                 f"Fixed input: `{fixed_route_id()}` (`embedding_seed=240800`). ",
                 "Each cell is test EMA-event mean ± sample SD over downstream seeds `240800,240801,240802`. ",
+                "In raw-r tables, bold marks the highest test mean for each emotion; structure selection still uses validation macro sRMSE. ",
                 f"Validation macro-sRMSE winner: `{selection[protocol] or 'pending'}`. ", "",
                 "| Structure | " + " | ".join(LABELS) + " |",
                 "| --- | " + " | ".join("---:" for _ in LABELS) + " |",
@@ -142,7 +155,8 @@ def write_tables(root: Path, out_dir: Path, rows: dict[tuple[str, str, int], dic
                         value = row["test"]["per_label"][label][metric] if row else None
                         if value is not None and np.isfinite(float(value)):
                             values.append(float(value))
-                    cells.append(format_cell(values))
+                    cell = format_cell(values)
+                    cells.append(f"**{cell}**" if metric == "raw_r" and condition == best_raw_condition.get(label) else cell)
                     long_rows.append({
                         "protocol": protocol, "condition_id": condition, "label": label, "metric": metric,
                         "mean": mean(values) if values else "", "std": stdev(values) if len(values) > 1 else "",
@@ -159,21 +173,28 @@ def write_tables(root: Path, out_dir: Path, rows: dict[tuple[str, str, int], dic
         writer.writeheader()
         writer.writerows(condition_rows)
     payload = {
-        "completed_runs": len(rows), "expected_runs": len(PROTOCOLS) * len(condition_order()) * len(SEEDS),
+        "completed_runs": len(rows), "expected_runs": len(protocols) * len(condition_order()) * len(SEEDS),
         "missing_count": len(missing), "missing_metrics": missing,
+        "protocols": list(protocols),
         "embedding_seed": 240800, "downstream_seeds": list(SEEDS),
         "fixed_route": fixed_route_id(),
         "validation_macro_srmse_winner": selection,
-        "tables": [f"{protocol}_{metric}.md" for protocol in PROTOCOLS for metric in METRICS],
+        "tables": [f"{protocol}_{metric}.md" for protocol in protocols for metric in METRICS],
         "condition_summary": "condition_summary.csv",
     }
     (out_dir / "summary.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     preflight_path = root / "preflight.json"
     if not preflight_path.is_file():
         raise ValueError(f"missing structure-matrix preflight: {preflight_path}")
-    (out_dir / "preflight.json").write_bytes(preflight_path.read_bytes())
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    selected_preflight = [item for item in preflight if item["protocol"] in protocols]
+    if {item["protocol"] for item in selected_preflight} != set(protocols):
+        raise ValueError("preflight does not cover all summarized protocols")
+    payload["split_roots"] = {item["protocol"]: item["split_root"] for item in selected_preflight}
+    (out_dir / "summary.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out_dir / "preflight.json").write_text(json.dumps(selected_preflight, ensure_ascii=False, indent=2), encoding="utf-8")
     overview_rows = []
-    for protocol in PROTOCOLS:
+    for protocol in protocols:
         protocol_rows = [row for row in condition_rows if row["protocol"] == protocol]
         window_row = next(row for row in protocol_rows if row["condition_id"] == BASELINE)
         best_0906 = min(
@@ -193,12 +214,22 @@ def write_tables(root: Path, out_dir: Path, rows: dict[tuple[str, str, int], dic
         "`240800,240801,240802`。EEGPT encoder 由 11 个标签共同监督，所有结构行共用同一套 256D EEG token，"
         "并统一使用两层共享 MLP 与 11 个独立两层回归头。评价单位为 EMA event。",
         "",
+        *[
+            f"`{item['protocol']}` split：`{item['split_root']}`。"
+            + (f"窗口级 train/val event 重叠 {item['window_event_overlap']['train_index_val_index']} 个，"
+               f"val/test event 重叠 {item['window_event_overlap']['val_index_test_index']} 个；"
+               "该协议的测试分数含跨 split 事件共享，不能作为独立 held-out-day 泛化估计。"
+               if item.get("window_event_overlap", {}).get("train_index_val_index", 0)
+               or item.get("window_event_overlap", {}).get("val_index_test_index", 0) else "")
+            for item in selected_preflight
+        ],
+        "",
         f"完成度：`{len(rows)}/{payload['expected_runs']}`，缺失 `{len(missing)}`。结构只按 validation macro "
         "standardized RMSE 选择。",
         "",
         "| 协议 | validation 选中结构 |",
         "| --- | --- |",
-        *[f"| `{protocol}` | `{selection[protocol] or 'pending'}` |" for protocol in PROTOCOLS],
+        *[f"| `{protocol}` | `{selection[protocol] or 'pending'}` |" for protocol in protocols],
         "",
         "## 0814 与验证集最优 0906 结构",
         "",
@@ -216,7 +247,7 @@ def write_tables(root: Path, out_dir: Path, rows: dict[tuple[str, str, int], dic
             f"| `{protocol}` | [11 情绪表]({protocol}_raw_r.md) | "
             f"[11 情绪表]({protocol}_standardized_rmse.md) | "
             f"[11 情绪表]({protocol}_within_subject_centered_r.md) |"
-            for protocol in PROTOCOLS
+            for protocol in protocols
         ],
         "",
         "[逐结构宏指标与 matched-seed 0814 基线差值](condition_summary.csv) · "
@@ -233,10 +264,14 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=Path("outputs/multiemotion_20260913/structure_matrix_A1"))
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--allow-partial", action="store_true")
+    parser.add_argument("--protocols", default=",".join(PROTOCOLS))
     args = parser.parse_args()
-    rows, missing = read_runs(args.root, allow_partial=args.allow_partial)
-    audit_matched_events(args.root, rows)
-    write_tables(args.root, args.out_dir or args.root / "summary", rows, missing)
+    protocols = tuple(item.strip() for item in args.protocols.split(",") if item.strip())
+    if not protocols or len(protocols) != len(set(protocols)) or set(protocols) - {"cross_day", "within_subject_day", "date_in_order"}:
+        raise ValueError("unsupported or duplicated protocols")
+    rows, missing = read_runs(args.root, allow_partial=args.allow_partial, protocols=protocols)
+    audit_matched_events(args.root, rows, protocols)
+    write_tables(args.root, args.out_dir or args.root / "summary", rows, missing, protocols)
     return 0
 
 

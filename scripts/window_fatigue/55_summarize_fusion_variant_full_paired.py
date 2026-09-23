@@ -81,7 +81,7 @@ def main() -> int:
             "| protocol | N | Δ raw r 均值 | Δ centered r 均值 | Δ RMSE 均值 | raw r 胜/负/平 |",
             "| --- | ---: | ---: | ---: | ---: | ---: |",
         ]
-        for protocol in ("cross_subject", "cross_day", "within_subject_day"):
+        for protocol in ("cross_subject", "cross_day", "date_in_order"):
             group = [d for d in deltas if d["protocol"] == protocol]
             if not group:
                 continue

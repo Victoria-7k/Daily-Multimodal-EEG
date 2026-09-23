@@ -16,8 +16,8 @@ from PIL import Image, ImageDraw, ImageFont
 ROUTES = (
     ("cross_day", "eeg_eegpt_partial_ft_v1", "B0_Wphysio_full", "highest raw r"),
     ("cross_day", "eeg_eegpt_partial_ft_v1", "B0_Wphysio_no_audio", "lowest RMSE / stronger centered r"),
-    ("within_subject_day", "eeg_eegpt_partial_ft_v1", "B0_Wdeep_no_audio", "highest raw/centered r"),
-    ("within_subject_day", "eeg_eegpt_partial_ft_v1", "A2_Wdeep_full", "lowest RMSE"),
+    ("date_in_order", "eeg_eegpt_partial_ft_v1", "B0_Wdeep_no_audio", "highest raw/centered r"),
+    ("date_in_order", "eeg_eegpt_partial_ft_v1", "A2_Wdeep_full", "lowest RMSE"),
 )
 
 COLORS = {

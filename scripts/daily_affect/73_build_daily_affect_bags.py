@@ -14,9 +14,9 @@ from daily_multimodal.daily_affect.ema_bags import build_daily_affect_bags
 DEFAULT_ROOT = Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned")
 DEFAULT_EMBEDDINGS_ROOT = Path("/vePFS-0x0d/DailyEEG_multimodal/embeddings")
 DEFAULT_SPLITS_ROOT = Path("/vePFS-0x0d/DailyEEG/splits_new")
-DEFAULT_WITHIN_SUBJECT_DAY_SPLITS_ROOT = DEFAULT_ROOT / "outputs/splits"
+DEFAULT_DATE_IN_ORDER_SPLITS_ROOT = DEFAULT_ROOT / "outputs/splits"
 DEFAULT_OUT_ROOT = DEFAULT_ROOT / "outputs/daily_affect_ordinal_20260903/bags"
-DEFAULT_PROTOCOLS = ("cross_subject", "cross_day", "within_subject_day")
+DEFAULT_PROTOCOLS = ("cross_subject", "cross_day", "date_in_order")
 
 
 def main() -> int:
@@ -26,10 +26,10 @@ def main() -> int:
     parser.add_argument("--embeddings-root", type=Path, default=DEFAULT_EMBEDDINGS_ROOT)
     parser.add_argument("--splits-root", type=Path, default=DEFAULT_SPLITS_ROOT)
     parser.add_argument(
-        "--within-subject-day-splits-root",
+        "--date-in-order-splits-root",
         type=Path,
-        default=DEFAULT_WITHIN_SUBJECT_DAY_SPLITS_ROOT,
-        help="Root containing the canonical repaired within_subject_day split.",
+        default=DEFAULT_DATE_IN_ORDER_SPLITS_ROOT,
+        help="Root containing the canonical repaired date_in_order split.",
     )
     parser.add_argument("--protocols", default=",".join(DEFAULT_PROTOCOLS))
     parser.add_argument("--route-id", default="B0_Wphysio_full")
@@ -53,7 +53,7 @@ def main() -> int:
     results: list[dict[str, Any]] = []
     for protocol in protocols:
         protocol_splits_root = (
-            args.within_subject_day_splits_root if protocol == "within_subject_day" else args.splits_root
+            args.date_in_order_splits_root if protocol == "date_in_order" else args.splits_root
         )
         for route_id in route_ids:
             for seed in seeds:
@@ -87,7 +87,7 @@ def main() -> int:
         "target_label": args.target_label,
         "index_path": str(index_path),
         "splits_root": str(args.splits_root),
-        "within_subject_day_splits_root": str(args.within_subject_day_splits_root),
+        "date_in_order_splits_root": str(args.date_in_order_splits_root),
         "embeddings_root": str(args.embeddings_root),
         "out_root": str(args.out_root),
         "run_count": len(results),

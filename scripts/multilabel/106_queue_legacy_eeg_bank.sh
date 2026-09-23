@@ -10,7 +10,7 @@ done
 
 echo "legacy EEGPT bank start $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
 ulimit -c 0
-for protocol in cross_day within_subject_day; do
+for protocol in cross_day date_in_order; do
   for label in inspired alert determined attentive active hostile nervous upset afraid ashamed fatigue; do
     for attempt in 1 2 3; do
       echo "run protocol=$protocol label=$label attempt=$attempt $(date -u +'%Y-%m-%d %H:%M:%S UTC')"

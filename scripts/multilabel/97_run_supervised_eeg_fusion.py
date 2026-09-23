@@ -48,7 +48,7 @@ DEFAULT_ALIGNED_ROOT = Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_ali
 DEFAULT_EMBEDDINGS_ROOT = Path("/vePFS-0x0d/DailyEEG_multimodal/embeddings")
 DEFAULT_ROUTES = {
     "cross_day": "B0_Wphysio_full",
-    "within_subject_day": "A1_Wphysio_no_audio",
+    "date_in_order": "A1_Wphysio_no_audio",
 }
 
 
@@ -59,11 +59,11 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=DEFAULT_ALIGNED_ROOT)
     parser.add_argument("--embeddings-root", type=Path, default=DEFAULT_EMBEDDINGS_ROOT)
     parser.add_argument("--splits-root", type=Path)
-    parser.add_argument("--protocols", default="cross_day,within_subject_day")
+    parser.add_argument("--protocols", default="cross_day,date_in_order")
     parser.add_argument("--labels", default=",".join(LABEL_NAMES))
     parser.add_argument("--seeds", default="240800,240801,240802")
     parser.add_argument("--cross-day-route", default=DEFAULT_ROUTES["cross_day"])
-    parser.add_argument("--within-subject-day-route", default=DEFAULT_ROUTES["within_subject_day"])
+    parser.add_argument("--date-in-order-route", default=DEFAULT_ROUTES["date_in_order"])
     parser.add_argument("--epochs", type=int, default=80)
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--batch-size", type=int, default=256)
@@ -90,7 +90,7 @@ def main() -> int:
         raise ValueError(f"unsupported labels: {labels}")
     routes = {
         "cross_day": args.cross_day_route,
-        "within_subject_day": args.within_subject_day_route,
+        "date_in_order": args.date_in_order_route,
     }
     rows = BASE._load_jsonl(args.root / "index/eeg_aligned_window_index.jsonl")
     sample_id = np.asarray([str(row["sample_id"]) for row in rows], dtype=str)

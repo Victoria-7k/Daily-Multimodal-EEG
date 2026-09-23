@@ -21,8 +21,8 @@ import numpy as np
 REPRESENTATIVE_ROUTES = (
     ("cross_day", "eeg_eegpt_partial_ft_v1", "B0_Wphysio_full", "highest raw r"),
     ("cross_day", "eeg_eegpt_partial_ft_v1", "B0_Wphysio_no_audio", "lowest RMSE / stronger centered r"),
-    ("within_subject_day", "eeg_eegpt_partial_ft_v1", "B0_Wdeep_no_audio", "highest raw r / centered r"),
-    ("within_subject_day", "eeg_eegpt_partial_ft_v1", "A2_Wdeep_full", "lowest RMSE"),
+    ("date_in_order", "eeg_eegpt_partial_ft_v1", "B0_Wdeep_no_audio", "highest raw r / centered r"),
+    ("date_in_order", "eeg_eegpt_partial_ft_v1", "A2_Wdeep_full", "lowest RMSE"),
 )
 
 
@@ -506,7 +506,7 @@ def main() -> None:
     write_json(phase1 / "metrics_val.json", calibration_val)
     write_json(phase1 / "metrics_test_frozen.json", calibration_test)
 
-    phase2_gate_passed = any(row["passes_phase2_gate"] for row in gate_rows if row["protocol"] in {"cross_day", "within_subject_day"})
+    phase2_gate_passed = any(row["passes_phase2_gate"] for row in gate_rows if row["protocol"] in {"cross_day", "date_in_order"})
     summary_lines = [
         "# Phase 1 Post-hoc Calibration Summary",
         "",

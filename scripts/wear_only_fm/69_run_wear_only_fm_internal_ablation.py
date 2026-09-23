@@ -29,7 +29,7 @@ DEFAULT_ROOT = Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned")
 DEFAULT_SPLITS_ROOT = Path("/vePFS-0x0d/DailyEEG/splits_new")
 DEFAULT_WEAR_FM_ROOT = DEFAULT_ROOT / "outputs/wear_fm"
 DEFAULT_PHASE2_ROOT = DEFAULT_ROOT / "outputs/wear_fm/phase2"
-DEFAULT_PROTOCOLS = ("cross_day", "within_subject_day")
+DEFAULT_PROTOCOLS = ("cross_day", "date_in_order")
 DEFAULT_ROUTES = ("W3FM_no_ppg", "W3FM_no_acc", "W3FM_no_gsr", "W3FM_ppg_partial_ft")
 DEFAULT_SEEDS = (240729, 240730, 240731)
 LABEL_NAMES = (
@@ -624,7 +624,7 @@ def _best_phase2_baseline(phase2: list[dict[str, Any]], protocol: str, seed: int
     ]
     if not candidates:
         return None
-    if protocol == "within_subject_day":
+    if protocol == "date_in_order":
         return max(candidates, key=lambda row: (float(row["test"]["within_subject_centered_r"]), -float(row["test"]["rmse"])))
     return max(candidates, key=lambda row: (float(row["test"]["raw_r"]), -float(row["test"]["rmse"])))
 

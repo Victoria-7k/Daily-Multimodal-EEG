@@ -153,10 +153,10 @@ def audit_bag(dataset: DailyAffectBagDataset, targets: np.ndarray, protocol: str
     subject_days = {}
     for key in leaves:
         subject_days[key] = {(str(dataset.subject_id[i]), str(dataset.day_id[i])) for i in leaves[key]}
-    if protocol == "within_subject_day" and any(
+    if protocol == "date_in_order" and any(
         subject_days[a] & subject_days[b] for a, b in (("train", "val"), ("train", "test"), ("val", "test"))
     ):
-        raise ValueError("repaired within_subject_day has subject-day overlap")
+        raise ValueError("repaired date_in_order has subject-day overlap")
     sources = json.loads(dataset.source_npz_json)
     expected = {EEG_BRANCH, "wear_physio", "video_A1"}
     expected_suffix = f"/multitask_11label/{protocol}/seed_{EMBEDDING_SEED}.npz"
@@ -172,7 +172,7 @@ def audit_bag(dataset: DailyAffectBagDataset, targets: np.ndarray, protocol: str
 
 
 def audit_multitask_eeg_token(path: Path, index_rows: list[dict[str, Any]], split_root: Path, protocol: str) -> dict[str, Any]:
-    """Verify the fixed 11-label-supervised token and its repaired split provenance."""
+    """Verify the fixed 11-label-supervised token against the selected split."""
 
     install_numpy_core_pickle_aliases()
     expected_sample_ids = np.asarray([str(row["sample_id"]) for row in index_rows])
@@ -182,6 +182,11 @@ def audit_multitask_eeg_token(path: Path, index_rows: list[dict[str, Any]], spli
         "val_index": np.flatnonzero(leaf == "val"),
         "test_index": np.flatnonzero(leaf == "test"),
     }
+    event_sets = {name: {str(index_rows[i]["event_id"]) for i in indices}
+                  for name, indices in expected.items()}
+    day_sets = {name: {(str(index_rows[i]["subject_id"]), str(index_rows[i]["day_id"])) for i in indices}
+                for name, indices in expected.items()}
+    pairs = (("train_index", "val_index"), ("train_index", "test_index"), ("val_index", "test_index"))
     with np.load(path, allow_pickle=True) as token:
         if not np.array_equal(token["sample_id"].astype(str), expected_sample_ids):
             raise ValueError(f"fixed EEG token sample order mismatch: {path}")
@@ -203,6 +208,9 @@ def audit_multitask_eeg_token(path: Path, index_rows: list[dict[str, Any]], spli
             raise ValueError(f"invalid EEG token values: {path}")
     return {
         "eeg_token_path": str(path), "eeg_profile": EEG_PROFILE,
+        "split_root": str(split_root / protocol),
+        "window_event_overlap": {f"{a}_{b}": len(event_sets[a] & event_sets[b]) for a, b in pairs},
+        "subject_day_overlap": {f"{a}_{b}": len(day_sets[a] & day_sets[b]) for a, b in pairs},
         "sample_order_match": True, "split_indices_match": True,
         "target_labels_match": True, "train_supervision": "multitask_event_supervised_eegpt_partial_ft",
     }

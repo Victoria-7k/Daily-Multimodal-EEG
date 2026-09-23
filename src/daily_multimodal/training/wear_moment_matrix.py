@@ -46,7 +46,7 @@ from daily_multimodal.embeddings.wear_real import (
 EMBEDDING_DIM = 256
 MATRIX_STEPS = 320
 WEAR_MOMENT_PROFILES = {"wear_moment_frozen_v1", "wear_moment_partial_ft_v1"}
-DEFAULT_PROTOCOLS = ("cross_subject", "cross_day", "within_subject_day")
+DEFAULT_PROTOCOLS = ("cross_subject", "cross_day", "date_in_order")
 DEFAULT_SEEDS = (240800, 240801, 240802)
 DEFAULT_INDEX_PATH = "/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/index/eeg_aligned_window_index.jsonl"
 DEFAULT_SPLITS_ROOT = "/vePFS-0x0d/DailyEEG/splits_new"

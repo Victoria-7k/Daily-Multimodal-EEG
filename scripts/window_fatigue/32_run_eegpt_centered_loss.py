@@ -36,10 +36,10 @@ DEFAULT_SPLITS_ROOT = Path("/vePFS-0x0d/DailyEEG/splits_new")
 DEFAULT_EMBEDDINGS_ROOT = Path("/vePFS-0x0d/DailyEEG_multimodal/embeddings")
 DEFAULT_EXPERIMENTS = (
     "cross_day:A1_Wphysio_no_audio",
-    "within_subject_day:A1_Wphysio_no_audio",
-    "within_subject_day:B0_Wdeep_no_audio",
+    "date_in_order:A1_Wphysio_no_audio",
+    "date_in_order:B0_Wdeep_no_audio",
 )
-DEFAULT_PROTOCOLS = ("cross_subject", "cross_day", "within_subject_day")
+DEFAULT_PROTOCOLS = ("cross_subject", "cross_day", "date_in_order")
 
 
 @dataclass(frozen=True)

@@ -35,7 +35,7 @@ from daily_multimodal.training.eeg_encoder_matrix import (
     write_prediction_npz,
 )
 
-PROTOCOLS = ("cross_day", "within_subject_day")
+PROTOCOLS = ("cross_day", "date_in_order")
 SEED = 240800
 GOLDEN_FATIGUE = Path(
     "/vePFS-0x0d/DailyEEG_multimodal/embeddings/eeg_encoder_256d_tokens/"

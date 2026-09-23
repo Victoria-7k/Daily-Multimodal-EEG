@@ -16,7 +16,7 @@ CANDIDATES = (
     {
         "candidate_id": "within_a2_wdeep_full_mse_variance_reg_0p05",
         "role": "primary",
-        "protocol": "within_subject_day",
+        "protocol": "date_in_order",
         "experiment": "A2_Wdeep_full",
         "loss_mode": "mse_variance_reg",
         "lambda": 0.05,
@@ -25,7 +25,7 @@ CANDIDATES = (
     {
         "candidate_id": "within_a2_wdeep_full_weighted_mse_label_bins",
         "role": "primary",
-        "protocol": "within_subject_day",
+        "protocol": "date_in_order",
         "experiment": "A2_Wdeep_full",
         "loss_mode": "weighted_mse_label_bins",
         "lambda": 0.0,
@@ -34,7 +34,7 @@ CANDIDATES = (
     {
         "candidate_id": "within_b0_wdeep_no_audio_mse_variance_reg_0p1",
         "role": "primary",
-        "protocol": "within_subject_day",
+        "protocol": "date_in_order",
         "experiment": "B0_Wdeep_no_audio",
         "loss_mode": "mse_variance_reg",
         "lambda": 0.1,

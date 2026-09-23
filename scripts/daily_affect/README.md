@@ -4,7 +4,7 @@ daily-affect EMA-bag ordinal route、focused diagnostics、window-daily event br
 
 | 脚本 | 用途 |
 | --- | --- |
-| `73_build_daily_affect_bags.py` | 从 canonical EEG-aligned 窗口级 tokens 构建 EMA bags；`within_subject_day` 固定读取 aligned root 下修复后的 subject-day 整体划分。 |
+| `73_build_daily_affect_bags.py` | 从 canonical EEG-aligned 窗口级 tokens 构建 EMA bags；`date_in_order` 固定读取 aligned root 下修复后的 subject-day 整体划分。 |
 | `74_run_daily_affect_phase0_baselines.py` | 训练 `window_replicated` 与 `bag_static` phase0 baselines。 |
 | `75_run_daily_affect_state_matrix.py` | 运行 state/prior/global-kernel/dynamic-kernel 矩阵。 |
 | `76_summarize_daily_affect_results.py` | 分组汇总、同 seed 配对与 subject-day bootstrap CI。 |

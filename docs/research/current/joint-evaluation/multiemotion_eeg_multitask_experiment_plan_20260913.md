@@ -4,6 +4,7 @@
 > Compared structures: 0814 window 与 0906 EMA-bag
 > 状态：第一条独立单标签路线1254/1254、第二条共享多头路线114/114均已完成，分别输出两组结构 × 11情绪表  
 > 更新：2026-09-20
+> 2026-09-23 补充：按用户指定 `/vePFS-0x0d/DailyEEG/splits_new/within_subject_day` 重跑两条路线的 `within_subject_day`；此前表中同名行取自无 subject-day 重叠的日期划分，须以原始 `split_root` 区分。新划分为窗口级，train/val 与 val/test 各共享107个 EMA event，结果不能作为独立 held-out-day 泛化估计。`date_in_order` 保留为无 subject-day 重叠的协议名称。
 > 目标：以 0814 窗口结构和 0906 EMA-bag 结构变体为行、11 个情绪标签为列，分别形成“标签专属 EEGPT＋独立标量”和“11 标签共同监督 EEGPT＋共享多头”两组结果矩阵；两组共用 split、下游 seeds 与 EMA-event 评价单位，并保留可复用的标签专属 EEGPT partial-FT embedding 库。
 
 ## 执行状态（2026-09-20）
@@ -122,11 +123,11 @@ hostile, nervous, upset, afraid, ashamed, fatigue
 | 级别 | Protocol | 用途 |
 | --- | --- | --- |
 | Primary | `cross_day` | 检验跨日期泛化 |
-| Primary | `outputs/splits/within_subject_day` | 检验同被试的 held-out-day 泛化；按 `subject-day` 整体划分；修复后的唯一正式名称 |
+| Primary | `outputs/splits/date_in_order` | 检验同被试的 held-out-day 泛化；按 `subject-day` 整体划分；零 subject-day 重叠 |
 | Diagnostic | `cross_subject` | 检验跨被试迁移，只在主阶段通过后扩展 |
-| Historical only | `/vePFS-0x0d/DailyEEG/splits_new/within_subject_day` | 原宽松窗口级划分；已从所有当前入口禁用，旧结果只用于 provenance |
+| Explicit replay | `/vePFS-0x0d/DailyEEG/splits_new/within_subject_day` | 用户指定的 `within_subject_day` 窗口级划分；2026-09-23 在两条路线重新生成 EEGPT token 与结构矩阵 |
 
-从 2026-09-13 起，`within_subject_day` 统一指 `<aligned-root>/outputs/splits/within_subject_day`：同一 `subject-day` 不跨 train/validation/test。`within_subject_day_strict` 只作为旧产物中的历史名称，不再用于新命令、目录或报告。实验 manifest 仍记录 split root，以便审计数据来源。
+本次运行的 `within_subject_day` 明确指 `/vePFS-0x0d/DailyEEG/splits_new/within_subject_day`；日期整体划分使用独立名称 `date_in_order`。此前 `within_subject_day` 名称下的日期划分产物由 metrics 中的 `split_root` 保留 provenance。实验 manifest 与汇总继续记录实际 split root。
 
 每个 protocol 独立训练：
 

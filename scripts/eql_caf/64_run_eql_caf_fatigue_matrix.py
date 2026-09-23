@@ -18,7 +18,7 @@ from daily_multimodal.training.eql_caf import make_eql_caf_variant
 
 
 DEFAULT_SPLITS_ROOT = Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/splits")
-DEFAULT_PROTOCOLS = ("cross_day", "within_subject_day")
+DEFAULT_PROTOCOLS = ("cross_day", "date_in_order")
 DEFAULT_MODELS = ("B1", "B2", "M1", "M2", "M3", "M4", "M5")
 
 

@@ -52,7 +52,7 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--embeddings-root", type=Path, default=DEFAULT_EMBEDDINGS_ROOT)
     parser.add_argument("--splits-root", type=Path, default=DEFAULT_SPLITS_ROOT)
-    parser.add_argument("--protocols", default="cross_day,within_subject_day")
+    parser.add_argument("--protocols", default="cross_day,date_in_order")
     parser.add_argument("--experiments", default=",".join(BASE.EXPERIMENT_BRANCHES))
     parser.add_argument("--head-variants", default="E0_existing_11out")
     parser.add_argument("--seeds", default="240800,240801,240802")

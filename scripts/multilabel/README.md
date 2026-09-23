@@ -22,5 +22,7 @@
 | `107_queue_legacy_single_task_matrix.sh` | 逐协议/标签独立进程运行旧配置的19结构 × 3下游 seed 标量矩阵，已完成 run 跳过、失败最多重试3次；日志在 `outputs/multiemotion_legacy_replay_20260917/logs/legacy_single_task_matrix.log`。 |
 | `108_finalize_legacy_single_task_matrix.sh` | 等待 `107` 成功结束后用 `102` 严格核对1254/1254并生成旧配置独立六张表；运行时传入 `107` 的 PID。 |
 | `109_replace_structure_matrix_with_mt11.sh` | 等待 `94` 的两协议 MT11 token 完成并通过审计后，清除当前 fatigue-supervised 共享多头 runs/summary，原位重跑114个结构 run，再由 `99` 生成覆盖后的六张表和 README。 |
+| `110_rerun_within_subject_day_splits_new.sh` | 按指定的 `/vePFS-0x0d/DailyEEG/splits_new/within_subject_day` 校验上游结果，预检后替换对应协议的 MT11 或 ST11 bag/run，重算并汇总。 |
+| `111_queue_st11_within_subject_day_splits_new.sh` | 等待 MT11 上游训练退出，再串行训练 11 个标签的单任务 EEGPT，并接续 `110` 的 ST11 下游矩阵。 |
 
-当前 repaired held-out-day 协议统一命名为 `within_subject_day`，解析到 aligned `outputs/splits/within_subject_day`。`93`/`94` 的正式 EEG 微调严格只解冻 EEGPT 最后两个 transformer blocks 与 final norm；256D projection、共享 trunk 和任务 head 作为 encoder 外新层训练。
+当前 repaired held-out-day 协议统一命名为 `date_in_order`，解析到 aligned `outputs/splits/date_in_order`。`93`/`94` 的正式 EEG 微调严格只解冻 EEGPT 最后两个 transformer blocks 与 final norm；256D projection、共享 trunk 和任务 head 作为 encoder 外新层训练。

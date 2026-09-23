@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROUTES = (
     ("cross_day", "eeg_eegpt_partial_ft_v1", "B0_Wphysio_no_audio"),
-    ("within_subject_day", "eeg_eegpt_partial_ft_v1", "A2_Wdeep_full"),
+    ("date_in_order", "eeg_eegpt_partial_ft_v1", "A2_Wdeep_full"),
 )
 
 VARIANT_LABELS = {

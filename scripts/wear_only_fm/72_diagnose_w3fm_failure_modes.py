@@ -24,7 +24,7 @@ DEFAULT_WEAR_FM_ROOT = DEFAULT_ROOT / "outputs/wear_fm"
 DEFAULT_PHASE2_ROOT = DEFAULT_WEAR_FM_ROOT / "phase2"
 DEFAULT_INTERNAL_ROOT = DEFAULT_WEAR_FM_ROOT / "internal_ablation"
 DEFAULT_OUT_ROOT = DEFAULT_WEAR_FM_ROOT / "failure_diagnostics"
-DEFAULT_PROTOCOLS = ("cross_day", "within_subject_day")
+DEFAULT_PROTOCOLS = ("cross_day", "date_in_order")
 DEFAULT_SEEDS = (240729, 240730, 240731)
 LABEL_NAMES = (
     "inspired",
@@ -616,7 +616,7 @@ def _rank_by_group(rows: list[dict[str, Any]], group_key: str, value_key: str, *
 def _best_probe_by_protocol(rows: list[dict[str, Any]]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for protocol in sorted({str(row["protocol"]) for row in rows}):
-        metric = "test_centered_r" if protocol == "within_subject_day" else "test_raw_r"
+        metric = "test_centered_r" if protocol == "date_in_order" else "test_raw_r"
         candidates = sorted([row for row in rows if row["protocol"] == protocol], key=lambda row: float(row[metric]), reverse=True)
         out[protocol] = [
             {
@@ -791,21 +791,21 @@ def _diagnosis_summary_lines(output: dict[str, Any]) -> list[str]:
     shift = output["embedding_shift"]
     no_acc = _find_row(internal, protocol="cross_day", route="W3FM_no_acc")
     cross_acc_corr = _find_row(corr, protocol="cross_day", modality="acc")
-    within_acc_corr = _find_row(corr, protocol="within_subject_day", modality="acc")
+    within_acc_corr = _find_row(corr, protocol="date_in_order", modality="acc")
     cross_acc_probe = _find_row(probes, protocol="cross_day", modality="acc")
-    within_acc_probe = _find_row(probes, protocol="within_subject_day", modality="acc")
+    within_acc_probe = _find_row(probes, protocol="date_in_order", modality="acc")
     cross_ppg_probe = _find_row(probes, protocol="cross_day", modality="ppg")
-    within_ppg_probe = _find_row(probes, protocol="within_subject_day", modality="ppg")
+    within_ppg_probe = _find_row(probes, protocol="date_in_order", modality="ppg")
     cross_gate = _average_gate(gate, "cross_day", "test")
-    within_gate = _average_gate(gate, "within_subject_day", "test")
+    within_gate = _average_gate(gate, "date_in_order", "test")
     cross_acc_error = _average_error(errors, "cross_day", "test", "acc")
-    within_acc_error = _average_error(errors, "within_subject_day", "test", "acc")
+    within_acc_error = _average_error(errors, "date_in_order", "test", "acc")
     cross_gsr_shift = _find_row(shift, protocol="cross_day", modality="gsr", split="test")
-    within_gsr_shift = _find_row(shift, protocol="within_subject_day", modality="gsr", split="test")
+    within_gsr_shift = _find_row(shift, protocol="date_in_order", modality="gsr", split="test")
     cross_acc_shift = _find_row(shift, protocol="cross_day", modality="acc", split="test")
-    within_acc_shift = _find_row(shift, protocol="within_subject_day", modality="acc", split="test")
+    within_acc_shift = _find_row(shift, protocol="date_in_order", modality="acc", split="test")
     cross_acc_scale = _find_row(shift, protocol="cross_day", modality="acc", split="train")
-    within_acc_scale = _find_row(shift, protocol="within_subject_day", modality="acc", split="train")
+    within_acc_scale = _find_row(shift, protocol="date_in_order", modality="acc", split="train")
 
     lines = []
     if no_acc:
@@ -820,31 +820,31 @@ def _diagnosis_summary_lines(output: dict[str, Any]) -> list[str]:
             "- ACC has the clearest train-to-test feature-correlation instability: "
             f"cross_day top train features have mean abs corr {_fmt(cross_acc_corr.get('top_train_abs_corr_mean'))}, "
             f"but signed test corr {_fmt(cross_acc_corr.get('top_test_signed_corr_mean'))} and sign agreement "
-            f"{_fmt(cross_acc_corr.get('top_test_sign_agreement'))}; within_subject_day signed test corr is "
+            f"{_fmt(cross_acc_corr.get('top_test_sign_agreement'))}; date_in_order signed test corr is "
             f"{_fmt(within_acc_corr.get('top_test_signed_corr_mean'))}."
         )
     if cross_acc_probe and cross_ppg_probe and within_acc_probe and within_ppg_probe:
         lines.append(
             "- The light linear probes also favor PPG over ACC: "
             f"cross_day PPG raw r {_fmt(cross_ppg_probe.get('test_raw_r'))} vs ACC "
-            f"{_fmt(cross_acc_probe.get('test_raw_r'))}; within_subject_day PPG centered r "
+            f"{_fmt(cross_acc_probe.get('test_raw_r'))}; date_in_order PPG centered r "
             f"{_fmt(within_ppg_probe.get('test_centered_r'))} vs ACC "
             f"{_fmt(within_acc_probe.get('test_centered_r'))}. ACC has the largest train-test RMSE gap in both protocols."
         )
     if cross_gate and within_gate and cross_acc_error and within_acc_error:
         lines.append(
             "- The learned gate gives ACC about half of the test weight "
-            f"(cross_day {_fmt(cross_gate['acc_weight_mean'])}, within_subject_day {_fmt(within_gate['acc_weight_mean'])}). "
+            f"(cross_day {_fmt(cross_gate['acc_weight_mean'])}, date_in_order {_fmt(within_gate['acc_weight_mean'])}). "
             "High-error test rows consistently receive more ACC weight: "
             f"high-low ACC weight is {_fmt(cross_acc_error['high_minus_low_weight'])} in cross_day and "
-            f"{_fmt(within_acc_error['high_minus_low_weight'])} in within_subject_day."
+            f"{_fmt(within_acc_error['high_minus_low_weight'])} in date_in_order."
         )
     if cross_gsr_shift and within_gsr_shift and cross_acc_shift and within_acc_shift:
         lines.append(
             "- Distribution mismatch exists, but it does not point only to ACC: "
             f"GSR has the largest train-standardized test mean shift "
             f"(cross_day {_fmt(cross_gsr_shift.get('standardized_mean_shift_l2'))}, "
-            f"within_subject_day {_fmt(within_gsr_shift.get('standardized_mean_shift_l2'))}), while ACC shift is smaller "
+            f"date_in_order {_fmt(within_gsr_shift.get('standardized_mean_shift_l2'))}), while ACC shift is smaller "
             f"({_fmt(cross_acc_shift.get('standardized_mean_shift_l2'))} and "
             f"{_fmt(within_acc_shift.get('standardized_mean_shift_l2'))}). This makes simple input-scale mismatch a secondary explanation."
         )
@@ -852,7 +852,7 @@ def _diagnosis_summary_lines(output: dict[str, Any]) -> list[str]:
         lines.append(
             "- ACC also has many low-variance raw embedding dimensions "
             f"(low-std fraction {_fmt(cross_acc_scale.get('raw_train_low_std_fraction'))} cross_day, "
-            f"{_fmt(within_acc_scale.get('raw_train_low_std_fraction'))} within_subject_day), so any follow-up should include "
+            f"{_fmt(within_acc_scale.get('raw_train_low_std_fraction'))} date_in_order), so any follow-up should include "
             "per-modality feature filtering or stronger train-only normalization before fusion."
         )
     return lines or ["- No automatic diagnosis could be generated; inspect the detailed tables below."]

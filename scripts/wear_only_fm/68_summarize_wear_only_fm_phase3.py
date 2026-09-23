@@ -17,7 +17,7 @@ BASELINES = ("Wphysio", "Wdeep", "Wmoment_frozen")
 W3FM = "W3FM_frozen"
 LABEL_METRIC = {
     "cross_day": "raw_r",
-    "within_subject_day": "within_subject_centered_r",
+    "date_in_order": "within_subject_centered_r",
     "cross_subject": "raw_r",
 }
 
@@ -53,7 +53,7 @@ def main() -> int:
         },
         "baseline_selection": {
             "cross_day": "highest test raw_r among Wphysio/Wdeep/Wmoment_frozen; lower RMSE tie-breaker",
-            "within_subject_day": "highest test within_subject_centered_r among Wphysio/Wdeep/Wmoment_frozen; lower RMSE tie-breaker",
+            "date_in_order": "highest test within_subject_centered_r among Wphysio/Wdeep/Wmoment_frozen; lower RMSE tie-breaker",
             "cross_subject": "diagnostic; highest test raw_r among Wphysio/Wdeep/Wmoment_frozen; lower RMSE tie-breaker",
         },
         "summary": summary,
@@ -298,7 +298,7 @@ def _gate_decision(paired: list[dict[str, Any]]) -> dict[str, Any]:
     for row in paired:
         by_protocol.setdefault(row["protocol"], []).append(row)
     cross_day = by_protocol.get("cross_day", [])
-    within = by_protocol.get("within_subject_day", [])
+    within = by_protocol.get("date_in_order", [])
     cross_day_raw = [row["observed"]["raw_r"] for row in cross_day]
     cross_day_rmse = [row["observed"]["rmse"] for row in cross_day]
     within_centered = [row["observed"]["within_subject_centered_r"] for row in within]

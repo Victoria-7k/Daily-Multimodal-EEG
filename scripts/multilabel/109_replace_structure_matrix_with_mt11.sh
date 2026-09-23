@@ -29,7 +29,7 @@ from pathlib import Path
 
 root = Path("outputs/multiemotion_20260913/phase4_multitask_eeg")
 embeddings = Path("/vePFS-0x0d/DailyEEG_multimodal/embeddings/eeg_encoder_256d_tokens/multitask_11label")
-for protocol in ("cross_day", "within_subject_day"):
+for protocol in ("cross_day", "date_in_order"):
     metrics = root / protocol / "all_11_labels" / "seed_240800" / "metrics.json"
     token = embeddings / protocol / "seed_240800.npz"
     if not metrics.is_file() or not token.is_file():
@@ -50,7 +50,7 @@ safe_remove() {
   case "$target" in
     "$output_root/runs"|"$output_root/summary"|\
     "$output_root/bags/cross_day/A1_Wphysio_no_audio__eeg_eegpt_partial_ft_v1"|\
-    "$output_root/bags/within_subject_day/A1_Wphysio_no_audio__eeg_eegpt_partial_ft_v1") ;;
+    "$output_root/bags/date_in_order/A1_Wphysio_no_audio__eeg_eegpt_partial_ft_v1") ;;
     *) echo "refusing unexpected removal target: $target" >&2; exit 3 ;;
   esac
   if [[ -e "$target" ]]; then
@@ -61,7 +61,7 @@ safe_remove() {
 safe_remove "$output_root/runs"
 safe_remove "$output_root/summary"
 safe_remove "$output_root/bags/cross_day/A1_Wphysio_no_audio__eeg_eegpt_partial_ft_v1"
-safe_remove "$output_root/bags/within_subject_day/A1_Wphysio_no_audio__eeg_eegpt_partial_ft_v1"
+safe_remove "$output_root/bags/date_in_order/A1_Wphysio_no_audio__eeg_eegpt_partial_ft_v1"
 
 "$python_bin" scripts/multilabel/98_run_structure_emotion_matrix.py \
   --embeddings-root "$embedding_root" --out-root "$output_root"

@@ -30,7 +30,7 @@ DEFAULT_OUT_ROOT = Path("outputs/server_sync/fatigue_calibration_20260816/phase4
 
 ROUTES = (
     ("cross_day", "B0_Wphysio_no_audio"),
-    ("within_subject_day", "A2_Wdeep_full"),
+    ("date_in_order", "A2_Wdeep_full"),
 )
 
 VARIANTS = (

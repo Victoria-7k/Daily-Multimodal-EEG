@@ -13,8 +13,8 @@ from typing import Any
 ROUTES = (
     "cross_day:B0_Wphysio_full",
     "cross_day:B0_Wphysio_no_audio",
-    "within_subject_day:B0_Wdeep_no_audio",
-    "within_subject_day:A2_Wdeep_full",
+    "date_in_order:B0_Wdeep_no_audio",
+    "date_in_order:A2_Wdeep_full",
 )
 
 PHASE2_CONFIGS = (

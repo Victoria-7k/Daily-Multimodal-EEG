@@ -31,7 +31,7 @@ def full_json_path(variant: str) -> Path:
 
 REPRO_EXPECTED = [
     {"protocol": "cross_day", "experiment": "B0_Wphysio_full", "seed": 240790, "file": "cross_day_B0_Wphysio_full_seed240790.json"},
-    {"protocol": "within_subject_day", "experiment": "B0_Wphysio_no_audio", "seed": 240855, "file": "within_subject_day_B0_Wphysio_no_audio_seed240855.json"},
+    {"protocol": "date_in_order", "experiment": "B0_Wphysio_no_audio", "seed": 240855, "file": "within_subject_day_B0_Wphysio_no_audio_seed240855.json"},
     {"protocol": "cross_subject", "experiment": "B0_Wphysio_no_audio", "seed": 240735, "file": "cross_subject_B0_Wphysio_no_audio_seed240735.json"},
 ]
 
@@ -44,7 +44,7 @@ BRANCH_ORDER = (
     "eeg_eegpt_frozen_v1", "eeg_eegpt_partial_ft_v1", "eeg_cbramod_frozen_v1",
     "eeg_cbramod_partial_ft_v1", "eeg_de_5band_1s_avg_v1",
 )
-PROTOCOL_ORDER = ("cross_subject", "cross_day", "within_subject_day")
+PROTOCOL_ORDER = ("cross_subject", "cross_day", "date_in_order")
 
 TIE = 0.005
 
@@ -247,7 +247,7 @@ def main() -> int:
     add("## 1. 结论摘要（TL;DR）")
     add("")
     add("- **主张**：在当前 28,819 窗口 EEG-aligned 四模态疲劳预测主线上，`AttentionRegressor`（单头 self-attention + learnable-query pooling，即 `technical_route_20260814.md` 中的 cross-attention 融合）相比朴素 `concat + MLP` **不提供任何预测价值**，在多数配置下反而更差。")
-    add("- **最强证据**：全量 180-run 矩阵与归档 attention 矩阵**逐 run 同 seed 配对**（paired 180/180）：`concat` 的 mean Δraw r 在 `within_subject_day` 为 **+0.0394**（42 胜 / 12 负，符号检验 p=5.2e-5）、`cross_day` 为 **+0.0137**、`cross_subject` 为 **−0.0013**（持平）；mean ΔRMSE 在 `within_subject_day` 为 **−0.0143**。")
+    add("- **最强证据**：全量 180-run 矩阵与归档 attention 矩阵**逐 run 同 seed 配对**（paired 180/180）：`concat` 的 mean Δraw r 在 `date_in_order` 为 **+0.0394**（42 胜 / 12 负，符号检验 p=5.2e-5）、`cross_day` 为 **+0.0137**、`cross_subject` 为 **−0.0013**（持平）；mean ΔRMSE 在 `date_in_order` 为 **−0.0143**。")
     add("- **方向一致性**：独立的决策切片（32 runs，seed 240800 固定）在两个协议上 `concat` 的 mean raw r 均 ≥ `attention`，与全量配对方向一致。")
     add("- **唯一例外**：最强 EEG 分支 `eegpt_partial_ft` 上 attention 略优（Δraw r −0.008，接近噪声），其余 4/5 分支 concat 全部更优；attention 只在最强表征下勉强打平。")
     add("- **建议**：以 `concat + MLP` 替换当前 attention 融合作为新基线；raw r 主线资源转向提升单模态表征质量（wear/video 目前为 frozen/无监督表征）。")
@@ -275,7 +275,7 @@ def main() -> int:
     add("")
     add("| 维度 | 决策切片 | 全量配对矩阵 |")
     add("| --- | --- | --- |")
-    add("| 协议 | `cross_day`, `within_subject_day` | `cross_subject`, `cross_day`, `within_subject_day` |")
+    add("| 协议 | `cross_day`, `date_in_order` | `cross_subject`, `cross_day`, `date_in_order` |")
     add("| EEG 分支 | `eeg_eegpt_partial_ft_v1`（最强主线） | 全部 5 条 256D route |")
     add("| 融合组合 | `B0_Wphysio_full, B0_Wphysio_no_audio, A1_Wdeep_full, A1_Wdeep_no_audio` | 全部 12 个 video-only 组合 |")
     add("| 变体 | 4 个 | `concat` 与 `eeg_anchor`（切片表现最好/次好） |")
@@ -311,13 +311,13 @@ def main() -> int:
     add("| protocol | fusion variant | mean RMSE | mean MAE | mean raw r | mean centered r |")
     add("| --- | --- | ---: | ---: | ---: | ---: |")
     for s in sorted(slice_means, key=lambda x: (x["protocol"], -x["mean_raw_r"])):
-        bold = "**" if s["variant"] in ("concat", "attention") and s["protocol"] in ("cross_day", "within_subject_day") else ""
+        bold = "**" if s["variant"] in ("concat", "attention") and s["protocol"] in ("cross_day", "date_in_order") else ""
         add(
             f"| {s['protocol']} | {bold}{s['variant']}{bold} | {fmt(s['mean_rmse'])} | {fmt(s['mean_mae'])} | "
             f"{fmt(s['mean_raw_r'])} | {fmt(s['mean_centered_r'])} |"
         )
     add("")
-    add("要点：`cross_day` 上 `concat` 的 mean raw r 0.3112 vs `attention` 0.2830（+0.028）；`within_subject_day` 上 0.3967 vs 0.3928（+0.004），mean RMSE 均更低。`attention_multihead_pma` 两协议 raw r 均低于 concat。")
+    add("要点：`cross_day` 上 `concat` 的 mean raw r 0.3112 vs `attention` 0.2830（+0.028）；`date_in_order` 上 0.3967 vs 0.3928（+0.004），mean RMSE 均更低。`attention_multihead_pma` 两协议 raw r 均低于 concat。")
     add("")
     add("### 5.2 决策切片完整明细（32 runs）")
     add("")
@@ -333,7 +333,7 @@ def main() -> int:
     add("")
     add("| protocol | attention mean raw r | concat mean raw r | pma mean raw r | pma − concat | pma − attention |")
     add("| --- | ---: | ---: | ---: | ---: | ---: |")
-    for protocol in ("cross_day", "within_subject_day"):
+    for protocol in ("cross_day", "date_in_order"):
         vals = {s["variant"]: s for s in slice_means if s["protocol"] == protocol}
         attn, conc, pma = vals.get("attention"), vals.get("concat"), vals.get("attention_multihead_pma")
         if attn and conc and pma:
@@ -361,7 +361,7 @@ def main() -> int:
             f"{g['sign_p']:.4g} | {fmt(g['mean_var_raw_r'])} | {fmt(g['mean_attn_raw_r'])} |"
         )
     add("")
-    add("解读：全量 180 对中 `concat` mean Δraw r +0.017、ΔRMSE −0.005；`within_subject_day` 上 Δraw r +0.0394 且符号检验 p=5.2e-5，远超偶然；`cross_subject` 持平（−0.0013）。")
+    add("解读：全量 180 对中 `concat` mean Δraw r +0.017、ΔRMSE −0.005；`date_in_order` 上 Δraw r +0.0394 且符号检验 p=5.2e-5，远超偶然；`cross_subject` 持平（−0.0013）。")
     add("")
     add("### 6.2 按 EEG 分支汇总")
     add("")
@@ -426,7 +426,7 @@ def main() -> int:
             f"{fmt(g['mean_d_rmse'])} | {g['wins']}/{g['losses']}/{g['ties']} | {g['sign_p']:.4g} |"
         )
     add("")
-    add("解读：`eeg_anchor` 仅在 `cross_subject` raw r（+0.012）与 `cross_day` RMSE（−0.008）小幅改善，`within_subject_day` raw r 反而下降（−0.012）；无 concat 那种一致、显著的优势，不构成替换理由。")
+    add("解读：`eeg_anchor` 仅在 `cross_subject` raw r（+0.012）与 `cross_day` RMSE（−0.008）小幅改善，`date_in_order` raw r 反而下降（−0.012）；无 concat 那种一致、显著的优势，不构成替换理由。")
     add("")
     add("按 EEG 分支（eeg_anchor vs attention，每分支 36 对）：")
     add("")
@@ -442,8 +442,8 @@ def main() -> int:
     add("")
     add("## 8. 稳健性与方向一致性")
     add("")
-    add("1. **两套独立实验方向一致**：决策切片（seed 240800 固定、4 组合）与全量配对矩阵（180 对）中，`concat` 的 mean raw r 均 ≥ `attention`（切片：cross_day +0.028 / within_subject_day +0.004；全量：cross_day +0.014 / within_subject_day +0.039）。")
-    add("2. **统计显著性集中在关键协议**：`within_subject_day` 全量 60 对 42 胜 / 12 负（p=5.2e-5）；`cross_day` 27/28 基本五五开但均值 +0.014；`cross_subject` 持平。")
+    add("1. **两套独立实验方向一致**：决策切片（seed 240800 固定、4 组合）与全量配对矩阵（180 对）中，`concat` 的 mean raw r 均 ≥ `attention`（切片：cross_day +0.028 / date_in_order +0.004；全量：cross_day +0.014 / date_in_order +0.039）。")
+    add("2. **统计显著性集中在关键协议**：`date_in_order` 全量 60 对 42 胜 / 12 负（p=5.2e-5）；`cross_day` 27/28 基本五五开但均值 +0.014；`cross_subject` 持平。")
     add("3. **例外可解释**：attention 唯一略优的分支 `eegpt_partial_ft` 是唯一 fatigue-supervised 强表征；弱表征分支（CBraMod/DE/frozen）concat 全胜 → 与「attention 需要足够强的输入才有意义」一致，恰好反证当前融合设计在该任务上不成立。")
     add("4. **配对公平性**：全量矩阵与归档使用完全相同的命令顺序与超参，180/180 逐位同 seed 配对，无种子混差；决策切片四变体共享 seed 240800。")
     add("5. **局限**：全部结论基于当前 256D token 输入（EEG 部分 fatigue-supervised、wear/video frozen/无监督）与 28,819 窗口单一数据；不构成「attention 在所有多模态任务上无效」的一般性断言。")
@@ -452,9 +452,9 @@ def main() -> int:
     add("")
     add("## 9. 结论与建议")
     add("")
-    add("1. **当前 attention 融合相比朴素拼接没有价值**（全量配对：`within_subject_day` Δraw r +0.039、ΔRMSE −0.014，42 胜/12 负，p=5.2e-5；`cross_day` Δraw r +0.014；`cross_subject` 持平）。")
+    add("1. **当前 attention 融合相比朴素拼接没有价值**（全量配对：`date_in_order` Δraw r +0.039、ΔRMSE −0.014，42 胜/12 负，p=5.2e-5；`cross_day` Δraw r +0.014；`cross_subject` 持平）。")
     add("2. **结构做厚（多头 + 多 query）不解决问题**：`attention_multihead_pma` 切片两协议 raw r 均低于 concat（见 §5.3）。")
-    add("3. **EEG 锚点（eeg_anchor）部分信号、不作主线**：`cross_subject` raw r +0.012、`cross_day` RMSE −0.008 小幅改善，但 `within_subject_day` raw r −0.012 下降，无 concat 那种一致优势（见 §7）。")
+    add("3. **EEG 锚点（eeg_anchor）部分信号、不作主线**：`cross_subject` raw r +0.012、`cross_day` RMSE −0.008 小幅改善，但 `date_in_order` raw r −0.012 下降，无 concat 那种一致优势（见 §7）。")
     add("4. **建议以 `concat + MLP` 替换当前 attention 融合作为新基线**（`--fusion-variant concat` 已可一键复现），并把 raw r 主线资源转向提升单模态表征质量——尤其 wear（Wphysio/Wdeep 无监督、固定随机投影）与 video（DINOv2 frozen）的监督对齐。")
     add("")
     add("---")

@@ -36,7 +36,7 @@ def main() -> int:
     parser.add_argument(
         "--protocols",
         default=",".join(DEFAULT_PROTOCOLS),
-        help="Comma-separated existing split protocols; default uses all three: cross_subject,cross_day,within_subject_day.",
+        help="Comma-separated existing split protocols; default uses all three: cross_subject,cross_day,date_in_order.",
     )
     parser.add_argument(
         "--profiles",

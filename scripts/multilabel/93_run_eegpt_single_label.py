@@ -41,7 +41,7 @@ def main(default_mode: str = "single") -> int:
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--embeddings-root", type=Path, default=DEFAULT_EMBEDDINGS_ROOT)
     parser.add_argument("--out-root", type=Path)
-    parser.add_argument("--protocols", default="cross_day,within_subject_day")
+    parser.add_argument("--protocols", default="cross_day,date_in_order")
     parser.add_argument("--labels", default=",".join(LABEL_NAMES))
     parser.add_argument("--seeds", default="240800,240801,240802")
     parser.add_argument("--epochs", type=int, default=80)

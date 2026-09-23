@@ -1,4 +1,4 @@
-﻿import importlib.util
+import importlib.util
 import sys
 import tempfile
 import types
@@ -62,7 +62,7 @@ class EEGEncoderFusionTokenTests(unittest.TestCase):
     def test_video_only_experiment_set_drops_no_video_and_bio_only(self):
         args = Namespace(
             experiment_set="video_only",
-            protocols="cross_day,within_subject_day",
+            protocols="cross_day,date_in_order",
             experiments="cross_day:B0_Wphysio_bio_only",
         )
 

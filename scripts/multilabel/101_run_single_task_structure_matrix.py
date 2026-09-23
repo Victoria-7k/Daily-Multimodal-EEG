@@ -22,7 +22,7 @@ from daily_multimodal.daily_affect.training import load_bag_dataset
 from daily_multimodal.training.structure_emotion import conditions
 
 EMBEDDING_SEED = 240800
-PROTOCOLS = ("cross_day", "within_subject_day")
+PROTOCOLS = ("cross_day", "date_in_order")
 SEEDS = (240800, 240801, 240802)
 
 
@@ -74,7 +74,7 @@ def audit_bag(dataset, protocol: str, label: str, token_path: Path) -> dict:
     groups = {name: set(split[name].tolist()) for name in ("train", "val", "test")}
     if any(groups[a] & groups[b] for a, b in (("train", "val"), ("train", "test"), ("val", "test"))):
         raise ValueError(f"event split overlap: {dataset.bag_path}")
-    if protocol == "within_subject_day":
+    if protocol == "date_in_order":
         days = {name: {(dataset.subject_id[i], dataset.day_id[i]) for i in groups[name]} for name in groups}
         if any(days[a] & days[b] for a, b in (("train", "val"), ("train", "test"), ("val", "test"))):
             raise ValueError(f"subject-day overlap: {dataset.bag_path}")
@@ -88,6 +88,7 @@ def audit_bag(dataset, protocol: str, label: str, token_path: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned"))
+    parser.add_argument("--splits-root", type=Path, help="Root containing <protocol> split directories; defaults to <root>/outputs/splits.")
     parser.add_argument("--embeddings-root", type=Path, default=Path("/vePFS-0x0d/DailyEEG_multimodal/embeddings"))
     parser.add_argument("--out-root", type=Path, default=Path("outputs/multiemotion_20260913/single_task_structure_matrix_A1"))
     parser.add_argument("--protocols", default=",".join(PROTOCOLS))
@@ -106,7 +107,7 @@ def main() -> int:
     protocols, labels = split_csv(args.protocols), split_csv(args.labels)
     seeds = tuple(map(int, split_csv(args.seeds)))
     selected = split_csv(args.conditions)
-    if not protocols or set(protocols) - set(PROTOCOLS) or not labels or set(labels) - set(LABEL_NAMES):
+    if not protocols or set(protocols) - {"cross_day", "within_subject_day", "date_in_order"} or not labels or set(labels) - set(LABEL_NAMES):
         raise ValueError("unsupported/empty protocol or label selection")
     if not selected or set(selected) - set(conditions()) or not seeds:
         raise ValueError("unsupported/empty condition or downstream seed selection")
@@ -115,10 +116,17 @@ def main() -> int:
         raise RuntimeError("CUDA unavailable")
     index_path = args.root / "index/eeg_aligned_window_index.jsonl"
     index_rows = load_jsonl(index_path)
-    split_root = args.root / "outputs/splits"
+    split_root = args.splits_root or args.root / "outputs/splits"
     audits = []
     attempted = 0
     for protocol in protocols:
+        window_leaf = load_window_split(split_root / protocol, len(index_rows))
+        window_events = {
+            name: {str(index_rows[i]["event_id"]) for i in np.flatnonzero(np.isin(window_leaf, leaves))}
+            for name, leaves in (("train", ("pretrain", "finetune")), ("val", ("val",)), ("test", ("test",)))
+        }
+        event_overlap = {f"{a}_{b}": len(window_events[a] & window_events[b])
+                         for a, b in (("train", "val"), ("train", "test"), ("val", "test"))}
         for label in labels:
             branch = f"eeg_eegpt_partial_ft_single_{label}_v1"
             token_path = args.embeddings_root / "eeg_encoder_256d_tokens/single_task" / protocol / label / f"seed_{EMBEDDING_SEED}.npz"
@@ -133,6 +141,8 @@ def main() -> int:
                     target_label=label, eeg_branch=branch, eeg_seed=EMBEDDING_SEED)
             dataset = load_bag_dataset(bag_path)
             audit = audit_bag(dataset, protocol, label, token_path)
+            audit["split_root"] = str(split_root / protocol)
+            audit["window_event_overlap"] = event_overlap
             audits.append(audit)
             args.out_root.mkdir(parents=True, exist_ok=True)
             audit_path = args.out_root / "preflight" / protocol / f"{label}.json"

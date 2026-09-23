@@ -20,7 +20,7 @@ from typing import Any
 VIDEOS = ("B0", "A1", "A2")
 WEARS = ("Wphysio", "Wdeep", "Wmoment_frozen", "Wmoment_ft")
 AUDIOS = ("full", "no_audio")
-MAIN_PROTOCOLS = ("cross_day", "within_subject_day")
+MAIN_PROTOCOLS = ("cross_day", "date_in_order")
 
 
 def _parse_experiment(name: str) -> dict[str, str] | None:

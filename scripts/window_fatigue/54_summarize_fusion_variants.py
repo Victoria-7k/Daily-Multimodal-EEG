@@ -112,7 +112,7 @@ def main() -> int:
         "# Fusion Variant 决策切片汇总",
         "",
         f"- variants: `{'`, `'.join(variants)}`",
-        f"- 每变体 runs: 8（cross_day/within_subject_day × B0_Wphysio_full/B0_Wphysio_no_audio/A1_Wdeep_full/A1_Wdeep_no_audio，`eeg_eegpt_partial_ft_v1`，seed 240800 固定）",
+        f"- 每变体 runs: 8（cross_day/date_in_order × B0_Wphysio_full/B0_Wphysio_no_audio/A1_Wdeep_full/A1_Wdeep_no_audio，`eeg_eegpt_partial_ft_v1`，seed 240800 固定）",
         "",
         "## 按协议 × 变体的 test 均值",
         "",

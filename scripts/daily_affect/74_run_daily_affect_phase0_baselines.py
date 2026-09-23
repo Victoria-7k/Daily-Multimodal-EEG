@@ -17,7 +17,7 @@ from daily_multimodal.daily_affect.training import load_bag_dataset, run_daily_a
 DEFAULT_ROOT = Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned")
 DEFAULT_SOURCE_ROOT = DEFAULT_ROOT / "outputs/daily_affect_ordinal_20260903"
 DEFAULT_OUT_ROOT = DEFAULT_ROOT / "outputs/daily_affect_ordinal_routefix_20260906"
-DEFAULT_PROTOCOLS = ("cross_subject", "cross_day", "within_subject_day")
+DEFAULT_PROTOCOLS = ("cross_subject", "cross_day", "date_in_order")
 DEFAULT_SEEDS = (240729, 240730, 240731)
 DEFAULT_MODELS = ("window_replicated", "bag_static")
 

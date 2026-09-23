@@ -21,7 +21,7 @@ from daily_multimodal.daily_affect.regression_training import run_daily_affect_r
 from daily_multimodal.daily_affect.training import load_bag_dataset
 from daily_multimodal.training.structure_emotion import conditions
 
-PROTOCOLS = ("cross_day", "within_subject_day")
+PROTOCOLS = ("cross_day", "date_in_order")
 SEEDS = (240729, 240730, 240731)
 EMBEDDING_SEED = 240800
 TOKEN_ROOT_NAME = "eeg_encoder_256d_tokens_legacy_20260917"
@@ -79,7 +79,7 @@ def audit_bag(bag, token_path: Path, protocol: str, label: str) -> dict:
     groups = {leaf: set(split[leaf].tolist()) for leaf in ("train", "val", "test")}
     if any(groups[a] & groups[b] for a, b in (("train", "val"), ("train", "test"), ("val", "test"))):
         raise ValueError(f"bag split overlap: {bag.bag_path}")
-    if protocol == "within_subject_day":
+    if protocol == "date_in_order":
         days = {leaf: {(str(bag.subject_id[i]), str(bag.day_id[i])) for i in indices}
                 for leaf, indices in groups.items()}
         if any(days[a] & days[b] for a, b in (("train", "val"), ("train", "test"), ("val", "test"))):

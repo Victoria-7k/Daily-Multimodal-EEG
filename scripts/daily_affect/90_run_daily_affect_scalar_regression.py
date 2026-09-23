@@ -21,9 +21,9 @@ DEFAULT_ROOT = Path("/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned")
 DEFAULT_BAGS_ROOT = DEFAULT_ROOT / "outputs/daily_affect_ordinal_20260903/bags"
 DEFAULT_OUT_ROOT = DEFAULT_ROOT / "outputs/daily_affect_scalar_regression_20260908"
 DEFAULT_SEEDS = (240729, 240730, 240731)
-DEFAULT_PROTOCOLS = ("cross_day", "within_subject_day", "cross_subject")
-ROUTE_BY_PROTOCOL = {"cross_day": "A1_Wphysio_full", "within_subject_day": "B0_Wphysio_full", "cross_subject": "A2_Wdeep_full"}
-NORM_BY_PROTOCOL = {"cross_day": "per_modality", "within_subject_day": "per_modality", "cross_subject": "shared"}
+DEFAULT_PROTOCOLS = ("cross_day", "date_in_order", "cross_subject")
+ROUTE_BY_PROTOCOL = {"cross_day": "A1_Wphysio_full", "date_in_order": "B0_Wphysio_full", "cross_subject": "A2_Wdeep_full"}
+NORM_BY_PROTOCOL = {"cross_day": "per_modality", "date_in_order": "per_modality", "cross_subject": "shared"}
 BAG_MODEL_IDS = (
     "bag_static", "state_uniform", "prior_uniform", "prior_ordD_uniform", "global_kernel_no_prior",
     "dynamic_kernel_no_prior", "dynamic_kernel_prior_uniform", "dynamic_kernel", "dynamic_fixed_short",
