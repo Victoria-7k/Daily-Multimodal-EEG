@@ -181,6 +181,35 @@ Face 入口的 `--allow-opencv-fallback` 也覆盖 OpenFace 已启动 `Starting 
 
 ## Multi-emotion EEG and multi-head regression（2026-09-14）
 
+## Modality-wise temporal MAE（2026-09-24）
+
+`scripts/multilabel/112_run_modality_mae.py` implements the Stage-A label-free
+EEG/Wear representation route.  It reads no emotion labels: the MAE optimizes
+masked reconstruction on `pretrain + finetune`, uses `val` reconstruction loss
+for checkpoint selection, and only then exports a 256D token for every one of
+the 28,819 canonical windows.  Run one encoder per formal protocol, and keep
+the resulting token roots separate from fatigue- or 11-label-supervised tokens.
+
+```bash
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/multilabel/112_run_modality_mae.py \
+  --modality eeg --protocol cross_day --out-root outputs/mae_20260924 --device cuda
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/multilabel/112_run_modality_mae.py \
+  --modality wear --protocol cross_day --out-root outputs/mae_20260924 --device cuda
+```
+
+Each completed run writes `checkpoint.pt`, `window_embeddings.npz`, and
+`config.json` under `{out-root}/{protocol}/{modality}_seed_{seed}/`.  The Wear
+route maintains the canonical `wear_complete_mask`; token values outside that
+mask are zero and must remain unavailable to downstream fusion.  The video MAE
+stage requires raw, aligned video/tubelet inputs and must not substitute the
+existing DINO embedding for those inputs.
+
+On the shared H20, `scripts/multilabel/113_queue_modality_mae_stage_a.sh`
+requires two consecutive low-utilization checks before serially running EEG
+for both protocols and then Wear for both protocols.  Its log is
+`outputs/mae_20260924/logs/stage_a_queue.log`; it writes
+`outputs/mae_20260924/STAGE_A_COMPLETE` only after all four runs finish.
+
 主计划为 `docs/research/current/joint-evaluation/multiemotion_eeg_multitask_experiment_plan_20260913.md`。所有命令在 aligned repo 根运行，并设置 `PYTHONPATH=src`。服务器存储紧张时同时把 `TMPDIR` 和 `XDG_CACHE_HOME` 指到 `outputs/tmp`。
 
 ```bash

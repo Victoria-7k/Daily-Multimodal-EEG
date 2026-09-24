@@ -24,5 +24,7 @@
 | `109_replace_structure_matrix_with_mt11.sh` | 等待 `94` 的两协议 MT11 token 完成并通过审计后，清除当前 fatigue-supervised 共享多头 runs/summary，原位重跑114个结构 run，再由 `99` 生成覆盖后的六张表和 README。 |
 | `110_rerun_within_subject_day_splits_new.sh` | 按指定的 `/vePFS-0x0d/DailyEEG/splits_new/within_subject_day` 校验上游结果，预检后替换对应协议的 MT11 或 ST11 bag/run，重算并汇总。 |
 | `111_queue_st11_within_subject_day_splits_new.sh` | 等待 MT11 上游训练退出，再串行训练 11 个标签的单任务 EEGPT，并接续 `110` 的 ST11 下游矩阵。 |
+| `112_run_modality_mae.py` | 在指定正式 split 下训练 label-free EEG 或 Wear temporal MAE：仅 `pretrain + finetune` 进行重建训练、`val` 选 checkpoint，导出 `(28819,256)` frozen window token 与 valid mask；不读取情绪标签。 |
+| `113_queue_modality_mae_stage_a.sh` | 等待 H20 持续低占用后，顺序运行 EEG（cross-day、within-subject-day）再 Wear（同两协议）的全量 Stage-A MAE；每步写独立 checkpoint/token，完成时写 `STAGE_A_COMPLETE`。 |
 
 当前 repaired held-out-day 协议统一命名为 `date_in_order`，解析到 aligned `outputs/splits/date_in_order`。`93`/`94` 的正式 EEG 微调严格只解冻 EEGPT 最后两个 transformer blocks 与 final norm；256D projection、共享 trunk 和任务 head 作为 encoder 外新层训练。
