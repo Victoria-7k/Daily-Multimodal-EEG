@@ -210,6 +210,54 @@ for both protocols and then Wear for both protocols.  Its log is
 `outputs/mae_20260924/logs/stage_a_queue.log`; it writes
 `outputs/mae_20260924/STAGE_A_COMPLETE` only after all four runs finish.
 
+VideoMAE runs on `ncc_serve_4090`, where `/mnt/dataset1/sitian/video/` is
+mounted. `scripts/multilabel/114_run_video_mae.py` reads raw MP4 clips using
+the canonical video metadata and formal split JSONs, trains only on
+`pretrain + finetune`, selects by validation reconstruction loss, and exports
+one 256D token per canonical row. `115_queue_video_mae_stage_a.sh` keeps its
+decoded clip cache on ncc; only the checkpoint, configuration, token NPZ and
+mask are transferred back to H20.  Cache construction stores completed clip
+indices and quarantines decode failures as `video_mask=false`, so one damaged
+MP4 cannot terminate the all-video run and a restart reuses prior cached rows.
+
+`scripts/multilabel/116_run_mae_window_fusion.py` is the H20 downstream
+handoff for completed EEG/Wear MAE tokens.  It compares B0
+(`EEGPT-frozen + Wphysio + DINO-B0`), E1 (`EEG-MAE + Wphysio + DINO-B0`), and
+W1 (`EEGPT-frozen + Wear-MAE + DINO-B0`) with the same 11-label fusion head.
+It fixes the label-free upstream MAE seed at `240800`, trains only the fusion
+and 11-label head with supervised labels, selects checkpoints on validation
+loss, and records one prediction file per protocol/condition/downstream seed.
+`117_queue_mae_window_fusion.sh` gates the formal 18-run matrix on a three
+condition 3-epoch cross-day smoke.  Its `within_subject_day` results are
+recorded as legacy same-subject same-day window-holdout evidence; cross-day is
+the subject-day generalization comparison in this queue.
+
+`118_run_mae_mt11_event_ablation.py` provides the table-compatible MAE
+comparison.  Its B0 reference is the completed
+`A1_Wphysio_no_audio__eeg_eegpt_partial_ft_multitask_11label_v1` 0814 row,
+including its stored event bags and three downstream-seed metrics.  E1, W1,
+and M2 copy those exact bags and replace the EEG, Wear, or both slots with the
+matching frozen Stage-A MAE tokens; every one retains the reference DINO A1
+video slot.  All conditions use event-level evaluation and
+`window_attention_regression_full_mean`; therefore their per-emotion raw-r
+table is comparable to the completed A1+MT11 cross-day raw-r table.
+
+`120_queue_m2_mt11_event_ablation.sh` runs the M2 smoke and, only after its
+completion marker, the two-protocol three-seed matrix.  On a replacement H20
+where the shared experiment root is read-only, stage `118` in a writable user
+directory and set `M2_RUNNER` and `M2_OUT`; the runner still reads the shared
+reference bags and MAE tokens through its explicit root arguments.
+
+`121_queue_v1_mt11_event_ablation.sh` extends the same contract to V1:
+MT11 EEG and Wphysio stay fixed, while `118 --conditions V1
+--video-mae-root /home/wangzw/outputs/video_mae_20261007` replaces the video
+slot with the completed label-free token. A cross-day smoke precedes the
+two-protocol three-seed formal run. The token transfer was SHA-256 verified;
+both protocols have 18,012 valid video windows versus the reference's 18,021
+(9 mask differences). These native-mask results include that coverage change.
+New outputs record the retained EEG supervision explicitly; the historical
+M2 `single_modality_replacement` metadata remains a legacy name on disk.
+
 主计划为 `docs/research/current/joint-evaluation/multiemotion_eeg_multitask_experiment_plan_20260913.md`。所有命令在 aligned repo 根运行，并设置 `PYTHONPATH=src`。服务器存储紧张时同时把 `TMPDIR` 和 `XDG_CACHE_HOME` 指到 `outputs/tmp`。
 
 ```bash

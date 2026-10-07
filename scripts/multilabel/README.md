@@ -26,5 +26,13 @@
 | `111_queue_st11_within_subject_day_splits_new.sh` | 等待 MT11 上游训练退出，再串行训练 11 个标签的单任务 EEGPT，并接续 `110` 的 ST11 下游矩阵。 |
 | `112_run_modality_mae.py` | 在指定正式 split 下训练 label-free EEG 或 Wear temporal MAE：仅 `pretrain + finetune` 进行重建训练、`val` 选 checkpoint，导出 `(28819,256)` frozen window token 与 valid mask；不读取情绪标签。 |
 | `113_queue_modality_mae_stage_a.sh` | 等待 H20 持续低占用后，顺序运行 EEG（cross-day、within-subject-day）再 Wear（同两协议）的全量 Stage-A MAE；每步写独立 checkpoint/token，完成时写 `STAGE_A_COMPLETE`。 |
+| `114_run_video_mae.py` | 在挂载原始 MP4 的主机上运行 label-free VideoMAE-style tubelet reconstruction；仅训练 `pretrain + finetune`、以 val reconstruction 选择 checkpoint，并导出 canonical 256D video token。cache 可从中断处恢复，无法解码的 clip 会写入 manifest 并设为无效 mask。 |
+| `115_queue_video_mae_stage_a.sh` | ncc 专用 VideoMAE 队列：先做 raw-clip 解码与训练 smoke，再在 ncc 本地缓存 clips、分别完成两协议的正式训练；H20 只接收最终小型产物。 |
+| `116_run_mae_window_fusion.py` | 将固定 label-free EEG-MAE 或 Wear-MAE window token 接入既有 Wphysio/DINO-B0 三模态 11-label fusion；与 B0 使用同一 head、split 和下游 seed，写出逐标签 test 指标与预测。 |
+| `117_queue_mae_window_fusion.sh` | H20 队列：先对 B0/E1/W1 做 3-epoch cross-day smoke，成功后运行 cross-day 与 legacy `within_subject_day` 的三 seed 正式矩阵；不等待 VideoMAE。 |
+| `118_run_mae_mt11_event_ablation.py` | 读取完成的 A1+MT11 event-bag 与三 seed B0 metrics；E1/W1/M2 替换 EEG、Wear、或 EEG+Wear 并保留 DINO A1；V1 用 `--video-mae-root` 只替换 video slot 并保留 MT11 EEG/Wphysio，均使用相同的 0814 `window_attention_regression_full_mean`。 |
+| `119_queue_mae_mt11_event_ablation.sh` | H20 队列：先跑 A1+MT11 基线口径下 E1/W1 的 cross-day smoke，成功后运行两个协议、三个 seed 的 12 条单模态替换矩阵。 |
+| `120_queue_m2_mt11_event_ablation.sh` | H20 队列：先跑 M2（EEG-MAE+Wear-MAE，DINO A1 保持不变）的 cross-day smoke；通过后运行两个协议、三个 seed 的正式 M2 矩阵，并引用同合同的 B0 三 seed metrics。`M2_RUNNER` 与 `M2_OUT` 允许在只读共享实验根上使用可写的用户 staging/输出目录。 |
+| `121_queue_v1_mt11_event_ablation.sh` | 新 H20 V1 队列：完成的 VideoMAE token 从 `V1_VIDEO_ROOT` 读取；cross-day smoke 后执行两协议三 seeds，reference 的 MT11 EEG/Wphysio 保持固定。输出默认 `/home/wangzw/outputs/mae_mt11_v1_20261007/`。 |
 
 当前 repaired held-out-day 协议统一命名为 `date_in_order`，解析到 aligned `outputs/splits/date_in_order`。`93`/`94` 的正式 EEG 微调严格只解冻 EEGPT 最后两个 transformer blocks 与 final norm；256D projection、共享 trunk 和任务 head 作为 encoder 外新层训练。

@@ -14,6 +14,7 @@
 ### 0814 window
 
 - [当前技术路线](current/0814-window/technical_route_20260814.md)
+- [MAE 单模态替换路线表](current/0814-window/modality_mae_window_route_20260928.md)
 - [Cross-Attention 实现说明](current/0814-window/cross_attention_implementation_20260824.md)
 - [Fusion、calibration 与 normalization 实验](current/0814-window/experiments/)
 
