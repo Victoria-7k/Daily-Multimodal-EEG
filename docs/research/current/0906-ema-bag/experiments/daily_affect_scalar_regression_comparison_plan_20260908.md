@@ -3,6 +3,7 @@
 > 版本：2026-09-08  
 > 状态：**v2 主比较已完成：171-run 三 seed 全矩阵与 28-run 四 seed 扩展均已落盘；此前 full-route 171-run 与其 Phase 5 扩展保留为独立诊断，不用于主结论。**  
 > 对照来源：`technical_route_20260814.md` 的独立窗口回归路线与 `technical_route_20260906.md` 的 Daily-affect EMA-bag 路线
+> 2026-10-10 实现复核：下文保留原计划合同；实际 v2 的 within_subject_day 使用 window-majority 投影，含214个边界 event，与第2节的严格单-leaf 排除要求有差异。实际输入、监督、三/七 seed 结果及 bootstrap 证据边界以[当前 0906 技术路线](../technical_route_20260906.md)为准。
 
 ## 1. 目标与唯一比较问题
 

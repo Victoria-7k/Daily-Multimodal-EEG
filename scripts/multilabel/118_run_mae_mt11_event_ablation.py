@@ -54,6 +54,12 @@ def _replacement_bag(out_root: Path, protocol: str, condition: str) -> Path:
 
 
 def _replacements(condition: str) -> tuple[tuple[str, int, str, str], ...]:
+    if condition == 'B0_VIDEO_COMMON':return ()
+    if condition == 'E_POOL':return _replacements('E1')
+    if condition in ('V_ROI','V_FULL_MATCH'):return _replacements('V1')
+    if condition in {"M3", "M4", "M5-F"}:
+        slots = {"M3": ("E1", "V1"), "M4": ("W1", "V1"), "M5-F": ("E1", "W1", "V1")}
+        return tuple(item for single in slots[condition] for item in _replacements(single))
     if condition == "E1":
         return (("eeg", 0, "eeg_eegpt_partial_ft_multitask_11label_v1", "eeg_mae_stage_a_label_free"),)
     if condition == "W1":
@@ -69,16 +75,18 @@ def _replacements(condition: str) -> tuple[tuple[str, int, str, str], ...]:
 
 
 def _candidate_route(condition: str) -> str:
+    if condition=='B0_VIDEO_COMMON':return 'A1_MT11_reference__B0_VIDEO_COMMON_matched_video_availability'
     kind = "single" if len(_replacements(condition)) == 1 else "multiple"
     return f"A1_MT11_reference__{condition}_{kind}_modality_replacement"
 
 
 def _supervision(condition: str) -> str:
+    if condition=='B0_VIDEO_COMMON':return 'MT11_EEG_retained__DINO_A1_common_mask__11label_supervised_downstream'
     retained = "MT11_EEG_retained" if all(slot != 0 for _, slot, _, _ in _replacements(condition)) else "label_free_EEG_MAE"
     return f"{retained}__frozen_MAE_replacements__11label_supervised_downstream"
 
 
-def _write_replaced_bag(*, reference: Path, mae_paths: dict[str, Path], destination: Path, condition: str) -> None:
+def _write_replaced_bag(*, reference: Path, mae_paths: dict[str, Path], destination: Path, condition: str, video_common_mask: Path | None = None) -> None:
     install_numpy_core_pickle_aliases()
     with np.load(reference, allow_pickle=True) as loaded:
         payload = {name: loaded[name] for name in loaded.files}
@@ -107,6 +115,18 @@ def _write_replaced_bag(*, reference: Path, mae_paths: dict[str, Path], destinat
             raise ValueError(f"reference bag misses expected source {old_key}")
         sources[new_key] = str(mae)
         del sources[old_key]
+    if video_common_mask is not None:
+        with np.load(video_common_mask,allow_pickle=False) as common:
+            sid=common['sample_id'].astype(str);mask=common['valid_mask'].astype(bool)
+        position={value:i for i,value in enumerate(sid)}
+        if len(position)!=28819 or mask.shape!=(28819,) or any(value not in position for value in flat):raise ValueError('invalid video common identity')
+        indices=np.asarray([position[value] for value in flat]).reshape(matrix.shape)
+        common_event=mask[indices]
+        if condition in ('V_ROI','V_FULL_MATCH') and not np.array_equal(masks[:,:,2].astype(bool),common_event):raise ValueError('candidate video mask differs from common')
+        if np.any(common_event & ~masks[:,:,2].astype(bool)):raise ValueError('common mask adds unavailable video rows')
+        masks[:,:,2]=common_event.astype(np.int8)
+        tokens[:,:,2,:][~common_event]=0
+        payload['video_common_mask_source']=np.asarray(str(video_common_mask))
     payload["tokens"] = tokens
     payload["modality_mask"] = masks
     payload["route_id"] = np.asarray(_candidate_route(condition))
@@ -175,6 +195,7 @@ def main() -> int:
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--modality-dropout-prob", type=float, default=0.1)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument('--video-common-mask',type=Path)
     parser.add_argument("--torch-threads", type=int, default=4)
     args = parser.parse_args()
     torch.set_num_threads(max(1, args.torch_threads))
@@ -182,8 +203,9 @@ def main() -> int:
         raise RuntimeError("requested CUDA but CUDA is unavailable")
     protocols, selected = _csv(args.protocols), _csv(args.conditions)
     seeds = tuple(int(value) for value in _csv(args.seeds))
-    if set(protocols) - {"cross_day", "within_subject_day"} or set(selected) - {"E1", "W1", "V1", "M2"} or not seeds:
-        raise ValueError("only cross_day/within_subject_day and E1/W1/V1/M2 are supported")
+    if set(protocols) - {"cross_day", "within_subject_day"} or set(selected) - {"E1", "W1", "V1", "M2", "M3", "M4", "M5-F",'E_POOL','V_ROI','V_FULL_MATCH','B0_VIDEO_COMMON'} or not seeds:
+        raise ValueError("unsupported protocol, MAE replacement condition, or empty seeds")
+    if set(selected).intersection(('V_ROI','V_FULL_MATCH','B0_VIDEO_COMMON')) and not args.video_common_mask:raise ValueError('round1 video routes require common mask')
     index_rows = load_jsonl(args.root / "index/eeg_aligned_window_index.jsonl")
     all_results: list[dict[str, Any]] = []
     for protocol in protocols:
@@ -200,7 +222,7 @@ def main() -> int:
                 if not mae.is_file():
                     raise FileNotFoundError(mae)
             bag_path = _replacement_bag(args.out_root, protocol, condition)
-            _write_replaced_bag(reference=reference_bag, mae_paths=mae_paths, destination=bag_path, condition=condition)
+            _write_replaced_bag(reference=reference_bag, mae_paths=mae_paths, destination=bag_path, condition=condition,video_common_mask=args.video_common_mask)
             dataset = load_bag_dataset(bag_path)
             targets = event_targets(dataset, index_rows)
             if dataset.tokens.shape != (1253, 23, 4, 256) or targets.shape != (1253, 11):
@@ -210,6 +232,12 @@ def main() -> int:
             model_id, policy = conditions()["window_attention_regression_full_mean"]
             for seed in seeds:
                 out_dir = args.out_root / "runs" / protocol / condition / f"seed_{seed}"
+                if (out_dir/'metrics.json').exists():
+                    result=json.loads((out_dir/'metrics.json').read_text())
+                    if result.get('status')!='ok' or result.get('candidate_condition')!=condition:raise ValueError('invalid retained cell')
+                    all_results.append({'protocol':protocol,'condition':condition,'seed':seed,'metrics':result})
+                    print(f'retaining protocol={protocol} condition={condition} seed={seed}',flush=True)
+                    continue
                 print(f"starting protocol={protocol} condition={condition} seed={seed}", flush=True)
                 run_condition(
                     dataset=dataset, targets=targets, protocol=protocol,

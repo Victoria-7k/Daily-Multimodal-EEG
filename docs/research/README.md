@@ -7,7 +7,7 @@
 | 路线 | 状态 | 核心入口 | 读者应如何理解 |
 | --- | --- | --- | --- |
 | 0814 window | Current | [技术路线](current/0814-window/technical_route_20260814.md) | 以 10 秒窗口为基本建模单位，承载窗口结构、模态组合、融合器和表征路线的基线。 |
-| 0906 EMA-bag | Current | [技术路线](current/0906-ema-bag/technical_route_20260906.md) | 以 EMA event 为监督单位，每个 event 读取 23 个重叠窗口，比较静态、状态、先验和时间核结构。 |
+| 0906 EMA-bag | Current | [技术路线](current/0906-ema-bag/technical_route_20260906.md) | 标量回归 head、MSE 训练、validation RMSE 选型、event-level raw r 报告；读取 23 个重叠窗口，比较静态、状态、先验和时间核结构。 |
 
 两条路线保持并列。跨路线比较必须使用相同 event、protocol、token、模态、split 和 seed，并在 event level 评价；不能把窗口级样本数直接当作独立监督样本数。
 
@@ -15,18 +15,23 @@
 
 - [当前技术路线](current/0814-window/technical_route_20260814.md)
 - [MAE 单模态替换路线表](current/0814-window/modality_mae_window_route_20260928.md)
+- [MAE 全聊天实验交接手册（2026-10-10）](current/0814-window/experiments/mae_chat_handout_20261010.md)：汇总87回合的决定与工作，封存原始/v2/v4结果、两协议11情绪完整表、两轮修复证据及服务器检查指令。
+- [MAE 第一轮输入改进计划（2026-10-10）](current/0814-window/experiments/mae_round1_input_improvement_plan_20261010.md)：独立验证既有2.0×face ROI VideoMAE与扩大过滤池EEG-MAE；cross_day EEG正式SSL、canonical导出和三seed冻结下游已完成并验收，视频cache构建中；同日EEG严格对照按107个原train/holdout信号重叠停止。
 - [Cross-Attention 实现说明](current/0814-window/cross_attention_implementation_20260824.md)
+- [MAE 第二轮下游适配计划（2026-10-10）](current/0814-window/experiments/mae_round2_downstream_adaptation_plan_20261010.md)：核心A/B/C与D统一test报告均完成，36个唯一融合cell与4个EEG-only模型已验收；[完整有效性解读](../../outputs/server_sync/mae_round2_downstream_20261010/reports/stage_d/abc_effectiveness_report.md)显示A的canonical适配test raw r +0.008106、B的层数val收益在test反向、C新目标在MAE/B0均未改善整体预测。全部val实用候选门槛未通过，保留原C冻结E1与window MSE及同日协议stop；[A](../../outputs/server_sync/mae_round2_downstream_20261010/reports/experiment_a_findings.md)/[B](../../outputs/server_sync/mae_round2_downstream_20261010/reports/experiment_b/experiment_b_findings.md)报告保留各自阶段快照。
 - [Fusion、calibration 与 normalization 实验](current/0814-window/experiments/)
 
 `experiments/` 中的 handoff 和结果文档记录已完成实验及其当时的决策。它们为当前路线提供证据和复现信息，不代表每个候选仍处于推进状态。
 
 ### 0906 EMA-bag
 
+- [MAE E1基本event聚合实验（2026-10-10）](../../outputs/server_sync/mae_basic_event_pool_20261010/reports/findings.md)：固定原C输入和11-head，以全部有效窗口等权表示聚合接event MSE；三seedtest centered r 0.100470，相对C_EVENT的0.125307下降0.024837，0/3正向。保留预测后平均的C_EVENT为个体内关联候选；本轮没有时间范围或其他结构选型。
 - [当前技术路线](current/0906-ema-bag/technical_route_20260906.md)
-- [详细可执行设计](current/0906-ema-bag/daily_affect_multimodal_technical_route_modified.md)
+- [原五分类 / QWK 详细设计](current/0906-ema-bag/daily_affect_multimodal_technical_route_modified.md)
+- [五分类 / QWK 路线历史快照](current/0906-ema-bag/experiments/technical_route_20260906_ordinal_snapshot_20261010.md)
 - [标量回归、标签置换与相关报告](current/0906-ema-bag/experiments/)
 
-当前简明结论和协议级决策以 `technical_route_20260906.md` 为入口；详细设计文档保留模型演进、实现和消融合同。
+当前标量回归实现、输入组合、三/七 seed 结果和协议级决策以 `technical_route_20260906.md` 为入口；原五分类设计与 QWK 结果单独保留为历史参考。
 
 ## 联合评估
 

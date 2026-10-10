@@ -11,15 +11,27 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import random
+import sys
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 import torch
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+from daily_multimodal.training.modality_mae import (
+    fixed_validation_mask, guarded_optimizer_step, probe_health,
+    representative_indices, require_finite, require_healthy,
+)
+
+VIDEO_TRAINING_VERSION = "seed_before_init_fixed_validation_health_v2"
 
 
 def _json(path: Path, payload: dict[str, Any]) -> None:
@@ -40,6 +52,8 @@ def _seed(seed: int) -> None:
 
 
 def _decode_clip(path: str, start: float, end: float, *, frames: int, size: int) -> np.ndarray:
+    import cv2
+
     capture = cv2.VideoCapture(path)
     if not capture.isOpened(): raise RuntimeError(f"cannot open video: {path}")
     try:
@@ -106,6 +120,8 @@ class VideoMaskedAutoencoder(torch.nn.Module):
 @dataclass(frozen=True)
 class Runtime:
     epochs: int; batch_size: int; learning_rate: float; patience: int; mask_ratio: float; seed: int; device: str
+    health_probe_count: int = 256
+    min_relative_variation: float = 1e-3
 
 
 def _mask(batch: int, tokens: int, ratio: float, device: torch.device) -> torch.Tensor:
@@ -190,7 +206,27 @@ def _open_cache(path: Path, *, count: int, frames: int, size: int) -> np.memmap:
     status = json.loads(manifest.read_text(encoding='utf-8'))
     shape = (count, 3, frames, size, size)
     if not status.get('complete') or status.get('shape') != list(shape) or status.get('dtype') != 'uint8': raise ValueError(f'invalid clip cache manifest: {manifest}')
+    if path.stat().st_size != int(np.prod(shape)): raise ValueError(f'clip cache size differs from manifest: {path}')
     return np.memmap(path, mode='r', dtype=np.uint8, shape=shape)
+
+
+def _reuse_complete_cache(meta: dict[str, np.ndarray], valid: np.ndarray, *, frames: int, size: int, path: Path) -> tuple[np.ndarray, dict[str, Any]]:
+    """Check an existing cache without reopening it for writes."""
+    cache = _open_cache(path, count=len(valid), frames=frames, size=size)
+    del cache
+    status = json.loads(_cache_manifest(path).read_text(encoding='utf-8'))
+    valid = valid.copy()
+    for failure in status.get('decode_failures', []):
+        index = int(failure['index'])
+        if str(meta['sample_id'][index]) != str(failure['sample_id']):
+            raise ValueError('cache quarantine sample_id differs from metadata')
+        valid[index] = False
+    completed = np.zeros(len(valid), dtype=bool)
+    completed[np.asarray(status['completed_indices'], dtype=np.int64)] = True
+    if not completed[valid].all(): raise ValueError('complete cache contains an undecoded valid row')
+    return valid, {'cache_path': str(path), 'cache_reused_read_only': True,
+                   'cached_clip_count': int(completed.sum()), 'video_valid_count_after_decode': int(valid.sum()),
+                   'decode_failure_count': len(status.get('decode_failures', [])), 'decode_failures': status.get('decode_failures', [])}
 
 
 def _load_batch(meta: dict[str, np.ndarray], idx: np.ndarray, *, frames: int, size: int, cache: np.memmap | None) -> torch.Tensor:
@@ -199,37 +235,53 @@ def _load_batch(meta: dict[str, np.ndarray], idx: np.ndarray, *, frames: int, si
 
 
 @torch.no_grad()
-def _loss(model: VideoMaskedAutoencoder, meta: dict[str, np.ndarray], idx: np.ndarray, runtime: Runtime, device: torch.device, *, frames: int, size: int, cache: np.memmap | None) -> float:
-    model.eval(); values=[]
+def _loss(model: VideoMaskedAutoencoder, meta: dict[str, np.ndarray], idx: np.ndarray, runtime: Runtime, device: torch.device, *, frames: int, size: int, cache: np.memmap | None, details: bool = False):
+    model.eval(); values=[]; weights=[]; zeros=[]; generator=np.random.default_rng(runtime.seed+100003)
     for start in range(0, len(idx), runtime.batch_size):
-        batch=idx[start:start+runtime.batch_size]; video=_load_batch(meta,batch,frames=frames,size=size,cache=cache).to(device); mask=_mask(len(batch),model.token_count,runtime.mask_ratio,device)
-        pred,target=model(video,mask); values.append(float(((pred-target).pow(2).mean(dim=-1)[mask]).mean().cpu()))
-    return float(np.mean(values))
+        batch=idx[start:start+runtime.batch_size]; video=_load_batch(meta,batch,frames=frames,size=size,cache=cache).to(device); mask=fixed_validation_mask(len(batch),model.token_count,runtime.mask_ratio,generator,device)
+        pred,target=model(video,mask); loss=((pred-target).pow(2).mean(dim=-1)[mask]).mean()
+        require_finite(loss,'video validation loss'); values.append(float(loss.cpu())); weights.append(len(batch))
+        zeros.append(float(target.pow(2).mean(dim=-1)[mask].mean().cpu()))
+    value=float(np.average(values,weights=weights));zero=float(np.average(zeros,weights=weights))
+    return {'masked_nmse':value,'zero_masked_nmse':zero,'relative_to_zero':value/max(zero,1e-12)} if details else value
 
 
 def _train(model: VideoMaskedAutoencoder, meta: dict[str, np.ndarray], train: np.ndarray, val: np.ndarray, runtime: Runtime, *, frames: int, size: int, cache: np.memmap | None) -> tuple[VideoMaskedAutoencoder, dict[str, Any]]:
+    started=time.perf_counter()
+    initial_sha=hashlib.sha256(b''.join(value.detach().cpu().numpy().tobytes() for value in model.state_dict().values())).hexdigest()
     _seed(runtime.seed); device=torch.device(runtime.device); model=model.to(device); optim=torch.optim.AdamW(model.parameters(),lr=runtime.learning_rate,weight_decay=1e-4); rng=np.random.default_rng(runtime.seed)
     best_state=None; best=float('inf'); best_epoch=0; wait=0; history=[]
     for epoch in range(1,runtime.epochs+1):
         shuffled=train.copy(); rng.shuffle(shuffled); losses=[]; model.train()
         for start in range(0,len(shuffled),runtime.batch_size):
             batch=shuffled[start:start+runtime.batch_size]; video=_load_batch(meta,batch,frames=frames,size=size,cache=cache).to(device); mask=_mask(len(batch),model.token_count,runtime.mask_ratio,device)
-            pred,target=model(video,mask); loss=((pred-target).pow(2).mean(dim=-1)[mask]).mean(); optim.zero_grad(set_to_none=True); loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(),1.0); optim.step(); losses.append(float(loss.detach().cpu()))
-        val_loss=_loss(model,meta,val,runtime,device,frames=frames,size=size,cache=cache); history.append({'epoch':epoch,'train_masked_nmse':float(np.mean(losses)),'val_masked_nmse':val_loss})
+            pred,target=model(video,mask); loss=((pred-target).pow(2).mean(dim=-1)[mask]).mean()
+            guarded_optimizer_step(model,optim,loss,f'video epoch={epoch} batch={start//runtime.batch_size}')
+            losses.append(float(loss.detach().cpu()))
+        val_detail=_loss(model,meta,val,runtime,device,frames=frames,size=size,cache=cache,details=True);val_loss=val_detail['masked_nmse']
+        health=probe_health(model,val,runtime.batch_size,
+            lambda idx: model.embed(_load_batch(meta,idx,frames=frames,size=size,cache=cache).to(device)),
+            count=runtime.health_probe_count,minimum=runtime.min_relative_variation)
+        record={'epoch':epoch,'train_masked_nmse':float(np.mean(losses)),'val_masked_nmse':val_loss,'embedding_health':health,'validation':val_detail,
+                'optimizer_steps':epoch*((len(train)+runtime.batch_size-1)//runtime.batch_size),'seen_windows':epoch*len(train)}
+        history.append(record); print(json.dumps({'modality':'video',**record}),flush=True)
+        require_healthy(health,f'video epoch={epoch}')
         if val_loss<best: best,best_epoch,wait=val_loss,epoch,0; best_state=copy.deepcopy({k:v.detach().cpu() for k,v in model.state_dict().items()})
         else:
             wait+=1
             if wait>=runtime.patience: break
     if best_state is None: raise RuntimeError('training failed before checkpoint selection')
     model.load_state_dict(best_state)
-    return model,{'best_epoch':best_epoch,'best_val_masked_nmse':best,'history':history,'train_count':int(len(train)),'val_count':int(len(val))}
+    return model,{'best_epoch':best_epoch,'best_val_masked_nmse':best,'history':history,'train_count':int(len(train)),'val_count':int(len(val)),'selected_embedding_health':history[best_epoch-1]['embedding_health'],
+                 'initial_state_sha256':initial_sha,'optimizer_steps':history[-1]['optimizer_steps'],'best_checkpoint_steps':history[best_epoch-1]['optimizer_steps'],'seen_windows':history[-1]['seen_windows'],'gpu_wall_seconds':time.perf_counter()-started}
 
 
 @torch.no_grad()
 def _export(model: VideoMaskedAutoencoder, meta: dict[str, np.ndarray], valid: np.ndarray, runtime: Runtime, *, frames: int, size: int, cache: np.memmap | None) -> np.ndarray:
     device=torch.device(runtime.device); model.eval(); out=np.zeros((len(valid),model.position.shape[-1]),dtype=np.float32); idx=np.flatnonzero(valid)
     for start in range(0,len(idx),runtime.batch_size):
-        batch=idx[start:start+runtime.batch_size]; out[batch]=model.embed(_load_batch(meta,batch,frames=frames,size=size,cache=cache).to(device)).cpu().numpy()
+        batch=idx[start:start+runtime.batch_size]; value=model.embed(_load_batch(meta,batch,frames=frames,size=size,cache=cache).to(device))
+        require_finite(value,f'video export start={start}'); out[batch]=value.cpu().numpy()
     return out
 
 
@@ -238,28 +290,46 @@ def main() -> int:
     parser.add_argument('--video-metadata',type=Path,required=True); parser.add_argument('--splits-root',type=Path,required=True); parser.add_argument('--protocol',choices=('cross_day','within_subject_day'),required=True); parser.add_argument('--out-root',type=Path,required=True)
     parser.add_argument('--frames',type=int,default=8); parser.add_argument('--size',type=int,default=112); parser.add_argument('--embedding-dim',type=int,default=256); parser.add_argument('--encoder-layers',type=int,default=6); parser.add_argument('--decoder-layers',type=int,default=2); parser.add_argument('--heads',type=int,default=8)
     parser.add_argument('--epochs',type=int,default=40); parser.add_argument('--batch-size',type=int,default=8); parser.add_argument('--learning-rate',type=float,default=1e-4); parser.add_argument('--patience',type=int,default=8); parser.add_argument('--mask-ratio',type=float,default=0.9); parser.add_argument('--seed',type=int,default=240800); parser.add_argument('--device',default='cuda'); parser.add_argument('--smoke-per-split',type=int,default=0); parser.add_argument('--skip-full-export',action='store_true'); parser.add_argument('--clip-cache',type=Path); parser.add_argument('--build-cache-only',action='store_true')
+    parser.add_argument('--reuse-complete-cache',action='store_true'); parser.add_argument('--health-probe-count',type=int,default=256); parser.add_argument('--min-relative-variation',type=float,default=1e-3)
+    parser.add_argument('--input-view',choices=('V_ROI','V_FULL_MATCH'))
     args=parser.parse_args()
     if not torch.cuda.is_available() and args.device.startswith('cuda'): raise RuntimeError('CUDA required for VideoMAE')
+    if not 0 < args.mask_ratio < 1: raise ValueError('mask ratio must be strictly between zero and one')
+    if args.reuse_complete_cache and (not args.clip_cache or args.build_cache_only): raise ValueError('read-only cache reuse requires --clip-cache and forbids --build-cache-only')
     with np.load(args.video_metadata,allow_pickle=True) as data:
         required=('sample_id','source_video_file','clip_start_seconds','clip_end_seconds','video_mask')
         if any(key not in data for key in required): raise ValueError('video metadata lacks required fields')
         meta={key:data[key] for key in required}
+        if args.input_view and ('input_view' not in data or str(data['input_view'].item())!=args.input_view):raise ValueError('metadata input view mismatch')
     count=len(meta['sample_id']); valid=meta['video_mask'].astype(bool)
     missing=[str(p) for p in meta['source_video_file'][valid] if not Path(str(p)).is_file()]
     if missing: raise FileNotFoundError(f'{len(missing)} video paths unavailable; first={missing[0]}')
     cache_audit: dict[str, Any] = {'cache_used': False, 'decode_failure_count': 0, 'decode_failures': []}
     if args.clip_cache:
-        valid, cache_audit = _build_cache(meta, valid, frames=args.frames, size=args.size, path=args.clip_cache)
+        valid, cache_audit = (_reuse_complete_cache if args.reuse_complete_cache else _build_cache)(meta, valid, frames=args.frames, size=args.size, path=args.clip_cache)
         if args.build_cache_only:
             print(json.dumps({'gate':'pass','clip_cache':str(args.clip_cache),'video_valid_count':int(valid.sum()), **cache_audit})); return 0
         cache = _open_cache(args.clip_cache, count=count, frames=args.frames, size=args.size)
     else: cache = None
+    if args.input_view:
+        if not args.reuse_complete_cache or not args.clip_cache:raise ValueError('paired input view requires frozen cache')
+        status=json.loads(_cache_manifest(args.clip_cache).read_text())
+        identity=hashlib.sha256('\n'.join(meta['sample_id'].astype(str)).encode()).hexdigest()
+        if status.get('input_view')!=args.input_view or status.get('sample_ids_sha256')!=identity:raise ValueError('cache view or order mismatch')
+        expected=np.zeros(count,dtype=bool);expected[np.asarray(status['completed_indices'],dtype=int)]=True
+        if not np.array_equal(expected,valid):raise ValueError('paired common mask changed')
+        cache_audit.update(input_view=args.input_view,input_sources=status['input_sources'],common_mask_sha256=status['common_mask_sha256'],frame_mapping_sha256=status['frame_mapping_sha256'])
     split={name:_indices(args.splits_root/args.protocol/f'{name}.json',count) for name in ('pretrain','finetune','val','test')}; train=np.concatenate((split['pretrain'],split['finetune'])); train=train[valid[train]]; val=split['val'][valid[split['val']]]
-    if args.smoke_per_split: train,val=train[:args.smoke_per_split],val[:args.smoke_per_split]
+    if args.smoke_per_split: train,val=representative_indices(train,args.smoke_per_split),representative_indices(val,args.smoke_per_split)
     if not len(train) or not len(val): raise ValueError('no video-valid train or val windows')
-    runtime=Runtime(args.epochs,args.batch_size,args.learning_rate,args.patience,args.mask_ratio,args.seed,args.device); out=args.out_root/args.protocol/f'video_seed_{args.seed}'; out.mkdir(parents=True,exist_ok=True)
+    runtime=Runtime(args.epochs,args.batch_size,args.learning_rate,args.patience,args.mask_ratio,args.seed,args.device,args.health_probe_count,args.min_relative_variation); out=args.out_root/args.protocol/f'video_seed_{args.seed}'; out.mkdir(parents=True,exist_ok=True)
+    if (out/'checkpoint.pt').exists(): raise FileExistsError(f'preserve existing checkpoint; choose a new output root: {out}')
+    _seed(runtime.seed)
     model=VideoMaskedAutoencoder(frames=args.frames,size=args.size,embedding_dim=args.embedding_dim,encoder_layers=args.encoder_layers,decoder_layers=args.decoder_layers,heads=args.heads); model,audit=_train(model,meta,train,val,runtime,frames=args.frames,size=args.size,cache=cache)
     config={'route':'video_mae_label_free_v1','modality':'video','protocol':args.protocol,'supervision_boundary':'unlabeled_raw_video_reconstruction_train_pretrain_plus_finetune__validation_reconstruction_selection','test_labels_read':False,'row_count':count,'video_valid_count':int(valid.sum()),'effective_train_count':int(len(train)),'effective_val_count':int(len(val)),'embedding_seed':args.seed,'runtime':asdict(runtime),'model':{'frames':args.frames,'spatial_size':args.size,'tubelet_size':[2,16,16],'embedding_dim':args.embedding_dim,'encoder_layers':args.encoder_layers,'decoder_layers':args.decoder_layers,'heads':args.heads},'cache_audit':cache_audit,'reconstruction_audit':audit}
+    config.update(training_version=VIDEO_TRAINING_VERSION,preprocessing_version='raw_rgb_255__normalized_tubelet_target_v1',validation_mask='fixed_seed_plus_100003_fixed_count_independent_of_training_rng',smoke_per_split=args.smoke_per_split)
+    config.update(input_variant=args.input_view or 'historical_full_frame',metadata_sha256=hashlib.sha256(args.video_metadata.read_bytes()).hexdigest(),split_root=str(args.splits_root/args.protocol))
+    if args.smoke_per_split: config['smoke_indices']={'train':train.tolist(),'val':val.tolist()}
     checkpoint=out/'checkpoint.pt'; torch.save({'state_dict':model.state_dict(),'config':config},checkpoint); config['checkpoint']=str(checkpoint)
     if args.skip_full_export:
         config['token_export']='skipped_for_smoke'

@@ -1,6 +1,6 @@
 # Daily-Affect Scripts
 
-daily-affect EMA-bag ordinal route、focused diagnostics、window-daily event bridge 和 expected-score Huber screen。该路线读取每 event 23 个 10 秒窗口的 `(N_ema,23,4,256)` bag，不读取 EQL-CAF packed temporal token。
+Daily-affect 当前标量回归入口为 `90`–`92`，采用 MSE 训练、validation event RMSE 选型、raw r 报告；三协议各自的 partial-FT/no-audio 配置及显式参数见[0906 技术路线](../../docs/research/current/0906-ema-bag/technical_route_20260906.md)。`74`–`88` 保留原 ordinal route、focused diagnostics、window-daily event bridge 和 expected-score Huber screen。两条目标分支读取每 event 23 个 10 秒窗口的 `(N_ema,23,4,256)` bag。
 
 | 脚本 | 用途 |
 | --- | --- |

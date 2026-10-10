@@ -5,7 +5,7 @@
 | 当前路线 | 监督与输入单位 | 主要用途 | 技术入口 |
 | --- | --- | --- | --- |
 | 0814 window | 10 秒窗口；窗口级回归后按实验定义汇总 | 窗口结构、模态组合、融合和表征基线 | [0814 窗口路线](docs/research/current/0814-window/technical_route_20260814.md) |
-| 0906 EMA-bag | 一次 EMA event；每个 event 包含 23 个重叠窗口 | event-level 静态/状态/先验/时间核结构 | [0906 EMA-bag 路线](docs/research/current/0906-ema-bag/technical_route_20260906.md) |
+| 0906 EMA-bag | 一次 EMA event；每个 event 包含 23 个重叠窗口 | 标量回归、MSE 训练、event-level raw r；静态/状态/先验/时间核结构 | [0906 EMA-bag 路线](docs/research/current/0906-ema-bag/technical_route_20260906.md) |
 
 两条路线地位并列。0814 提供窗口级结构和融合基线，0906 提供 EMA-event 时间聚合结构；任何比较都应锁定相同协议、输入 token、模态组合、监督边界和下游 seed。
 

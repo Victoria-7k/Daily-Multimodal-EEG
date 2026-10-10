@@ -1,6 +1,7 @@
 # Daily-affect 标量回归：三协议最佳 raw-r 路线技术报告
 
 > 日期：2026-09-10  
+> 2026-10-10 源码复核补充：当前入口见[0906 标量回归路线](../technical_route_20260906.md)。本报告保留已扩展候选的七 seed 结果；within_subject_day 存在214个 window-majority 边界 event，按既有投影协议解释。多 seed 点差方向与 bootstrap 区间分别报告，cross_day / cross_subject 各有1/7 seed 的95% CI 下界大于零。
 > 结果根：`/vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/daily_affect_scalar_regression_20260908/v2_partialft_noaudio/`  
 > 范围：只报告三种数据划分协议中，最终 raw-r 最强且完成 seven-seed 配对验证的路线。所有数字均为 held-out **EMA event-level** 指标。
 
@@ -10,7 +11,7 @@
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | `within_subject_day` | `window_attention_regression_full_mean` | 独立窗口 attention 回归，23 窗口等权平均为 event | 7 | `0.4314 ± 0.0105` | reference | -- | `0.8952 ± 0.0065` | `0.1964 ± 0.0113` | 保留窗口路线 |
 | `cross_day` | `bag_static_reg__temporal_last_30s` | 独立窗口 attention 融合，最后 30 s 的固定时间汇总后回归 | 7 | `0.4091 ± 0.0314` | `+0.0453 ± 0.0291` | `7/7` | `0.8788 ± 0.0188` | `0.2217 ± 0.0225` | EMA-bag 获得支持 |
-| `cross_subject` | `prior_uniform_reg` | 独立窗口 attention 融合 + state-prior modality routing + 均匀时间汇总 | 7 | `0.1072 ± 0.0425` | `+0.0631 ± 0.0596` | `6/7` | `0.9405 ± 0.0429` | `0.1286 ± 0.0424` | EMA-bag 获得支持 |
+| `cross_subject` | `prior_uniform_reg` | 线性 evidence scorer + state-prior modality routing + GRU state 均匀汇总 | 7 | `0.1072 ± 0.0425` | `+0.0631 ± 0.0596` | `6/7` | `0.9405 ± 0.0429` | `0.1286 ± 0.0424` | 保留相关性优势候选 |
 
 比较基线在每个 `protocol × seed` 内完全匹配：同一个 EMA bag、相同的事件顺序、标签、mask、split、下游随机种子和训练配置。`Δraw r` 恒定义为 `EMA-bag route − matched window full-mean`。
 
@@ -107,7 +108,7 @@ one EMA event
 
 ### 3.3 EMA-bag 变体的回归实现
 
-EMA-bag 变体也复用上述 window-level adapter 与 modality attention，然后对 23 条 window evidence 做时间级融合。所有结构由 `regression.py` 定义，由 `90_run_daily_affect_scalar_regression.py` 调用。
+EMA-bag 变体复用 window-level adapter；`bag_static` 使用上述 modality attention/query pooling，state/prior/kernel 变体使用线性 evidence scorer，随后递推 GRU states 并做时间级融合。所有结构由 `regression.py` 定义，由 `90_run_daily_affect_scalar_regression.py` 调用。
 
 - `bag_static_reg`：固定 temporal policy 汇总 evidence；不使用 state。
 - `prior_uniform_reg`：使用 state-prior compatibility 修正 modality routing score，再做 uniform temporal pooling。
@@ -176,7 +177,7 @@ bag split      = train / val / test = 767 / 222 / 264 events
 winner         = prior_uniform_reg
 ```
 
-`prior_uniform_reg` 先用每个窗口的 attention-fused evidence 更新 state，再由 state 与当前模态 token 的 compatibility 调整 routing score；时间层使用所有有效 23-window evidence 的均匀汇总，随后 scalar regression head 给出 event prediction。
+`prior_uniform_reg` 从上一窗口 GRU state 构造 prior，以 prior 与当前模态 token 的 compatibility 修正线性 evidence routing score；融合当前 evidence 后更新 GRU state。时间层均匀汇总有效23个窗口的 GRU states，随后 scalar regression head 给出 event prediction。每个 event 的 state 从零初始化，该配置不启用窗口 self-attention/query pooling 或 difficulty probe。
 
 它的 raw r 为 `0.1072 ± 0.0425`，相对窗口 full-mean `0.0441 ± 0.0390` 的 Δraw r 为 `+0.0631 ± 0.0596`、`6/7` 正向。RMSE 的增量为 `+0.0173`，仍位于预注册 `+0.02` guardrail 内；centered r 从 `0.0671` 提升至 `0.1286`。该协议的绝对相关仍低于另两个协议，故应保持独立解释。
 

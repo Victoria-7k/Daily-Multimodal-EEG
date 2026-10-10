@@ -6,6 +6,89 @@
 
 ## 阶段命令
 
+<a id="mae-round2-cd-execution-2026-10-10"></a>
+### MAE 第二轮 C 与 Stage D（2026-10-10）
+
+核心A/B/C与统一test报告已完成。`144`在原C和MT11 B0的冻结bag上，仅改变event损失与窗口一致性权重（λ=0/0.1）；四项3-epoch smoke后重初始化完成12个正式cell。`event_loss_adaptation.py`保留λ=1原运算顺序，真实两个bag的三epoch旧trainer对照权重/历史逐值一致；新增7项本地/H20测试覆盖masked loss/gradient、恢复及选择/test读取边界。原融合/MAE实现和A/B快照保持原hash。
+
+`145`仅读val保存C门槛、两类表征各自选择和共同subject-day bootstrap，并先冻结 `reports/stage_d/selection_val_only.json` 的全部36个融合cell来源。`146`独立回放18个C/原控制checkpoint的val/test预测，误差0；额外原P控制回放补齐全部36个唯一融合checkpoint。`147`随后重算全部72叶融合及8叶EEG-only指标，输出逐情绪五指标/目标预测SD、配对差、每seed共同抽样全部12路线2,000次的95%区间、两项loss交互、同损失B0差距与窗口/日期诊断。
+
+运行根继续为 `/home/wangzw/mae_round2_downstream_20261010`，日志 `c_queue.log`、`c_val_report.log`、`c_verify.log`、`d_report.log`；checkpoint在 `fusion/<C_variant>/formal/cross_day/seed_<seed>/best_checkpoint.pt`。C恢复保留完成cell与完整batch状态；报告队列 `run_cd_reporting.py` 顺序执行145→146→147，val冻结记录可重复核对，source/cell变化时停止：
+
+```powershell
+ssh huoshan_TriDim 'cd /home/wangzw/mae_round2_downstream_20261010 && flock -n c_queue.lock env CUDA_VISIBLE_DEVICES=0 PYTHONPATH=src /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/runtime/envs/eegpt-gpu-min/bin/python scripts/multilabel/144_run_round2_experiment_c.py --root /home/wangzw/mae_round2_downstream_20261010'
+ssh huoshan_TriDim 'ls /home/wangzw/mae_round2_downstream_20261010/EXPERIMENT_C* /home/wangzw/mae_round2_downstream_20261010/ROUND2_*'
+```
+
+完成标记为 `EXPERIMENT_C_COMPLETE_WITH_PROTOCOL_STOP`、`EXPERIMENT_C_REPLAY_VERIFIED`、`ROUND2_STAGE_D_VAL_SELECTION_FROZEN`、`ROUND2_STAGE_D_TEST_REPORT_COMPLETE` 和 `ROUND2_CORE_ABC_COMPLETE_WITH_PROTOCOL_STOP`。全部预声明cross_day核心cell完成（36唯一融合、27新增、9复用，另4个EEG-only），within_subject_day保持协议stop。可选联合确认另计预算，未启动。
+
+[完整有效性解读](../../outputs/server_sync/mae_round2_downstream_20261010/reports/stage_d/abc_effectiveness_report.md)、[机器报告](../../outputs/server_sync/mae_round2_downstream_20261010/reports/stage_d/stage_d_report.md)、[冻结选择](../../outputs/server_sync/mae_round2_downstream_20261010/reports/stage_d/selection_val_only.json)及[审计](../../outputs/server_sync/mae_round2_downstream_20261010/reports/stage_d/completion_audit.json)已同步；36个输入cell的预测/指标保存为本地只读副本，完整模型/token/prefix保留H20。A canonical的test raw r增益+0.008106（3/3正向、三个单seed配对区间均>0），A两路val推进条件仍False；B低LR保留部分test收益，末一层相对末两层test raw r −0.003584；C在MAE/B0均无整体收益。实用val候选均为空，继续保留原C冻结E1与λ=1。
+
+<a id="mae-round2-b-execution-2026-10-10"></a>
+### MAE 第二轮实验 B（2026-10-10）
+
+`141` 与 `mae_eeg_partial_ft.py` 在原C初始化、固定Wear/Video和原train normalization下完成末两层标准LR/末两层低LR/末一层低LR三项smoke及九个正式cell。两个prefix分别冻结前4/5层，tail保持eval dropout、参数可训练。融合头先初始化，再保护CPU/CUDA随机状态构造tail；batch恢复保存optimizer/selector与完整随机流。源文件、原C与F_C复用cell均保留SHA256审计。入口恢复时通过外部flock排除重复队列：
+
+```powershell
+ssh huoshan_TriDim 'cd /home/wangzw/mae_round2_downstream_20261010 && flock -n b_queue.lock env CUDA_VISIBLE_DEVICES=0 PYTHONPATH=src /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/runtime/envs/eegpt-gpu-min/bin/python scripts/multilabel/141_run_round2_experiment_b.py --root /home/wangzw/mae_round2_downstream_20261010'
+ssh huoshan_TriDim 'ls /home/wangzw/mae_round2_downstream_20261010/B_*COMPLETE /home/wangzw/mae_round2_downstream_20261010/EXPERIMENT_B*'
+```
+
+当前B已完成：两个机制对照分别Δraw r +0.005107（2/3正向）、+0.005995（3/3正向），centered r及sRMSE共同改善并通过联合规则；三条FT相对F_C均未通过，实用候选为空。C保留原C冻结基点计划。`142`只读val生成选择、逐情绪/seed/epoch和共同subject-day bootstrap 2,000次；`143`验证九个checkpoint冻结层及每cell1,152个原信号窗、独立val/test预测回放（最大原信号误差1.91e-6，事件预测误差0），表征健康通过。标记限定B，test性能待完整第二轮Stage D统一披露。
+
+运行根 `/home/wangzw/mae_round2_downstream_20261010`；日志 `b_queue.log`；checkpoint路径 `fusion/<B_variant>/formal/cross_day/seed_<seed>/best_checkpoint.pt` 保存全部EEG推理参数、任务头和固定normalization。报告位于 `reports/experiment_b/`，本地[结果解读](../../outputs/server_sync/mae_round2_downstream_20261010/reports/experiment_b/experiment_b_findings.md)、[选择](../../outputs/server_sync/mae_round2_downstream_20261010/reports/experiment_b/selection_val_only.json)与[独立审计](../../outputs/server_sync/mae_round2_downstream_20261010/reports/experiment_b/completion_audit.json)已同步。97份机器轻量产物逐文件SHA256相同，另同步结果解读；大型模型/prefix保留H20。5项新增本地/H20行为测试通过。within_subject_day按既有信号/context重叠停止；入口split字典计数问题已归档为 `inputs/b_failure_membership_repaired.json` 并恢复原科学配置。
+
+<a id="mae-round2-a-execution-2026-10-10"></a>
+### MAE 第二轮实验 A（2026-10-10）
+
+按[第二轮计划](../../docs/research/current/0814-window/experiments/mae_round2_downstream_adaptation_plan_20261010.md)先执行 A。H20 独立根 `/home/wangzw/mae_round2_downstream_20261010` 的 `139` 先审计 C/P checkpoint、相同 raw normalization、canonical X/y/index/split 及六个 F_C/F_P 复用 cell，再生成两个 last2 prefix，执行四个 10-epoch EEG-only smoke。正式阶段重新从原 SSL/任务头初始化，完成四个监督模型、两个 canonical 256D token、两路 3-epoch fusion smoke 和六个正式融合 seed。`140` 冻结 val 选择并生成配对/交互 bootstrap；test 预测存档，披露沿用完整第二轮 Stage D。
+
+cross_day A 已完成并通过独立重建验收，标记 `EXPERIMENT_A_COMPLETE_WITH_PROTOCOL_STOP` 与 `EXPERIMENT_A_REPLAY_VERIFIED` 均存在。日志为 `logs/experiment_a_attention_repair.log`，原队列 PID 记录在 `experiment_a.pid`。首次接口检查在训练前发现强制关闭原 eval fastpath 的精度漂移，保留原 eval 推理路径后误差 9.54e-7；适配梯度使用 FP32 math SDPA。错误和实际后端对照保存在 `inputs/attention_equivalence_failure.json` 与 `inputs/attention_equivalence_diagnostic.json`。科学参数与 2e-4 门槛保持固定。
+
+```powershell
+ssh huoshan_TriDim 'tail -n 5 /home/wangzw/mae_round2_downstream_20261010/logs/experiment_a_attention_repair.log'
+ssh huoshan_TriDim 'ls /home/wangzw/mae_round2_downstream_20261010/A_*COMPLETE /home/wangzw/mae_round2_downstream_20261010/EXPERIMENT_A_COMPLETE_WITH_PROTOCOL_STOP'
+```
+
+恢复使用同一 staging/runtime 的 `scripts/multilabel/139_run_round2_experiment_a.py --root /home/wangzw/mae_round2_downstream_20261010 --phase all`。整个队列由 Linux flock 排除重复进程；已完成 cell 保留，适配从保存的 batch/optimizer/selector/完整随机状态恢复。Prefix 外部只读，适配 checkpoint 同时保存全部 EEG encoder 推理参数、raw normalization、固定 feature normalization 和任务头。
+
+轻量本地同步根为 `outputs/server_sync/mae_round2_downstream_20261010`。A 的完成标准是四个正式模型、两份 `(28819,256)` 全有效有限 token、六个新融合及六个复用 cell 的匹配审计，附 `reports/selection_val_only.json`、逐情绪与每 seed 2,000 次 bootstrap，以及全部同日 cell 的协议停止记录；完成标记限定 A，B/C 继续按计划分阶段推进。
+
+[实验 A 解读](../../outputs/server_sync/mae_round2_downstream_20261010/reports/experiment_a_findings.md)与[机器报告](../../outputs/server_sync/mae_round2_downstream_20261010/reports/experiment_a_report.md)已同步。C/P 三 seed 融合 raw r delta 为 −0.001222/+0.003019，均 1/3 seed 正向，联合推进门槛均 False；B/C 主基点保持 C。独立完成审计核对全部冻结层逐值不变、每来源 1,152 个原信号窗口重建误差≤1.91e-6、六个融合 checkpoint 的 val/test 预测重建误差均 0。87 份轻量产物逐文件 SHA256 与服务器一致，模型/token/prefix 保留在 H20。
+
+<a id="mae-round1-input-execution-2026-10-10"></a>
+
+### MAE round1 输入执行（2026-10-10）
+
+合同为[独立输入改进计划](../../docs/research/current/0814-window/experiments/mae_round1_input_improvement_plan_20261010.md)。H20 staging 为 `/home/wangzw/mae_round1_input_20261010`，ncc 为 `/home/lzs/mae_round1_input_20261010`，本地轻量副本为 `outputs/server_sync/mae_round1_input_20261010`。所有原始数据及历史结果保留。
+
+`133` 从来源、物理时间及整段预处理上下文构建分协议清单；cross_day 联合表60,994行、固定复用v4尺度。within_subject_day发现107个原canonical训练窗口与holdout区间相交，整段session上下文过滤后新增raw为0，其严格扩池对照状态为stopped。`134` 当前使用8个worker构建既有ROI与匹配全幅双路缓存并冻结common mask；短clip没有成功写入帧映射时按合同排除。`135` 的阶段顺序为独立smoke、正式SSL和canonical导出、接口smoke、80epoch上限的三seed冻结下游；通过验证门槛后接续。
+
+当前 Windows 控制器已由 `137` 启动。它等到 `VIDEO_INPUT_COMPLETE` 后，核对H20/ncc八份split文件指纹，执行四个视频cell并验收；复制checkpoint/config/token和小型审计，校验传输前后SHA256及canonical身份，再启动视频下游和`136`配对报告。decoded cache与原clip继续保留在ncc。错误状态分别写入 `EEG_QUEUE_FAILED.json`、`VIDEO_QUEUE_FAILED.json` 和 `REPORT_FAILED`。
+
+首次 EEG formal 在epoch39遇到非有限梯度，失败日志和标记保存在 `inputs/execution_recovery/`。恢复队列日志为 `logs/eeg_queue_recovery.log`；`112 --recovery-checkpoint` 在目标cell目录写 `recovery.pt`，保存每轮完整状态，梯度错误时另写 `recovery.failure.pt` 供诊断。已验证epoch中断恢复与连续训练逐值一致。`137` 对SSH超时也执行短暂连接错误重试；controller PID以本地 `controller.pid` 为准。
+
+视频当前日志为 `logs/video_inputs_sorted_w8.log`：按同一批指定源帧排序只读解码，实际40帧与既有缓存逐像素一致，耗时90.78秒（原seek为194.66秒）。`decoder_revision.json` 保留原/新builder指纹及输入来源不变的核验，旧来源清单另存 `input_sources.previous.<sha>.json`；ROI抽帧、源帧号和112像素变换保持原合同。17:05将I/O worker从4增至8，原父/子进程退出后复用3,233条已完成映射；两路全部已完成像素哈希、映射前缀、来源和builder均保持一致，记录在 `inputs/video/decoder_parallelism_20261010.json`。旧日志保留，接续控制器PID仍以本地controller.pid为准。
+
+EEG梯度异常已在实际batch定位到PyTorch 2.5.1 efficient-attention backward；`112 --retry-attention-math` 在更新前用同窗口和mask重算，检查梯度后更新一次，并恢复原CUDA随机流。队列已从epoch38断点继续，当前队列日志为 `logs/eeg_queue_math_recovery.log`；恢复记录写入config的 `attention_retry_records`，实际后端对照在 `inputs/execution_recovery/attention_backend_diagnostics.json`，原失败batch单独保留。科学配置、原数据和训练行保留。
+
+计算恢复台账为 `inputs/execution_recovery/compute_recovery_ledger.json`：两次失败中丢弃的更新18,266次、训练窗口前向访问2,335,948次，第二次完整38轮由断点复用。`136` 的technical同时保留成功优化路径的seen_windows、math重算行访问、丢弃访问及训练前向总访问；GPU wall只覆盖有完整保存的计时段，失败的未计时部分明确记录为不可用。
+
+cross_day E_POOL已完成100轮正式SSL（best epoch98、val/zero 0.60713），canonical token `(28819,256)` 与三个下游seed均通过身份、mask、有限值和非目标槽验收。当前两个正式阶段标记均存在，独立验收保存在H20的 `inputs/eeg/completion_audit.json`；本地[验收副本](../../outputs/server_sync/mae_round1_input_20261010/eeg_completion_audit.json)及正式config与服务器SHA256一致。其三seed val相对E_CANON_V4的raw r为+0.01086、centered r为+0.00408，sRMSE为+0.0000231超过预设容差，联合推进门槛未通过；[验证记录](../../outputs/server_sync/mae_round1_input_20261010/eeg_validation_report.md)保存完整SD和每seed 2,000次paired bootstrap，未读取test预测。视频输入仍在构建，完整配对结论待剩余阶段和报告验收。
+
+`136` 逐情绪产物包括原始 `per_label_metrics.csv`、每seed配对差 `per_label_paired_metrics.csv` 及三seed均值/样本SD/方向的 `per_label_contrasts.csv`；Markdown同步显示主要输入对照的11情绪变化。参考预测预检记录在 `inputs/reused_prediction_report_preflight.json`（24个val/test叶、6组严格身份及尺度配对），临时目录中的格式验证结果在 `inputs/per_label_report_format_preflight.json`；这些预检不产生正式推进结论。
+
+EEG 分支已有独立的 [扩池 E1 逐情绪正式报告](../../outputs/server_sync/mae_round1_input_20261010/e1_comparison/expanded_e1_report.md)，由 [138](../../scripts/multilabel/138_report_expanded_e1.py) 从已完成的 E_POOL 与最终 v4 E1 三 seed 预测生成。val/test 均包含11情绪的五类指标、均值/样本SD、每seed配对差及2,000次subject-day bootstrap；[完整精度CSV](../../outputs/server_sync/mae_round1_input_20261010/e1_comparison/per_label_comparison.csv)、[各seed原始指标](../../outputs/server_sync/mae_round1_input_20261010/e1_comparison/per_label_seed_metrics.csv)、[逐seed配对区间](../../outputs/server_sync/mae_round1_input_20261010/e1_comparison/per_label_seed_paired_bootstrap.csv)与[当前bag/token/source核验](../../outputs/server_sync/mae_round1_input_20261010/e1_comparison/contract_audit.json)同目录。test raw r 为0.26823→0.30365，centered r为0.11499→0.11086；val联合门槛保持False。该报告范围是cross_day EEG；同日输入stop和视频整体完成状态继续沿用既定标记。
+
+```powershell
+ssh huoshan_TriDim 'tail -n 5 /home/wangzw/mae_round1_input_20261010/logs/eeg_queue_math_recovery.log'
+ssh ncc_serve_4090 'tail -n 5 /home/lzs/mae_round1_input_20261010/logs/video_inputs_sorted_w8.log'
+Get-Content -LiteralPath 'outputs/server_sync/mae_round1_input_20261010/controller.log' -Tail 5
+Get-Content -LiteralPath 'outputs/server_sync/mae_round1_input_20261010/controller_error.log' -Tail 5
+```
+
+严格的完成判定为5个可执行SSL cell和33个可执行下游cell通过对应门槛，另3个同日E_POOL下游cell明确stopped。每seed的subject-day paired bootstrap为2,000次；val联合门槛决定后续推进，test按固定方案报告。`ROUND1_EXECUTION_FINISHED_WITH_PROTOCOL_STOP` 和本地 `PIPELINE_COMPLETE` 表示这一执行范围已处理；原6个SSL全部成功的标记保持独立语义。
+
 | 阶段 | 命令 | 主要产物 | 源码入口 |
 | --- | --- | --- | --- |
 | 环境检查 | `python scripts/archive_legacy/00_check_environment.py --config configs/paths.server.yaml` | 控制台环境报告 | [环境检查脚本](../../scripts/archive_legacy/00_check_environment.py) |
@@ -53,7 +136,7 @@ Face 入口的 `--allow-opencv-fallback` 也覆盖 OpenFace 已启动 `Starting 
 | Daily-affect Phase 0 baseline | `PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/74_run_daily_affect_phase0_baselines.py --bags-root /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/daily_affect_ordinal_20260903/bags --protocols cross_subject,cross_day,date_in_order --route-ids B0_Wphysio_full,A1_Wphysio_full,A2_Wdeep_full --normalizations shared,per_modality --seeds 240729,240730,240731 --device cuda --skip-existing --out-root /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/daily_affect_ordinal_20260903/phase0` | 读取同一份 EMA bags 训练 `bag_static` ordinal classification baseline；每个 run 输出 `metrics.json`、`config.json`、`best_checkpoint.pt`、`val_history.csv`、`predictions.npz` 和 `test_predictions.csv`，并对 `shared` 与 `per_modality` normalization 做同 seed 配对。2026-09-03 正式完成 `54/54` 个 baseline metrics。 | [daily-affect Phase 0 入口](../../scripts/daily_affect/74_run_daily_affect_phase0_baselines.py) |
 | Daily-affect state/prior/kernel matrix | `PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/75_run_daily_affect_state_matrix.py --bags-root /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/daily_affect_ordinal_20260903/bags --protocols cross_subject,cross_day,date_in_order --route-ids B0_Wphysio_full,A1_Wphysio_full,A2_Wdeep_full --model-ids state_uniform,prior_uniform,prior_ordD_uniform,dynamic_kernel_prior_uniform,dynamic_kernel --normalizations shared,per_modality --seeds 240729,240730,240731 --device cuda --skip-existing --out-root /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/daily_affect_ordinal_20260903/runs` | 在同一 bag/split 上跑状态滤波、state-prior compatibility、ordinal difficulty 和动态 EMA kernel；`prior_uniform` 使用 state prior 而无 ordinal difficulty，`dynamic_kernel_prior_uniform` 在动态核上单独检验它。所有 run 保存 diagnostics，避免与 EQL-CAF 结果互相覆盖。2026-09-03 的旧矩阵缺少真实 state-prior compatibility，相关效果以 2026-09-05 v2 输出为准。 | [daily-affect matrix 入口](../../scripts/daily_affect/75_run_daily_affect_state_matrix.py) |
 | Daily-affect summary and figures | `PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/76_summarize_daily_affect_results.py --run-root /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/daily_affect_ordinal_20260903 --out-root /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/daily_affect_ordinal_20260903/reports`；图表用 `PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/77_plot_daily_affect_diagnostics.py --run-root /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/daily_affect_ordinal_20260903 --out-root /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/daily_affect_ordinal_20260903/figures --clean` | `76` 汇总所有 per-run `metrics.json` 并回填 event-level Expected RMSE/raw r/within-subject centered r。新版 `77` 将同一 `protocol/route/model/normalization` 的各 seed 先各自对 test event 求均值，再做 seed 等权均值，输出每协议一张 routing/difficulty/temporal atlas，以及一张混淆矩阵 atlas；行标签包含 normalization、seed 数和 mean QWK，manifest 记录每个图的所有源 `metrics.json`。`--clean` 只删除旧版 77 的 `confusion_`、`temporal_kernel_`、`modality_weights_`、`probe_reliability_` 图和旧 manifest。2026-09-05 已在 `huoshan_TriDim` 对 270 runs、90 个聚合组完成重画，远端和本地 `figures/` 都是 4 张 atlas 加 manifest；2026-09-03 的 `918/199` 是归档的旧逐 run 写图产物。 | [daily-affect 汇总入口](../../scripts/daily_affect/76_summarize_daily_affect_results.py)、[daily-affect 画图入口](../../scripts/daily_affect/77_plot_daily_affect_diagnostics.py) |
-| Daily-affect scalar regression bridge | `PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/90_run_daily_affect_scalar_regression.py --stage preflight --device cpu`，通过后 `--stage smoke --device cuda`，矩阵使用 `--stage matrix --device cuda --skip-existing`；完成后运行 `91_summarize_daily_affect_scalar_regression.py --runs-root outputs/daily_affect_scalar_regression_20260908/runs --out-dir outputs/daily_affect_scalar_regression_20260908/summary` | 同一 EMA bag、event split、seed 和 train-only target/token normalization 下，配对比较窗口 full-mean 与 0906 全部 EMA-bag 结构。validation RMSE 选择 checkpoint，主读数为 held-out event raw Pearson r；summary 对每个 protocol×seed 做 `EMA-bag - window` 的 subject-day bootstrap。输出根独立于 ordinal route。 | [regression matrix](../../scripts/daily_affect/90_run_daily_affect_scalar_regression.py)、[regression summary](../../scripts/daily_affect/91_summarize_daily_affect_scalar_regression.py) |
+| Daily-affect scalar regression current route | `90` 的完整显式命令见[0906 技术路线第 6 节](../../docs/research/current/0906-ema-bag/technical_route_20260906.md#6-执行入口与产物路径)：指定 `v2_partialft_noaudio_bags` / `v2_partialft_noaudio`、`cross_day,within_subject_day,cross_subject` 及各自 route/normalization maps，再执行 preflight/smoke/matrix；`91` 的 runs-root 指向 `v2_partialft_noaudio/runs`。 | 固定 partial-FT EEG upstream seed240800、Wphysio、A1/B0 Video、no audio，配对窗口 full-mean 与全部 EMA-bag 标量结构。MSE 训练、validation event RMSE 选择 checkpoint，主报告 event raw r；三 seed 171 runs、选择性补至七 seed 后199 runs及178 paired rows。`90` 无参数默认仍为早期 full/date_in_order screen，复现当前结果需传入显式参数。 | [regression matrix](../../scripts/daily_affect/90_run_daily_affect_scalar_regression.py)、[regression summary](../../scripts/daily_affect/91_summarize_daily_affect_scalar_regression.py) |
 | Daily-affect focused diagnostics | `PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/78_report_daily_affect_focused_diagnostics.py --run-root outputs/daily_affect_ordinal_20260903 --out-root outputs/daily_affect_dynamic_a1_crossday_20260903/focused_reports --protocol cross_day --route-id A1_Wphysio_full --normalization per_modality --candidate-model dynamic_kernel` | 对首轮矩阵中的候选 `A1_Wphysio_full / cross_day / dynamic_kernel / per_modality` 与 `bag_static` 做 seed-level paired delta、temporal kernel mass、kernel mixture 和 modality weight 小报告；输出 `focused_diagnostics.{json,md}` 与 temporal/probe CSV。 | [focused diagnostics 入口](../../scripts/daily_affect/78_report_daily_affect_focused_diagnostics.py) |
 | Daily-affect focused ablation | `PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/79_run_daily_affect_focused_ablation.py --bags-root outputs/daily_affect_dynamic_a1_crossday_20260903/bags --out-root outputs/daily_affect_prior_guidance_v2_20260905 --protocol cross_day --route-id A1_Wphysio_full --normalization per_modality --seeds 240729,240730,240731 --model-ids bag_static,state_uniform,prior_uniform,prior_ordD_uniform,dynamic_kernel_no_prior,dynamic_kernel_prior_uniform,dynamic_kernel --device cuda` | 在同一 protocol/route/normalization 上分离 state-only、state-prior compatibility、ordinal difficulty、无 prior 动态核、prior-only dynamic kernel 和完整 dynamic kernel。2026-09-05 完成独立 v2 root 的 `21` 个 run；结果显示真实 state prior 没有改善动态核候选。 | [focused ablation 入口](../../scripts/daily_affect/79_run_daily_affect_focused_ablation.py) |
 | Daily-affect focused robustness | `PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/daily_affect/80_run_daily_affect_focused_robustness.py --run-root outputs/daily_affect_dynamic_a1_crossday_20260903 --out-root outputs/daily_affect_dynamic_a1_crossday_20260903/robustness --protocol cross_day --route-id A1_Wphysio_full --normalization per_modality --models bag_static,dynamic_kernel --seeds 240729,240730,240731,240732,240733,240734,240735 --device cuda` | 读取 frozen checkpoint，对 clean、missing、noise、shuffle 四类场景按 EEG/Wear/Video/Audio 做 test-time 压力测试，并输出 ordinal 指标和 event-level Expected RMSE/raw r/within-subject centered r。2026-09-03 完成 `182` 条明细；7-seed clean 下 `dynamic_kernel` 相对 `bag_static` 为 QWK `+0.0133`、Macro-F1 `+0.0124`、MAE `-0.0378`，但 video missing/shuffle 的 QWK 相对 baseline 分别为 `-0.0210` 和 `-0.0306`。轻量本地副本在 `outputs/server_sync/daily_affect_dynamic_a1_crossday_20260903/`。 | [focused robustness 入口](../../scripts/daily_affect/80_run_daily_affect_focused_robustness.py) |
@@ -183,6 +266,9 @@ Face 入口的 `--allow-opencv-fallback` 也覆盖 OpenFace 已启动 `Starting 
 
 ## Modality-wise temporal MAE（2026-09-24）
 
+以下旧 root/队列保留为 v1 历史记录。2026-10-08 的修复执行使用下方独立 v2 staging，
+不会覆盖 `mae_20260924` 或原 VideoMAE 产物；当前入口也会拒绝覆盖已有 checkpoint。
+
 `scripts/multilabel/112_run_modality_mae.py` implements the Stage-A label-free
 EEG/Wear representation route.  It reads no emotion labels: the MAE optimizes
 masked reconstruction on `pretrain + finetune`, uses `val` reconstruction loss
@@ -255,8 +341,197 @@ slot with the completed label-free token. A cross-day smoke precedes the
 two-protocol three-seed formal run. The token transfer was SHA-256 verified;
 both protocols have 18,012 valid video windows versus the reference's 18,021
 (9 mask differences). These native-mask results include that coverage change.
+2026-10-10直接登录ncc确认，当前VideoMAE从
+`/home/lzs/DailyVideoMAE_20260927/input/video_metadata.npz`的原始
+`/mnt/dataset1/sitian/video/.../DJI_*.MP4`生成全幅112×112缓存，v2继续复用此缓存。
+参考DINO A1读取已有2.0×face ROI clip，因此上述视频替换还包含输入视野变化。
+当前aligned ROI缓存位于
+`/mnt/dataset4/sitian/wzw/DailyEEG_multimodal_eeg_aligned_export/tmp/video_2xroi_openface_cache_full/openface/<sample_id>/openface_temporal_v1/window.mp4`；
+后续ROI-MAE应按clip自身帧号采样。canonical/raw EEG路径、实际训练行数及ROI来源证据见
+[交接手册输入来源核验](../../docs/research/current/0814-window/experiments/mae_chat_handout_20261010.md#26-输入来源补充核验canonical-eegraw-pool与视频roi)。
 New outputs record the retained EEG supervision explicitly; the historical
 M2 `single_modality_replacement` metadata remains a legacy name on disk.
+
+### Remaining MAE combinations and matched partial adaptation
+
+`118` also accepts `M3,M4,M5-F`: replace EEG+Video, Wear+Video, or all three
+respectively. `122_queue_remaining_frozen_mae.sh` gates their 18 formal runs
+on a three-epoch cross-day smoke. M4 retains the supervised MT11 EEG branch;
+M3/M5-F use the label-free EEG MAE branch. All downstream heads are 11-label
+multitask, with audio disabled and native modality masks retained.
+
+`123_export_mae_frozen_prefix.py` and `125_prepare_mae_prefixes.sh h20|ncc`
+export deterministic early-block activations without labels. Prefix shape is
+`(valid_windows,10,256)` for EEG/Wear and `(18012,196,256)` for video. Frozen
+blocks stay in eval mode. `prefix.npy` retains float32 activations, `tail.pt`
+holds the final two blocks, `encoder_initialization.pt` preserves full replay
+weights, and `manifest.json` records initialization, masks, source and SHA-256.
+The ncc preparation uses `/tmp/wangzw_mae_remaining_20261007/` to avoid its
+nearly-full home filesystem. `127_transfer_video_prefixes.ps1` runs locally,
+copies rather than moves the three video prefixes and checks destination
+hashes before writing `VIDEO_PREFIX_TRANSFER_VERIFIED`; keep the local helper
+and network connection running until this marker exists.
+
+`124_run_mae_partial_ft.py` optimizes three real encoder tails together with
+the existing 0814 shared-trunk/11-head regressor. M5-FT loads Stage-A tails;
+R0 random-initializes all architecture weights and trains the same final-two-
+block scope, making it a matched partial-adaptation initialization control.
+Both use train-only initial-token normalization, fixed during training,
+encoder/downstream LR `1e-4/1e-3`, event batch 64, maximum 80 epochs,
+patience 15, and validation macro standardized RMSE selection. Activation
+checkpointing uses 128-window chunks. This training computes gradients
+through the encoder tails, and records their first gradients and parameter
+updates in `gradient_audit.json`; it does not train on fixed final embeddings.
+
+The current training version is `last2_ft_encoder_eval_math_v3`: encoder tails stay
+in eval mode during optimization to disable encoder dropout while their
+parameters remain trainable. The downstream head keeps its original dropout
+and bag-wide modality dropout. Train-only fixed normalization, learning rates,
+splits and labels remain unchanged. Four-modality fusion attention explicitly
+uses the float32 math SDPA backend, preserving its attention equation and
+parameters while avoiding non-finite gradients seen with the previous backend
+at large normalized feature magnitudes. Every batch checks tokens, predictions,
+loss, gradients and updated parameters; validation predictions/scores must be
+finite. Gradient clipping uses `error_if_nonfinite=True`, before optimizer
+updates. A failed cell records context in `failure.json` and the queue writes
+`PARTIAL_FT_QUEUE_FAILED`.
+
+`126_queue_mae_partial_ft.sh` waits for verified prefixes and frozen formal
+completion, then runs both M5-FT/R0 in both protocols for ten full-data epochs
+each, seed 240800. All four cells must pass history, gradient-update and finite
+val/test-metric gates before the 12-candidate formal matrix starts. The default
+v3 root is `/home/wangzw/outputs/mae_remaining_20261007/partial_v3/`, with
+`smoke/` and `formal/` subdirectories. `MAE_PARTIAL_OUT` changes this output;
+`MAE_PREFIX_ROOT` can select the existing reusable prefix cache. The original
+`partial_smoke/partial_formal` artifacts remain preserved under the parent
+root; their one-epoch cross-day smoke predates the same-day failure and v2
+repair. The intermediate `partial_v2/` encoder-dropout-only repair caught a
+same-day non-finite gradient at epoch 8 before optimizer update and did not
+start formal training. v3 uniformly reruns both protocols/seeds under one version.
+Completion requires `PARTIAL_FT_SMOKE_COMPLETE` or
+`PARTIAL_FT_FORMAL_COMPLETE` plus the corresponding 4/12 finite candidate rows.
+
+```powershell
+# Inspect the detached training queue (read-only).
+ssh huoshan_TriDim 'tail -n 15 /home/wangzw/mae_remaining_staging/partial_v3_launcher.log'
+ssh huoshan_TriDim 'ls /home/wangzw/outputs/mae_remaining_20261007/partial_v3/*COMPLETE'
+Get-Content 'G:\Daily Multimodal\outputs\server_sync\mae_remaining_20261007\video_prefix_transfer.log' -Tail 10
+```
+
+### MAE Stage-A repair v2（2026-10-08）
+
+`128_queue_mae_repair_stage_a.sh h20|ncc all` 使用独立 staging，先运行每个模态/协议
+15 epochs、1,024 train/val rows 的 smoke，再进入全量训练。EEG/Wear 保留遮挡位置编码，
+Video 在初始化前固定 seed，三模态验证使用独立固定数量掩码。每 epoch 检查 256 个 val
+窗口的表征：centered RMS / feature RMS 小于 `0.001` 时停止；std/effective rank 同时记录。
+Wear 三支重建与零预测基线分开记录。预处理仍为原每秒标准化。
+
+H20 staging 为 `/home/wangzw/mae_repair_20261008`，ncc 为
+`/tmp/wangzw_mae_repair_20261008`；两者的 Stage-A root 均为 `outputs/stage_a_v2/`。
+六个 smoke 和六项正式预训练均已完成。Video 使用 `--reuse-complete-cache` 只读复用旧 mmap，
+不会重建/搬运原视频。独立版本根保护旧产物，入口拒绝覆盖已存在 checkpoint。
+
+Windows 单次后台控制器 `129_continue_mae_repair_pipeline.ps1` 等待两台主机的
+`STAGE_A_FORMAL_COMPLETE`，复制并逐文件核验 Video checkpoint/token/config，再启动
+H20 `130` 和 ncc `131`。`131` 只重建两个协议的 pretrained prefix；`123` 的缓存命中
+必须匹配 checkpoint、token 与 encoder 源码 fingerprint。两个 video prefix 复制核验后，
+控制器写 `VIDEO_PREFIX_TRANSFER_VERIFIED` 并结束，之后 H20 队列独立运行。
+控制器在传输交接前需要本机进程和网络保持可用，失败时不会释放 M5-FT。
+
+已核验 Stage-A 视频复制并启动服务器队列后，恢复传输使用 `129 -PrefixTransferOnly`。
+该模式检查 `VIDEO_STAGE_A_TRANSFER_VERIFIED`，跳过 Stage-A 重复制和队列启动，接续
+两个 pretrained video prefix 的复制与哈希验收。恢复前先停止同任务旧控制器及其传输子进程，
+保留服务器训练进程。2026-10-08 的恢复由一次性 Windows 任务
+`DailyMultimodal-MAE-v2-PrefixTransfer-20261008` 托管，执行 `129 -PrefixTransferOnly`，
+无重复触发器；父进程已核对属于 `Schedule` 系统服务。任务脱离 Codex 执行器生命周期，
+传输完成前仍需本机开机、用户保持登录且网络可用。状态查询：
+
+```powershell
+Get-ScheduledTask -TaskName 'DailyMultimodal-MAE-v2-PrefixTransfer-20261008'
+Get-ScheduledTaskInfo -TaskName 'DailyMultimodal-MAE-v2-PrefixTransfer-20261008'
+```
+
+`130` 顺序执行 E1/W1/V1 → M2/M3/M4 → M5-F → M5-FT，保留 B0、canonical split、
+23-window event 聚合和三 downstream seeds。冻结路线共 42 个正式 cell，M5-FT 六个；
+R0 使用已核对 unmasked 编码/预处理完全相同的 v3 六条原始结果，另写 `R0_reference.json`。
+旧、新 source 的三模态随机初始参数和 unmasked 输出差异为 `0`；第二轮修改预处理/架构时
+须重跑匹配 R0。结果位于 H20 staging 的 `outputs/downstream_v2/`。
+
+v2 现已完成全部48个正式候选，两个视频 prefix 已在 H20 验收；本轮无需再次启动
+Windows 复制控制器。新的原始信号归一化对照使用下面的独立入口。
+
+```powershell
+ssh -p 10022 wangzw@124.174.8.252 'tail -n 12 /home/wangzw/mae_repair_20261008/outputs/logs/stage_a_launch.log'
+ssh ncc_serve_4090 'tail -n 12 /tmp/wangzw_mae_repair_20261008/outputs/logs/stage_a_launch.log'
+Get-Content 'G:\Daily Multimodal\outputs\server_sync\mae_repair_20261008\pipeline_controller.log' -Tail 12
+```
+
+### MAE train-only raw normalization（2026-10-08）
+
+当前恢复 staging：`/home/wangzw/mae_norm_channel_20261009`。普通尺度旧目录
+`/home/wangzw/mae_norm_20261008` 保留同日 EEG epoch 22 的失败现场；
+`/home/wangzw/mae_norm_robust_20261009` 保留整秒遮挡未通过零预测基准的小测。
+入口
+`scripts/multilabel/132_queue_mae_train_channel_normalization.sh` 在服务器内依次执行
+EEG/Wear 两协议的35-epoch smoke、全量预训练、冻结替换与 M5-FT/R0；任意
+fit-index、finite/health、token 或 gradient gate 失败时停止，不释放下一阶段。
+CPU regression marker 是启动前提。恢复模式 `112 --raw-normalization train_channel_robust`
+仅从训练行拟合固定的 median-window center/RMS，EEG 遮挡41个通道而 Wear
+保留整秒遮挡；二者以按窗口能量平衡的损失训练，整体/典型窗口表征变化均需
+达到 `0.001`，选中的 val reconstruction 必须优于匹配的零预测。
+`123` 自动复用 checkpoint 统计量，随机分支需
+`--normalization-config <对应 Stage-A config.json>`。`124` 本轮必须使用
+`--random-prefix-per-protocol`，避免共享两协议的原始信号统计量。
+
+预训练 EEG/Wear 的 `123 --match-stage-a-batch-size` 从 checkpoint 的
+`manifest.runtime.batch_size` 读取实际导出批大小，本轮为128。prefix manifest
+记录 `prefix_export_batch_size`、`requested_batch_size` 和
+`batch_size_matched_to_stage_a`；同批完整编码器与 prefix+tail 的误差门槛保持
+`1e-5`，与 Stage-A token 的门槛保持 `2e-4`。极端幅值窗口会放大不同批大小
+带来的 fp32 差异，因此恢复时应匹配 Stage-A 的导出批次。
+
+`132` 重启时跳过已有 `results.json` 的冻结组，并重新验收数量、协议/路线/
+种子组合和有限指标；完整有效的36项结果与 Stage-A 产物保留。取得同 root 独占锁后，旧
+失败标记移到 `outputs/logs/NORMALIZATION_QUEUE_FAILED.<UTC timestamp>.<PID>`，
+历史日志追加保存。项目 `AGENTS.md` 已记录例行错误的直接修复/验证/续跑授权；
+实验协议、验证门槛、原始数据和费用边界保持不变。
+
+原始视频仍在 ncc。本轮 Video checkpoint/token 和 pretrained/random prefix 在 H20
+复用，B0/V1 结果保留。R0 的 EEG/Wear prefix 与下游按新统计量计算。
+2026-10-09 17:03 +08:00 已完成48项新正式实验，加保留 B0/V1 共60行；
+最终合并的两个路径参数与第三个预处理版本参数分别读取。
+三参数合并回归通过，原有完整性门槛保留。
+
+```powershell
+ssh -p 10022 wangzw@124.174.8.252 'tail -n 8 /home/wangzw/mae_norm_channel_20261009/outputs/logs/normalization_queue.log'
+ssh -p 10022 wangzw@124.174.8.252 'ls /home/wangzw/mae_norm_channel_20261009/outputs/NORMALIZATION*'
+ssh -p 10022 wangzw@124.174.8.252 'nvidia-smi'
+```
+
+服务器入口（仅在确认同 root 没有运行中的队列时手动启动）：
+
+```bash
+cd /home/wangzw/mae_norm_channel_20261009
+nohup env MAE_NORM_STAGING=/home/wangzw/mae_norm_channel_20261009 \
+  MAE_NORM_MODE=train_channel_robust CUDA_VISIBLE_DEVICES=0 \
+  bash scripts/multilabel/132_queue_mae_train_channel_normalization.sh \
+  >> outputs/logs/normalization_queue.log 2>&1 < /dev/null &
+echo $! > outputs/normalization_queue.pid
+```
+
+| Marker / output | Meaning |
+| --- | --- |
+| `outputs/CPU_REGRESSION_COMPLETE` | 原实现、稳健尺度、能量平衡、遮挡无泄漏及 prefix/export 回归通过。 |
+| `outputs/NORMALIZATION_SMOKE_COMPLETE` | 四个35-epoch Stage-A smoke 与 fit-index/health/zero-predictor gate 通过。 |
+| `outputs/NORMALIZATION_STAGE_A_COMPLETE` | EEG/Wear 两协议全量训练与 canonical token gate 通过。 |
+| `outputs/NORMALIZATION_FROZEN_COMPLETE` | 六条冻结替换的36个新正式 cell 完成。 |
+| `outputs/NORMALIZATION_PREFIX_COMPLETE` | EEG/Wear 两类初始化各按协议重建，Video 复用检查通过。 |
+| `outputs/NORMALIZATION_PARTIAL_SMOKE_COMPLETE` | M5-FT/R0 两协议四个10-epoch smoke、梯度和更新验收通过。 |
+| `outputs/NORMALIZATION_COMPLETE` | 48个新正式 cell 及保留 B0/V1 共60行完整且有限。 |
+| `outputs/NORMALIZATION_QUEUE_FAILED` | 当前队列失败；查最后日志及单 run `failure.json`。修复后重启会归档此标记，保留失败证据；全量完成仍需 `NORMALIZATION_COMPLETE`。 |
+| H20 `/home/wangzw/mae_norm_channel_20261009/outputs/downstream_train_channel/results.json` | 完成后的合并正式结果、11标签 summary 与 `macro_summary`。 |
+| H20 `/home/wangzw/mae_norm_channel_20261009/outputs/downstream_train_channel/raw_r_tables.md` | 完成后的两协议“11情绪 × 路线”表。 |
+| 本地 `outputs/server_sync/mae_norm_channel_20261009/{results.json,raw_r_tables.md}` | 已验收的60条结果与完整表；两文件分别与服务器 SHA-256 一致。 |
 
 主计划为 `docs/research/current/joint-evaluation/multiemotion_eeg_multitask_experiment_plan_20260913.md`。所有命令在 aligned repo 根运行，并设置 `PYTHONPATH=src`。服务器存储紧张时同时把 `TMPDIR` 和 `XDG_CACHE_HOME` 指到 `outputs/tmp`。
 
@@ -328,3 +603,20 @@ PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python scripts/multilabel/102_summ
 输入、run 与汇总根均为 `outputs/multiemotion_20260913/single_task_structure_matrix_A1/`。`101` 逐标签审计 EEG token 的 canonical sample/split、协议、标签和上游 seed，确保 repaired `date_in_order` 的 subject-day 不跨 split；第一条路线使用 train-only per-modality normalization、validation RMSE checkpoint selector。2026-09-17 正式矩阵完成1254/1254，`102` 严格检查缺失0、六张表每格3个下游 seed；轻量结果已同步为[独立单标签路线 README](../../outputs/server_sync/multiemotion_20260913/single_task_structure_matrix_summary/README.md)。跨路线的66组窗口产物 val/test event、target、Wear/Video 与 mask 均配对。旧 0.4318/0.4288 对应历史宽松 split，详细口径差异见该 README。
 
 旧 EEGPT 配置的独立复现线使用 `eeg_encoder_256d_tokens_legacy_20260917/single_task/` 中已完成的22份上游 `seed_240800` token，输出隔离在 `outputs/multiemotion_legacy_replay_20260917/single_task_matrix_A1/`。`104_run_legacy_single_task_matrix.py --stage preflight` 通过22/22；`107_queue_legacy_single_task_matrix.sh` 逐协议/标签完成19结构 × 下游 `240729,240730,240731` 的1254/1254个 run；`108_finalize_legacy_single_task_matrix.sh` 随后调用 `102` 严格核对缺失0并生成独立六张表。轻量结果与解读已同步到[旧配置单任务 README](../../outputs/server_sync/multiemotion_legacy_replay_20260917/single_task_structure_matrix_summary/README.md)。远端运行日志分别位于 `outputs/multiemotion_legacy_replay_20260917/logs/legacy_single_task_matrix.log` 和 `legacy_single_task_finalize.log`。此线不覆盖已有20260913两路线结果。
+
+## MAE基本0906式event预测（2026-10-10）
+
+`148_run_basic_event_pool.py`只检验原MAE C的 `bag_static/uniform`：全部有效窗口表示等权平均后通过原H1共享11-head，标准化event MSE。沿用C的val平均sRMSE选择checkpoint；重点报告centered r，与原E1和C_EVENT配对，固定cross_day、三seed及训练预算。当前三seed完成，test centered r 0.100470，相对C_EVENT下降0.024837且0/3正向；[结果解读](../../outputs/server_sync/mae_basic_event_pool_20261010/reports/findings.md)保留逐情绪和区间证据。
+
+独立运行根 `/home/wangzw/mae_basic_event_pool_20261010`，依赖源码在该根复制并冻结；原ABC根只读。恢复命令在远端该根执行：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=src \
+  /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/runtime/envs/eegpt-gpu-min/bin/python \
+  scripts/multilabel/148_run_basic_event_pool.py \
+  --root /home/wangzw/mae_basic_event_pool_20261010 \
+  --prior-root /home/wangzw/mae_round2_downstream_20261010 \
+  --stage all --device cuda:0
+```
+
+完成cell按 `VAL_TRAINING_COMPLETE` 复用；未完成cell按原seed重新训练，原trainer没有batch恢复。训练期真实test索引映射到val，输出去除test别名后冻结选择；报告阶段首次读取真实test。标记依次为 `PREFLIGHT_COMPLETE`、`SMOKE_COMPLETE`、`FORMAL_COMPLETE`、`VAL_SELECTION_FROZEN`、`BASIC_EVENT_POOL_COMPLETE`，完整结果为 `reports/results.json`、`reports/basic_event_pool_report.md`，每seed固定checkpoint在 `runs/formal/seed_<seed>/best_checkpoint.pt`。`inputs/source_manifest.json`记录138份执行Python源码，`inputs/fixed_config.json`冻结输入与六个复用cell，`inputs/runtime_environment.json`记录单GPU可见性。可选模型/时间范围与原ABC实用候选另行授权。

@@ -1,403 +1,311 @@
-# Daily-affect 多模态 EMA-bag 技术路线
+# Daily-affect 多模态 EMA-bag 标量回归技术路线
 
 > Status: Current parallel route
-> Route role: 0906 EMA-bag；与 0814 window 并列使用
-> Research index: [研究文档索引](../../README.md)
-> 文档版本：2026-09-08
-> 结果数据截止：2026-09-08
-> 范围：本文只说明 Daily-affect。窗口级连续回归和 EQL-CAF temporal-token 使用不同监督单位、模型与评价口径，不纳入本文结果排名。
+> Route role: 0906 EMA-bag 标量回归；与 0814 window 并列使用
+> Evidence status: Exploratory · test-guided；结构扩展参考 held-out 配对门槛，checkpoint 仅用 validation
+> 研究索引：[研究文档索引](../../README.md)
+> 文档更新：2026-10-10；回归实验完成快照：2026-09-10；服务器产物复核：2026-10-10
+> 本文范围：fatigue 的“窗口架构 × 回归目标”与“EMA-bag 架构 × 回归目标”。三协议分别固定各自选定的 0814 embedding 配置。联合 11 情绪矩阵由[独立入口](../joint-evaluation/multiemotion_eeg_multitask_experiment_plan_20260913.md)维护。
 
-## 1. 问题定义
+## 1. 当前任务与结果
 
-Daily-affect 将一次 EMA 疲劳评分视为一条五级序数预测样本。模型读取评分前约两分钟内的 23 个重叠窗口，融合 EEG、Wear、Video、Audio 的历史证据，预测一个 event-level 疲劳等级 1--5。
+0906 当前采用一个标量回归 head：读取一次 EMA 评分前的 23 个重叠窗口，预测连续 fatigue score。训练使用 MSE，checkpoint 按 validation event-level RMSE 选择，主要报告 held-out event-level raw Pearson r；RMSE、MAE 与 within-subject centered r 补充描述误差和个体内关联。
 
-路线关心两个问题：
+本次比较统一了输入 embedding、event 集合、split、mask、下游 seed 和训练预算，检验窗口独立预测与 EMA-bag 时间聚合的区别。原五分类 head、CE/ordinal/ranking 损失和 QWK 结果保留在[五分类 / QWK 历史快照](experiments/technical_route_20260906_ordinal_snapshot_20261010.md)。这份快照中的候选排序和后续步骤属于原序数实验。
 
-1. EMA 评分由完整历史、近期状态，还是特定时间尺度的变化决定？
-2. 同一窗口的四个模态应如何按可用性、当前证据和此前状态进行融合？
+### 1.1 三 seed 全变体筛选中的候选结果
 
-主指标为 quadratic weighted kappa（QWK）。它按照类别间二次距离加权，5 预测为 1 的代价高于 5 预测为 4。Macro-F1 和 ordinal MAE 分别描述类别均衡表现和平均等级误差。模型五类概率导出的 expected score 可报告 RMSE、raw Pearson r、within-subject centered r；它们是辅助连续读数，QWK 保持为主选型指标。
+下表复现本对话讨论的三 seed 比较，seed 为 240729、240730、240731。每行的 Δraw r 为同 seed 的 EMA-bag 减窗口 full-mean，均值与标准差采用 seed 等权、总体标准差 `ddof=0`。
 
-## 2. 数据与监督契约
+| 协议 | 窗口 full-mean raw r | EMA-bag 候选 | EMA-bag raw r | Δraw r | 正向 seed |
+| --- | ---: | --- | ---: | ---: | ---: |
+| cross_day | 0.3849 ± 0.0189 | `bag_static_reg__temporal_last_30s` | 0.4240 ± 0.0105 | +0.0391 | 3/3 |
+| cross_subject | 0.0230 ± 0.0302 | `prior_uniform_reg` | 0.1076 ± 0.0228 | +0.0846 | 3/3 |
+| within_subject_day | 0.4288 ± 0.0117 | `prior_uniform_reg` | 0.4318 ± 0.0237 | +0.0029 | 2/3 |
 
-### 2.1 Canonical EMA bag
+三 seed 用于筛选候选；协议级保留决策以随后完成的七 seed 配对验证为依据。单次原 0814 实验的窗口级 r 与本表的 EMA event-level r 使用不同聚合口径，分别记录。
 
-| 项目 | 当前定义 |
-| --- | --- |
-| Canonical EEG-aligned 窗口数 | 28,819 |
-| EMA event 数 | 1,253 |
-| 每 event 窗口数 | 23 |
-| 窗口长度与 stride | 10 秒，5 秒 |
-| 时间索引 | event_window_id=0..22；0 最早，22 最接近评分时刻 |
-| 模态顺序 | [EEG, Wear, Video, Audio] |
-| 每模态 token | 256D |
-| 模型输入 | tokens: (B,23,4,256)，modality_mask: (B,23,4) |
-| 标签 | 每 event 一条 EMA fatigue，y in {1,2,3,4,5} |
+### 1.2 七 seed 配对验证与保留路线
 
-modality_mask[t,m] 是窗口级模态可用性。缺失模态不参与该窗口融合；某窗口的四模态都缺失时，该窗口不参与时间汇总。23 个窗口是同一个监督样本的时间上下文，并非 23 条复制标签的独立样本。
+七 seed 为 240729..240735。表中“保留”表示本轮候选验证后的协议内决策，覆盖范围限于本节固定的输入组合和已扩展候选。
 
-scripts/daily_affect/73_build_daily_affect_bags.py 构建 bag，保存 sample_id_matrix、event 标识和 bag-level split 索引，使每个 event 预测可回溯到 23 个组成窗口。
+| 协议 | 保留工作路线 | raw r | RMSE | centered r | 相对匹配窗口 Δraw r | 正向 seed |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| within_subject_day | `window_attention_regression_full_mean` | 0.4314 ± 0.0105 | 0.8952 ± 0.0065 | 0.1964 ± 0.0113 | reference | — |
+| cross_day | `bag_static_reg__temporal_last_30s` | 0.4091 ± 0.0314 | 0.8788 ± 0.0188 | 0.2217 ± 0.0225 | +0.0453 ± 0.0291 | 7/7 |
+| cross_subject | `prior_uniform_reg` | 0.1072 ± 0.0425 | 0.9405 ± 0.0429 | 0.1286 ± 0.0424 | +0.0631 ± 0.0596 | 6/7 |
 
-### 2.2 三种主协议
+匹配窗口基线的七 seed raw r：cross_day 为 0.3639 ± 0.0264，cross_subject 为 0.0441 ± 0.0390。
 
-| 协议 | 要回答的问题 | 执行原则 |
+- cross_day：last-30s 同时提高 raw r、centered r，并使 RMSE 相对窗口下降 0.0267；该配置支持近期证据聚合。
+- cross_subject：prior-uniform 的 raw r 与 centered r 提高，RMSE 相对窗口增加 0.0173；保留为相关性优势候选，并同步报告尺度误差。
+- within_subject_day：`prior_uniform_reg` 的七 seed raw r 为 0.4161 ± 0.0257，Δraw r = −0.0154 ± 0.0323，3/7 正向，ΔRMSE = +0.0256；按既定配对门槛保留窗口 full-mean。
+- cross_day 的 `bag_static_reg__temporal_uniform` 已扩到七 seed，raw r = 0.3484 ± 0.0416，Δraw r = −0.0154 ± 0.0275，2/7 正向；完整两分钟等权 bag 汇总保持为对照。
+
+`91` 对每个 protocol × condition × seed 做 2,000 次 subject-day cluster paired bootstrap。cross_day last-30s 的 bootstrap Δr 均值 7/7 正向，cross_subject prior-uniform 为 6/7；两者各有 1/7 seed 的 95% CI 下界大于零。因此上述结论表述为多 seed 的方向一致性，统计区间仍跨零的 seed 如实保留。`condition_summary.csv` 的 `mean_bootstrap_ci_low/high` 是各 seed 区间端点的平均值，不能用作合并七 seed 的置信区间。
+
+## 2. 输入 embedding 与数据契约
+
+### 2.1 按协议固定的输入组合
+
+本轮复用本对话从 0814 结果中选定的各协议 embedding 路线，整个下游矩阵中冻结 encoder。上游 EEG token seed 固定为 240800，与下游训练 seed 分开记录。
+
+| 协议 | route_id | EEG | Wear | Video | Audio | normalization / adapter |
+| --- | --- | --- | --- | --- | --- | --- |
+| cross_day | `A1_Wphysio_no_audio__eeg_eegpt_partial_ft_v1` | EEGPT partial FT，256D | Wphysio，256D | A1，256D | 关闭 | per_modality / per_modality |
+| within_subject_day | `A1_Wphysio_no_audio__eeg_eegpt_partial_ft_v1` | EEGPT partial FT，256D | Wphysio，256D | A1，256D | 关闭 | per_modality / per_modality |
+| cross_subject | `B0_Wphysio_no_audio__eeg_eegpt_partial_ft_v1` | EEGPT partial FT，256D | Wphysio，256D | B0，256D | 关闭 | shared / shared |
+
+A1 为 2× 主脸 ROI 的 DINOv2-base 表征，带轻量颜色/亮度增强；B0 使用基础 ROI 表征。Wear 从窗口内 PPG、GSR、ACC 构建生理特征并投影。EEG 使用真正的 encoder pooled hidden state 经 projection 输出的 256D token。
+
+EEGPT partial FT 属于 fatigue-supervised control，原上游按对应窗口 protocol 的 train/validation 边界训练和选型。本轮 bag metadata 为：
+
+```text
+mixed_with_fatigue_supervised_controls:eeg_eegpt_partial_ft_v1
+```
+
+该监督来源必须与窗口对照共同保留。三协议输入均为 EEG + Wear + Video；统一张量中的 Audio 槽保留，mask 恒为 0。
+
+### 2.2 从原始窗口到冻结 token
+
+本节路径以远端项目为准：
+
+```text
+项目根 P = /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned
+embedding 根 E = /vePFS-0x0d/DailyEEG_multimodal/embeddings
+window split 根 S = /vePFS-0x0d/DailyEEG/splits_new
+```
+
+| 阶段 | 脚本与实现 | 本轮实际读取的产物 |
 | --- | --- | --- |
-| cross_subject | 新受试者泛化 | 按预定义 subject 边界构建 train、val、test bag |
-| cross_day | 跨日期状态、设备与环境变化后的泛化 | 按预定义日期边界，重点审计 token drift 与跨日缺失 |
-| within_subject_day | 已见个体在保留日期或时间段的泛化 | 按预定义 subject-day 划分，仍以 bag 为训练和评估单位 |
+| 事件 / 窗口定义 | [event_windows.py](../../../../src/daily_multimodal/alignment/event_windows.py) | `P/index/eeg_aligned_window_index.jsonl` |
+| EEG encoder 与 256D 导出 | [34_run_eeg_encoder_matrix.py](../../../../scripts/embeddings/34_run_eeg_encoder_matrix.py)；[eeg_encoder_matrix.py](../../../../src/daily_multimodal/training/eeg_encoder_matrix.py) | `E/eeg_encoder_256d_tokens/{protocol}/eegpt_partial_ft_v1/seed_240800.npz` |
+| Wear 生理表征 | [15_extract_wear_embeddings.py](../../../../scripts/embeddings/15_extract_wear_embeddings.py)；[wear_real.py](../../../../src/daily_multimodal/embeddings/wear_real.py) | `E/wear/wear_physio_preprocessed_eeg23win_embeddings.npz` |
+| Video ROI / DINOv2 表征 | [27_extract_dinov2_roi_embeddings.py](../../../../scripts/embeddings/27_extract_dinov2_roi_embeddings.py)；[dinov2_roi.py](../../../../src/daily_multimodal/embeddings/dinov2_roi.py) | `E/video/video_A1_2xroi_eeg23win_embeddings.npz` 或 `video_B0_2xroi_eeg23win_embeddings.npz` |
+| EMA bags | [73_build_daily_affect_bags.py](../../../../scripts/daily_affect/73_build_daily_affect_bags.py)；[ema_bags.py](../../../../src/daily_multimodal/daily_affect/ema_bags.py) | `P/outputs/daily_affect_scalar_regression_20260908/v2_partialft_noaudio_bags/{protocol}/{route_id}/seed_{seed}/ema_bags.npz` |
 
-三种协议独立构建、训练、选型和报告。normalization、类别权重、模型参数和 probe temperature 只在 train 拟合；validation 用于 early stopping 和 checkpoint 选择；test 只用于锁定配置的最终评估。
+### 2.3 Canonical EMA bag 与划分边界
 
-### 2.3 Token preprocessing
+全数据有 28,819 个窗口、1,253 个 EMA events。每个 event 包含 23 个重叠的 10 秒窗口，stride 为 5 秒，按 `event_window_id=0..22` 从早到晚排列，覆盖评分前 120 秒。模态顺序固定为 `[EEG, Wear, Video, Audio]`。
 
-上游四模态 token 是 Daily-affect head 的冻结输入。Daily-affect 显式比较两种 normalization 和 adapter：
+```text
+tokens: (N_event, 23, 4, 256)
+modality_mask: (N_event, 23, 4)
+label: (N_event,)，原始 fatigue score 1..5，作为数值回归目标
+```
 
-| 因素 | shared | per_modality |
-| --- | --- | --- |
-| Token normalization | 四模态共用 train-only 均值和标准差 | 每模态各自拟合 train-only 统计量 |
-| Adapter | 四模态共用 256->128 线性投影 | 每模态独立 256->128 投影 |
+bag builder 按 sample_id 对齐 token，检查 event 标签一致性，并保存 `sample_id_matrix`、`ema_bag_manifest.jsonl` 与 `bag_build_report.json`。mask 决定有效模态；无有效模态的窗口从时间池化中排除。
 
-两种 adapter 都会加入可学习的 128D modality embedding，保留 EEG、Wear、Video、Audio 的身份。训练时默认 0.1 概率 modality dropout，使融合器学会在局部模态缺失时重新分配权重。
+| 协议 | train events | val events | test events | train 内 leaf 合并 events | window-majority 边界投影 events |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| cross_day | 731 | 269 | 253 | 42 | 0 |
+| within_subject_day | 749 | 246 | 258 | 0 | 214 |
+| cross_subject | 767 | 222 | 264 | 42 | 0 |
 
-## 3. 输出、损失与评价
+上述计数来自本轮 `bag_build_report.json`。bag split 使用 `single_leaf_or_train_leaf_merge_or_window_majority`：单一 leaf 直接保留，pretrain/finetune/train 可在训练并集合并，跨 train/val/test 的 event 按窗口数多数票归属；平票优先顺序为 train、val、test。构建后 train/val/test event ID 两两无交集。
 
-### 3.1 五分类输出
+`within_subject_day` 对应同一受试者、同一天内的既有窗口 holdout；214 个 event 涉及多数票投影。event ID 无交集这项检查覆盖 bag 成员边界，上游监督仍遵循原窗口叶边界，不能据此推出原始信号或上游标签在投影后也严格隔离。本表结论限定为该现有协议；整日时间顺序泛化需使用另行审计的 `date_in_order`。
 
-最终 head 产生五类 logits，softmax 后得到：
+原比较计划要求排除跨 train/val/test leaf 的 event；本轮实际 builder 使用上述多数票投影，within_subject_day 因此与原计划的严格单-leaf 合同有差异。本文按实际产物报告该协议，严格排除边界 event 的版本尚未在本轮执行。
 
-    p = (p1, p2, p3, p4, p5),  sum(c=1..5) pc = 1
+## 3. 共同标量目标与训练设置
 
-离散预测为 argmax(p)。连续 expected score 由同一概率分布计算：
+实现入口为 [regression.py](../../../../src/daily_multimodal/daily_affect/regression.py) 和 [regression_training.py](../../../../src/daily_multimodal/daily_affect/regression_training.py)。
 
-    y_hat_exp = sum(c=1..5) c * pc
+token normalization 与目标标准化均只在 bag train events 拟合。per_modality 分别拟合各有效模态统计量并使用独立 adapter；shared 使用共享统计量和共享 adapter。两者都加入可学习 modality embedding。
 
-项目没有额外连续回归 head。QWK、Macro-F1、ordinal MAE 评价离散类别；RMSE、raw r、centered r 评价 \hat y_exp。
+```text
+z = (y − μ_train) / σ_train
+ŷ = μ_train + σ_train × z_hat
 
-### 3.2 主训练目标
+EMA-bag 主损失:
+L_bag = mean_event[(z_hat_event − z_event)^2]
 
-除 expected-score Huber screen 外，最终分类头使用：
+窗口匹配基线主损失:
+L_window = mean_event[mean_valid_window((z_hat_window − z_event)^2)]
+```
 
-    L_head = L_weighted_CE
-           + 0.5 * L_cumulative_ordinal
-           + 0.1 * L_within_subject_rank
+窗口基线向有效窗口复制 event 标签，先对每 event 的有效窗口 MSE 求平均，再对 events 平均，保持 event 权重一致。EMA-bag 在时间聚合后对每 event 监督一次。两条架构保留各自的监督方式，并共享标量目标量尺。
 
-| 分量 | 技术含义 |
+回归 difficulty 变体另加 `0.1 × Gaussian probe NLL`，`objective_id=scalar_mse__gaussian_probe_nll_0.1`；其余条件为 `scalar_mse`。这项辅助目标只启用在第 4 节注明的 difficulty 模型中。
+
+| 项目 | 本轮配置 |
 | --- | --- |
-| class-weighted CE | 五分类基础监督，并降低类别不均衡造成的少数等级忽视 |
-| cumulative ordinal loss | 监督四个累计阈值概率。跨越更多等级阈值的错误代价更大 |
-| within-subject ranking loss | 对同一 subject 内标签不同的 event，约束 expected score 的排序方向 |
+| hidden dimension | 128 |
+| 回归 head | LayerNorm → Linear(128,128) → GELU → Dropout → Linear(128,1) |
+| optimizer | AdamW，lr = 1e-3，weight_decay = 1e-4 |
+| batch / epoch / patience | 128 events / 最多 80 epochs / 15 |
+| dropout / modality dropout | 0.1 / 0.1 |
+| difficulty schedule | probe warm-up 5 epochs，随后 ramp 5 epochs；λ_D = 0.25，默认 detach |
+| checkpoint 选择 | `val_rmse_min`，event-level |
+| 评价 | 逆标准化后的 raw r、RMSE、MAE、within-subject centered r；raw 预测保留，不裁剪、取整或做 test calibration |
 
-有 modality probe 的变体还加入 0.1 L_probe。probe 使用每模态在整个 bag 内的可用 token 聚合表示预测同一个 event 标签，用于路由辅助监督，并不是独立预测器。
+raw r 是本轮主报告读数；训练目标是 MSE，checkpoint 选择是 validation RMSE，三者分别记录。窗口基线与所有 EMA-bag 条件均在同一 test events 上评价。
 
-模型按 validation QWK 保存 checkpoint。其定义为：
+## 4. 从窗口融合到 EMA-bag 的结构
 
-    w(i,j) = (i - j)^2 / (5 - 1)^2
-    QWK    = 1 - sum(i,j)[w(i,j) * O(i,j)] / sum(i,j)[w(i,j) * E(i,j)]
+### 4.1 窗口 full-mean 与 bag_static
 
-其中 O 是观察混淆矩阵，E 是在相同行、列边际分布下的随机期望混淆矩阵。
+这两种结构共享窗口内融合：
 
-## 4. 起点：window_replicated 与 bag_static
+```text
+可用 256D modality tokens
+→ Linear(256,128) + modality embedding
+→ 单头 modality self-attention
+→ learnable-query pooling
+→ 128D window evidence e_t
+```
 
-### 4.1 window_replicated
+窗口基线 `window_attention_regression_full_mean` 对应 `model_id=window_replicated`：每个有效窗口先通过标量 head，再把 23 个窗口预测等权平均为 event prediction。
 
-window_replicated 对每个有效窗口直接产生五类概率，再将一个 event 的 23 个窗口概率按时间权重汇总。它是“每个局部窗口都独立承载 EMA 标签”的对照，不是正式 event-level 监督定义。
+`bag_static_reg` 先按固定时间权重平均 window evidence，再通过同一个形式的标量 head：
 
-### 4.2 bag_static：正式静态 baseline
+```text
+窗口 full-mean: ŷ_event = mean_t head(e_t)
+EMA-bag static: ŷ_event = head(sum_t β_t e_t)
+```
 
-bag_static 是后续候选的主要 event-level baseline。它先在每个 10 秒窗口融合四个模态，再以固定时间规则汇总 23 个窗口。
+head 含非线性，两种计算顺序形成不同模型。窗口 full-mean 复用 0814 的窗口 attention 架构，同时接入本轮的 23-window EMA bag、event split、目标标准化、event-balanced window MSE 和 event-level 评价。该结果是匹配比较中的窗口参考，原 0814 历史窗口级结果另行保留。
 
-#### 窗口内：attention 模态融合
+cross_day 保留的 last-30s 使用 index 18..22，共 5 个重叠窗口，其并集覆盖评分前 30 秒；有效 evidence 固定等权汇总，无 GRU、prior 或 learned time kernel。
 
-令 x_(t,m) 为第 t 个窗口、第 m 个模态的 256D token。adapter 与 modality embedding 给出：
+### 4.2 state 与 prior 路由
 
-    a(t,m) = A_m * x(t,m) + e_m,    a(t,m) is 128-dimensional
+state/prior/kernel 变体采用线性 evidence scorer 进行窗口内融合。其原生计算结构为：
 
-同一窗口的四个表示经过单头 self-attention：
+```text
+a_t,m = adapter(x_t,m) + modality_embedding_m
+α_t,m = masked_softmax_m[baseScore(a_t,m)]
+e_t = sum_m α_t,m a_t,m
+s_t = GRUCell(e_t, s_t−1)，每个 event 的 s_−1 = 0
+```
 
-    h(t,1:4) = MHA(a(t,1:4), a(t,1:4), a(t,1:4))
+`state_uniform_reg` 均匀平均有效 GRU states。state 在一个 event 内沿 23 个窗口递推，每个 event 重新初始化。
 
-每个模态的更新表示可参考同一 10 秒内的其他可用模态。模型再以可学习 query q 做 pooling：
+`prior_uniform_reg` 在计算当前模态权重前，引入上一状态：
 
-    alpha(t,m) = softmax over available m of dot(h(t,m), q)
-    e(t)       = sum over m of alpha(t,m) * h(t,m)
+```text
+p_t = LayerNorm(s_t−1 + transition(s_t−1))
+c_t,m = g(tanh(Wq p_t + Wm a_t,m))
+α_t,m = masked_softmax_m[baseScore(a_t,m) + c_t,m]
+e_t → GRU state s_t → 有效 states 等权平均 → scalar head
+```
 
-保存于 diagnostics 的 modality_weights 即 \alpha_(t,m)。它描述本窗口最终融合时各可用模态的软路由比例：缺失模态为零，其余模态重新归一化。它不是因果贡献，也不是 self-attention 内部完整 4x4 attention map，因为内部矩阵未被保存。
+这也是 cross_subject 保留配置的完整融合流程。`prior_uniform_reg` 使用线性 scorer + prior compatibility + GRU，不启用窗口 self-attention/query pooling，也不启用 difficulty probe。state 路线与 bag_static 的对比同时改变窗口融合与时间状态结构，机制解释应覆盖两项变化。
 
-#### 窗口间：固定时间汇总
+### 4.3 11 个原生 EMA-bag 变体及回归难度
 
-默认 temporal_policy=uniform。令 v_t 表示窗口 t 至少有一个有效模态：
+| 原生 model_id | 回归 condition_id | state | prior | Gaussian difficulty | 时间汇总 |
+| --- | --- | --- | --- | --- | --- |
+| bag_static | `bag_static_reg__temporal_{policy}` | — | — | — | 8 种固定 policy |
+| state_uniform | `state_uniform_reg` | GRU | — | — | uniform |
+| prior_uniform | `prior_uniform_reg` | GRU | 有 | — | uniform |
+| prior_ordD_uniform | `prior_regD_uniform_reg` | GRU | 有 | 有 | uniform |
+| global_kernel_no_prior | `global_kernel_no_prior_reg` | GRU | — | — | 全局 learned kernel |
+| dynamic_kernel_no_prior | `dynamic_kernel_no_prior_reg` | GRU | — | — | event-adaptive kernel |
+| dynamic_kernel_prior_uniform | `dynamic_kernel_prior_uniform_reg` | GRU | 有 | — | event-adaptive kernel |
+| dynamic_kernel | `dynamic_kernel_reg` | GRU | 有 | 有 | event-adaptive kernel |
+| dynamic_fixed_short | `dynamic_fixed_short_reg` | GRU | 有 | 有 | fixed short |
+| dynamic_fixed_medium | `dynamic_fixed_medium_reg` | GRU | 有 | 有 | fixed medium |
+| dynamic_fixed_long | `dynamic_fixed_long_reg` | GRU | 有 | 有 | fixed long |
 
-    beta(t) = v(t) / sum(j) v(j)
-    s       = sum(t=0..22) beta(t) * e(t)
+`prior_ordD_uniform` 的底层 model_id 为兼容既有结构而保留。回归版每模态 probe 根据整个 bag 的有效 adapted tokens 均值预测 Gaussian mean 与 log variance，difficulty 为 `sigmoid(log_variance)`，路由分数减去 `λ_D × difficulty`；它替换原五分类的 entropy/ordinal-variance 设计。
 
-如果 23 个窗口都有效，每个权重是 1/23。uniform 仅指窗口之间等权，不代表窗口内四模态等权。s 再经 LayerNorm、MLP 与五类 head 得到 event 预测。
+固定 policy 为 `uniform,last_10s,last_30s,last_60s,first_30s,kernel_short,kernel_medium,kernel_long`；近期窗口分别选 index 22、18..22、12..22，first-30s 选 0..4。指数核时间常数为 15、45、120 秒，全局核学习共享混合，动态核按 event 状态学习混合。`dynamic_kernel_prior_uniform` 实际使用动态时间核，尾部 `uniform` 是原生路由命名。
 
-bag_static 没有跨窗口状态记忆，也没有依 event 内容改变时间权重。它给出最清晰的问题基线：局部四模态融合后，对完整两分钟历史等权平均是否足够？
+## 5. 已执行矩阵与证据范围
 
-## 5. 从 bag_static 向后加入的模块
+初始矩阵全部完成：
 
-以下变体共享输入契约、五类 head、主损失、validation-QWK checkpoint 选择与训练期 modality dropout。
+```text
+1 个窗口基线
++ 11 个原生 EMA-bag 结构（含 bag_static uniform）
++ 7 个额外 bag_static 时间 policy
+= 每 protocol × seed 19 条件
 
-### 5.1 state_uniform：跨窗口 affect state
+3 protocols × 3 seeds × 19 conditions = 171 runs
+```
 
-state_uniform 在当前窗口中先以线性 evidence score 路由四模态：
+因此第 4.3 节的所有原生变体及 8 个 bag_static 固定时间规则都完成了三协议三 seed 标量回归测试。
 
-    alpha(t,m) = softmax over m of baseScore(a(t,m))
-    e(t)       = sum over m of alpha(t,m) * a(t,m)
+扩展到七 seed 的组合为 cross_day 的 bag_static uniform / last-30s、within_subject_day 的 prior-uniform、cross_subject 的 prior-uniform，以及三个协议的匹配窗口基线。扩展新增 28 runs，总计 199 个 `metrics.json`、178 条 window-paired 比较。其余条件保持三 seed；七 seed 表给出已扩展候选的验证结果。
 
-随后由 GRUCell 写入状态：
+原计划的三 seed gate 关注 Δraw r > 0、至少 2/3 正向、平均 ΔRMSE ≤ +0.02、centered r / prediction scale 和审计项；超过候选数量上限时按 validation raw r 排序。七 seed gate 关注 Δraw r > 0、至少 5/7 正向、RMSE guard 和 paired bootstrap。结构的扩展和保留参考了 held-out 配对表现，结果定位为 exploratory/test-guided；新增 seed 验证训练随机性，保持原 test events。第 1 节另列 bootstrap 区间事实，避免把方向性通过等同于多数 seed 的区间排除零。
 
-    s(t) = GRUCell(e(t), s(t-1)),    s(-1) = 0
+## 6. 执行入口与产物路径
 
-最后均匀汇总 s_0..s_22。较晚状态携带此前窗口记忆。
+### 6.1 脚本导航
 
-实现边界很重要：state_uniform 的历史状态不直接参与当前 \alpha_(t,m)；它先融合当前窗口，再更新 GRU。它同时把 bag_static 的窗口内 self-attention 加 query pooling 换成线性 evidence scorer。因此 bag_static 到 state_uniform 同时改变了窗口融合和时间状态两部分，差异不能简单解释为“只加了 GRU”。
-
-### 5.2 prior_uniform：状态先验引导路由
-
-prior_uniform 从上一状态构造当前先验：
-
-    p(t) = LayerNorm(s(t-1) + transition(s(t-1)))
-
-模型计算当前 token 与 prior 的相容性：
-
-    c(t,m) = g(tanh(Wq * p(t) + Wm * a(t,m)))
-
-并加入当前路由：
-
-    alpha(t,m) = softmax over m of [baseScore(a(t,m)) + c(t,m)]
-
-这就是 prior-guided modality weighting。它让模型在分配当前模态权重时判断 token 是否与此前累积的 latent state 连续。prior 是模型学习出的历史状态先验，不是人工赋予某个模态的固定重要性。
-
-prior_uniform 仍以均匀规则汇总时间状态。它训练 cumulative modality probe，但不使用 ordinal-difficulty penalty。
-
-### 5.3 prior_ordD_uniform：序数难度抑制
-
-每模态 probe 输出五级分布，并计算两种 0--1 难度：
-
-    d_entropy = -sum(c) pc * log(pc) / log(5)
-    d_ordvar  =  sum(c) pc * (c - E[c])^2 / 4
-
-默认混合为：
-
-    d(m) = (1 - beta_ord) * d_entropy(m) + beta_ord * d_ordvar(m)
-    beta_ord = 0.25
-
-prior_ordD_uniform 在路由分数中扣除难度：
-
-    score(t,m) = baseScore(a(t,m)) + c(t,m) - lambda_D * d(m)
-    lambda_D = 0.25
-
-probe 先 warm-up，再逐步提高 \lambda_D。默认 detach_difficulty=true，使分类主损失不通过 routing penalty 改变 difficulty 的定义。其目标是避免对五级标签高度不确定的模态占据过高权重。
-
-### 5.4 固定时间规则：检验标签真正看哪段历史
-
-固定规则将 \beta_t 预设为窗口位置函数，对所有 event 相同：
-
-| policy | 规则 |
+| 角色 | 入口 |
 | --- | --- |
-| uniform 或 full_2min | 每个有效窗口等权 |
-| last_10s | 仅 index 22 |
-| last_30s | index 18..22 |
-| last_60s | index 12..22 |
-| first_30s | index 0..4 |
-| kernel_short / kernel_medium / kernel_long | 最近窗口更大，固定指数衰减，时间常数为 15、45、120 秒 |
+| 构建、对齐与审计 bags | [73_build_daily_affect_bags.py](../../../../scripts/daily_affect/73_build_daily_affect_bags.py) |
+| preflight / smoke / 全结构回归矩阵 | [90_run_daily_affect_scalar_regression.py](../../../../scripts/daily_affect/90_run_daily_affect_scalar_regression.py) |
+| metrics 汇总与 subject-day paired bootstrap | [91_summarize_daily_affect_scalar_regression.py](../../../../scripts/daily_affect/91_summarize_daily_affect_scalar_regression.py) |
+| 回归结果可视化 | [92_plot_daily_affect_scalar_regression.py](../../../../scripts/daily_affect/92_plot_daily_affect_scalar_regression.py) |
+| 模型 / state / time kernels | [regression.py](../../../../src/daily_multimodal/daily_affect/regression.py)；[affect_state_filter.py](../../../../src/daily_multimodal/daily_affect/affect_state_filter.py)；[dynamic_ema_kernel.py](../../../../src/daily_multimodal/daily_affect/dynamic_ema_kernel.py) |
+| 训练、checkpoint、指标与预测保存 | [regression_training.py](../../../../src/daily_multimodal/daily_affect/regression_training.py) |
+| 回归契约测试 | [test_daily_affect_scalar_regression.py](../../../../tests/test_daily_affect_scalar_regression.py) |
+| 原实验合同 | [scalar regression comparison plan](experiments/daily_affect_scalar_regression_comparison_plan_20260908.md) |
 
-它们用于检验 EMA 标签的 look-back。近期规则优于完整历史，表示评分更依赖近期状态；这些规则本身不随 event 自适应。
+当前 evidence root 与初始 full/label-free screen 分开：
 
-### 5.5 global_kernel_no_prior：全局 learned time kernel
+```text
+P/outputs/daily_affect_scalar_regression_20260908/
+  v2_partialft_noaudio_bags/
+    {protocol}/{route_id}/seed_{seed}/
+      ema_bags.npz
+      ema_bag_manifest.jsonl
+      bag_build_report.json
+  v2_partialft_noaudio/
+    preflight/
+      event_split_audit.csv
+      manifest.json
+    runs/{protocol}/{route_id}/{condition_id}/seed_{seed}/
+      config.json
+      metrics.json
+      best_checkpoint.pt
+      predictions.npz
+      test_predictions.csv
+    summary/
+      run_metrics.csv
+      paired_window_deltas.csv
+      condition_summary.csv
+      summary.json
+      summary.md
+```
 
-模型预定义 short、medium、long 三个指数基核，并学习所有 event 共用的混合：
+2026-10-10 直接登录 `huoshan_TriDim` 核验上述 bag report、config 与 metrics，并重算第 1 节三/七 seed 指标。早期 `outputs/daily_affect_scalar_regression_20260908/runs` 使用另一套 full/label-free 输入，与本文 v2 结果分别解释。
 
-    pi   = softmax(u)
-    beta = pi_short * b_short + pi_medium * b_medium + pi_long * b_long
+### 6.2 本轮三 seed 矩阵的显式参数
 
-它让数据选择一个总体时间尺度，但每个 event 使用同一条时间曲线。no_prior 表示没有 state-prior compatibility；ordinal-difficulty 也不实际进入路由分数。
+以下为远端项目根中的 Bash 复现示例，本次文档更新没有启动训练。已有 bags 保持只读。先检查 `--stage preflight --device cpu`，需要执行矩阵时才改为 `--stage matrix --device cuda --skip-existing`。
 
-### 5.6 dynamic_kernel_no_prior：event 自适应时间核
+```bash
+cd /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python \
+  scripts/daily_affect/90_run_daily_affect_scalar_regression.py \
+  --stage preflight --device cpu \
+  --bags-root outputs/daily_affect_scalar_regression_20260908/v2_partialft_noaudio_bags \
+  --out-root outputs/daily_affect_scalar_regression_20260908/v2_partialft_noaudio \
+  --protocols cross_day,within_subject_day,cross_subject \
+  --seeds 240729,240730,240731 \
+  --route-map cross_day=A1_Wphysio_no_audio__eeg_eegpt_partial_ft_v1,within_subject_day=A1_Wphysio_no_audio__eeg_eegpt_partial_ft_v1,cross_subject=B0_Wphysio_no_audio__eeg_eegpt_partial_ft_v1 \
+  --normalization-map cross_day=per_modality,within_subject_day=per_modality,cross_subject=shared
+```
 
-该变体保留 GRU states，但不使用 state-prior compatibility。它根据每个 event 的平均有效状态产生核混合：
+`90` 的无参数默认值仍指向早期 full 输入和 `date_in_order`，复现本文应完整传入上述 bags/out/protocol/route/normalization 参数。七 seed 补齐只对第 5 节列出的候选执行，避免把尚未完成的全变体七 seed 写成已有结果。
 
-    s_bar(n) = sum(t)[v(t) * s(t)] / sum(t) v(t)
-    pi(n)    = softmax(W * LayerNorm(s_bar(n)))
-    beta(n)  = sum(k in {short, medium, long}) pi(n,k) * b(k)
+汇总与画图示例：
 
-每个 event 可在短、中、长时程之间选择不同权重。它隔离了动态时间核在无 prior 路由时的作用。
+```bash
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python \
+  scripts/daily_affect/91_summarize_daily_affect_scalar_regression.py \
+  --runs-root outputs/daily_affect_scalar_regression_20260908/v2_partialft_noaudio/runs \
+  --out-dir outputs/daily_affect_scalar_regression_20260908/v2_partialft_noaudio/summary \
+  --bootstrap-replicates 2000
+PYTHONPATH=src runtime/envs/eegpt-gpu-min/bin/python \
+  scripts/daily_affect/92_plot_daily_affect_scalar_regression.py \
+  --summary-dir outputs/daily_affect_scalar_regression_20260908/v2_partialft_noaudio/summary
+```
 
-### 5.7 dynamic_kernel_prior_uniform：当前 cross-day 优先候选
-
-该模型在 dynamic_kernel_no_prior 上加入 prior-guided modality routing，但不加入 ordinal-difficulty penalty。它同时学习：
-
-1. 窗口内，依据此前状态重分配 EEG、Wear、Video、Audio 权重。
-2. event 间，依据各自状态轨迹混合 short、medium、long 时间核。
-
-名称尾部 prior_uniform 是历史命名，表示 prior 路由没有额外 ordD penalty，配置入口仍要求 temporal_policy=uniform。实际 forward 的 temporal_weights 来自 dynamic kernel，并非 23 窗口等权。
-
-### 5.8 dynamic_kernel 和 dynamic_fixed_*
-
-dynamic_kernel 是完整版本：state、prior-guided routing、ordinal-difficulty penalty、event 自适应时间核均启用。
-
-dynamic_fixed_short、dynamic_fixed_medium、dynamic_fixed_long 保留完整 state/prior/ordD 路由，但强制选择三个基核之一。它们检验动态核收益能否由一条固定近期规则完全解释。
-
-### 5.9 P0--P5 routing profiles
-
-scripts/daily_affect/75_run_daily_affect_state_matrix.py 将 probe 与 difficulty 设计拆开：
-
-| profile | 含义 |
-| --- | --- |
-| P0 no-prior | 无 prior 对照，difficulty 不进入路由 |
-| P1 categorical entropy | 五分类 probe，以预测熵作难度 |
-| P2 cumulative entropy | 累计序数 probe，以预测熵作难度 |
-| P3 ordinal mix | 累计序数 probe，以 entropy 与 ordinal variance 混合作 penalty |
-| P4 probe calibrated | 在 P3 后用 validation 校准每模态 probe temperature，再短程 fine-tune routing |
-| P5 end-to-end | 在 P3 基础上允许 routing penalty 向 probe 难度端到端回传 |
-
-对 no_prior model id，即使配置记录含 difficulty_ordinal，模型内部仍解析为 none；只有 prior-enabled 模型会实际使用 difficulty。
-
-## 6. 已完成证据
-
-### 6.1 Cross-day focused 7-seed 阶梯消融
-
-设置固定为 cross_day / A1_Wphysio_full / per_modality normalization / per_modality adapter / weighted CE + 0.5 ordinal + 0.1 rank。bag_static 是逐 seed 配对基线。三 seed 行用于机制筛选，七 seed 行构成当前更强证据。
-
-| 模型 | seeds | QWK | 相对 bag_static Delta QWK | QWK 胜出 | 解读 |
-| --- | ---: | ---: | ---: | ---: | --- |
-| bag_static | 7 | 0.1864 +/- 0.0432 | - | - | 正式静态 event baseline |
-| state_uniform | 3 | 0.1672 +/- 0.0295 | -0.0221 +/- 0.0744 | 1/3 | 单独 state 组合未显现稳定收益 |
-| prior_ordD_uniform | 3 | 0.1690 +/- 0.0243 | -0.0203 +/- 0.0342 | 1/3 | 静态时间汇总下 prior/ordD 组合未形成收益 |
-| dynamic_fixed_long | 3 | 0.2029 +/- 0.0292 | +0.0136 +/- 0.0535 | 2/3 | 长时程固定核有小幅信号 |
-| dynamic_fixed_medium | 3 | 0.2109 +/- 0.0328 | +0.0216 +/- 0.0674 | 1/3 | 中期核尚不稳定 |
-| dynamic_fixed_short | 3 | 0.2497 +/- 0.0568 | +0.0605 +/- 0.0616 | 2/3 | 近期核是强的方向性信号 |
-| global_kernel_no_prior | 7 | 0.2230 +/- 0.0512 | +0.0366 +/- 0.0716 | 6/7 | 全局 learned look-back 有稳定正向差异 |
-| dynamic_kernel_no_prior | 3 | 0.2007 +/- 0.0270 | +0.0114 +/- 0.0718 | 1/3 | 动态核独立证据仍需补齐 |
-| dynamic_kernel_prior_uniform | 7 | 0.2515 +/- 0.0402 | +0.0651 +/- 0.0656 | 6/7 | 当前跨日优先候选 |
-| dynamic_kernel | 3 | 0.2292 +/- 0.0247 | +0.0400 +/- 0.0520 | 2/3 | 完整 ordD 路径有方向性证据 |
-
-当前可确认结论：dynamic_kernel_prior_uniform 相对匹配 bag_static 有 7-seed、6/7 胜出的 QWK 提升，同时 ordinal MAE 从 0.9571 降至 0.9221。它是 Daily-affect 的 cross-day 优先候选。dynamic_kernel_no_prior 仍须补齐同一七 seed，才能对 state-prior compatibility 的独立效应作正式归因。
-
-### 6.2 Cross-subject 与 within-subject-day focused 3-seed 阶梯消融
-
-为避免将 cross-day 的结论外推到其余协议，本轮在两个协议各自固定一个 route、normalization 与 adapter 组合，在相同三个 seed 上从 `bag_static` 逐层加入 state、动态时间核和 prior。训练目标固定为 weighted CE + 0.5 ordinal + 0.1 rank；每一行与同 seed 的 `bag_static` 配对。
-
-**Cross-subject：A2_Wdeep_full / shared normalization / shared adapter**
-
-| 模型 | QWK | 相对 bag_static 的 QWK | QWK 胜出 | Macro-F1 | ordinal MAE | 决策 |
-| --- | ---: | ---: | ---: | ---: | ---: | --- |
-| bag_static | 0.1707 +/- 0.0654 | 基线 | -- | 0.2159 | 0.8295 | 当前受控对照最高 |
-| state_uniform | 0.1587 +/- 0.0217 | -0.0120 +/- 0.0459 | 1/3 | 0.1695 | 0.8131 | 不推进 |
-| dynamic_kernel_no_prior | 0.1125 +/- 0.0219 | -0.0582 +/- 0.0460 | 1/3 | 0.1535 | 0.8965 | 不推进 |
-| prior_ordD_uniform | 0.0573 +/- 0.0819 | -0.1134 +/- 0.1180 | 1/3 | 0.1619 | 0.9141 | 不推进 |
-| dynamic_fixed_short | 0.0392 +/- 0.0470 | -0.1315 +/- 0.0920 | 0/3 | 0.1536 | 0.9646 | 不推进 |
-| dynamic_fixed_medium | 0.0605 +/- 0.0213 | -0.1102 +/- 0.0673 | 0/3 | 0.1375 | 0.9760 | 不推进 |
-| dynamic_fixed_long | 0.0476 +/- 0.0059 | -0.1231 +/- 0.0698 | 0/3 | 0.1479 | 1.0013 | 不推进 |
-| global_kernel_no_prior | 0.0067 +/- 0.0733 | -0.1640 +/- 0.0285 | 0/3 | 0.1375 | 0.9508 | 不推进 |
-| dynamic_kernel | 0.0458 +/- 0.0393 | -0.1249 +/- 0.0321 | 0/3 | 0.1520 | 0.9949 | 不推进 |
-| dynamic_kernel_prior_uniform | 0.0444 +/- 0.0388 | -0.1263 +/- 0.0342 | 0/3 | 0.1409 | 1.0808 | 不推进 |
-
-该受控设置中，所有后续模块均未超过 `bag_static`。因此 cross-subject 当前保留静态 bag 聚合，不把 state、prior 或 kernel 扩展至 5--7 seed。该 `bag_static` 三 seed 均值高于此前广筛快照，但标准差较大，仍属于协议内描述性结果。
-
-**Within-subject-day：B0_Wphysio_full / per_modality normalization / per_modality adapter**
-
-| 模型 | QWK | 相对 bag_static 的 QWK | QWK 胜出 | Macro-F1 | ordinal MAE | 主要连续读数 |
-| --- | ---: | ---: | ---: | ---: | ---: | --- |
-| bag_static | 0.1952 +/- 0.0315 | 基线 | -- | 0.2317 | 0.9251 | raw r 0.2363；RMSE 1.0391 |
-| state_uniform | 0.2666 +/- 0.0441 | +0.0714 +/- 0.0367 | 3/3 | 0.2737 | 0.8850 | raw r 0.2877；RMSE 0.9928 |
-| dynamic_kernel_no_prior | 0.2637 +/- 0.0230 | +0.0685 +/- 0.0087 | 3/3 | 0.2570 | 0.8889 | raw r 0.2687；RMSE 0.9752 |
-| dynamic_fixed_long | 0.2596 +/- 0.0156 | +0.0644 +/- 0.0252 | 3/3 | 0.2658 | 0.8992 | raw r 0.2882；RMSE 0.9972 |
-| prior_ordD_uniform | 0.2309 +/- 0.0276 | +0.0357 +/- 0.0242 | 3/3 | 0.2526 | 0.8889 | -- |
-| global_kernel_no_prior | 0.2129 +/- 0.0341 | +0.0177 +/- 0.0076 | 3/3 | 0.2508 | 0.8721 | -- |
-| dynamic_fixed_medium | 0.2145 +/- 0.0342 | +0.0193 +/- 0.0645 | 2/3 | 0.2561 | 0.8824 | -- |
-| dynamic_fixed_short | 0.2115 +/- 0.0740 | +0.0163 +/- 0.0741 | 2/3 | 0.2372 | 0.9806 | -- |
-| dynamic_kernel | 0.2049 +/- 0.0312 | +0.0097 +/- 0.0565 | 2/3 | 0.2422 | 0.9005 | -- |
-| dynamic_kernel_prior_uniform | 0.1965 +/- 0.0382 | +0.0013 +/- 0.0663 | 1/3 | 0.2450 | 0.8915 | -- |
-
-`state_uniform` 是 within-subject-day 当前 QWK 第一候选；`dynamic_kernel_no_prior` 的 QWK 方差较小、expected RMSE 最低，作为并列的机制候选保留。二者均需在相同配置下补到 5--7 matched seeds；`dynamic_kernel_prior_uniform` 没有获得增益，不进入扩展。这个协议中 state 或动态时间建模有价值，而显式 state-prior compatibility 没有带来附加收益。
-
-### 6.3 EMA 标签的时间可辨识性
-
-在 cross_day / A1_Wphysio_full / per_modality normalization / per_modality adapter 的三 seed bag_static 时间审计中：
-
-| 时间规则 | QWK | 相对 full_2min |
-| --- | ---: | ---: |
-| full_2min | 0.1534 | 基线 |
-| first_30s | 0.1143 | -0.0391 |
-| last_10s | 0.1544 | +0.0010 |
-| last_30s | 0.1800 | +0.0266 |
-| last_60s | 0.1740 | +0.0206 |
-| kernel_long | 0.1737 | +0.0203 |
-| kernel_medium | 0.2119 | +0.0585 |
-| kernel_short | 0.2211 | +0.0677 |
-
-EMA 标签的可辨识信息集中在评分前的近期窗口，为 global/dynamic kernel 提供了动机。下一步需将 short、medium 与 static baseline 扩展到 5--7 matched seeds。
-
-### 6.4 Missing 和 corruption 稳健性
-
-在同一 cross-day 七 seed 设置，对 bag_static、dynamic_kernel_prior_uniform、global_kernel_no_prior 施加 missing、noise、shuffle。关键切片：
-
-| 条件 | bag_static QWK | dynamic_kernel_prior_uniform QWK | 解读 |
-| --- | ---: | ---: | --- |
-| clean | 0.1864 | 0.2515 | 候选的 clean 优势 |
-| missing video | 0.0990 | 0.2144 | 候选在 Video 缺失时更平稳退回其他模态 |
-| shuffle video | 0.0778 | 0.0769 | Video 错误身份或时间对齐是共同脆弱点 |
-| shuffle wear | 0.1890 | 0.1509 | 候选对错误 Wear token 更敏感 |
-| noise EEG | 0.0007 | 0.1286 | EEG 强噪声显著损伤两种模型 |
-
-cross-day test-event availability 为 EEG 1.0000、Wear 0.9333、Video 0.6319、Audio 0.5986；centroid-shift RMS 为 EEG 0.1738、Wear 0.5954、Video 0.8074、Audio 0.5896。下一步应把 Video ROI/追踪质量、缺失率和 day-shift 作为 quality-aware routing 特征，并将 Video/Wear dropout 纳入训练期实验。
-
-### 6.5 Expected-score Huber 连续辅助损失
-
-scripts/daily_affect/88_run_daily_affect_expected_score_huber.py 只在 matched bag_static bridge bag 上探索：
-
-    L = L_head + lambda * L_Huber(y_hat_exp, y)
-
-lambda 在 {0, 0.025, 0.05, 0.1, 0.2} 中仅按 validation 选择。lambda=0.2 的 validation raw-r 为 +0.0142、3/3 胜出，validation QWK 为 +0.0148。锁定后读取三 seed test：QWK -0.0029 +/- 0.0368、expected raw r +0.0031 +/- 0.0058、centered r +0.0093 +/- 0.0075、RMSE -0.0106 +/- 0.0170。
-
-这是轻量连续读数改善候选，尚只有三 seed，且未扩展到 dynamic kernel；它不改变 QWK 主选型或当前候选结论。
-
-## 7. 三种协议下当前最佳结果
-
-下表按 Daily-affect 主指标 QWK 选取每个协议所有已完成结果中的最高值。三个赢家来自不同 token route 和训练配置，不能理解为同一模型已在三协议都完成 promotion。
-
-| 协议 | 最佳 route 与模型 | 配置记录 | seeds | QWK | Macro-F1 | ordinal MAE | 证据状态 |
-| --- | --- | --- | ---: | ---: | ---: | ---: | --- |
-| cross_subject | A2_Wdeep_full / bag_static | shared normalization + shared adapter | 3 | 0.1707 +/- 0.0654 | 0.2159 | 0.8295 | 最新受控阶梯中的协议内最高值；所有增量模块未过三 seed gate |
-| cross_day | A1_Wphysio_full / dynamic_kernel_prior_uniform | per_modality normalization + per_modality adapter | 7 | 0.2515 +/- 0.0402 | 0.2732 | 0.9221 | 当前最强，已有 matched 7-seed static 对照 |
-| within_subject_day | B0_Wphysio_full / state_uniform | per_modality normalization + per_modality adapter | 3 | 0.2666 +/- 0.0441 | 0.2737 | 0.8850 | 最新受控阶梯中相对 static +0.0714 QWK、3/3 胜出；待 5--7 seed promotion |
-
-cross-day 最佳模型的 expected raw r 为 0.2833 +/- 0.0280，expected RMSE 为 1.0706 +/- 0.0550。它们是同一 1--5 量尺上的辅助连续读数，不改变按 QWK 选取最佳模型的规则。
-
-## 8. 当前决策与下一步
-
-1. 补齐 dynamic_kernel_no_prior 的 240729..240735 七个 matched seed，直接检验 state-prior compatibility 的因果贡献。
-2. 将 dynamic_fixed_short、dynamic_fixed_medium 与 bag_static 扩展到 5--7 matched seeds，确定 EMA 标签的实际 look-back。
-3. 在 dynamic_kernel_prior_uniform 中加入训练期 Video/Wear dropout，并检验 Video ROI 质量、缺失率和 day-shift 的 quality-aware routing 价值。
-4. 将 within_subject_day 的 `state_uniform` 与 `dynamic_kernel_no_prior` 扩展至同一 5--7 个 matched seeds；前者按 QWK 主指标优先，后者检验其较低 RMSE 是否可复现。
-5. cross_subject 保留 `bag_static`。当前 shared/shared 受控阶梯中，state、prior 和 kernel 没有正向 paired 证据；后续若重启该协议，应先重新筛选 token route 或 normalization/adapter 组合，而非继续扩展本轮增量模块。
-6. cross-day 的 per_modality 结果不会自动成为其他协议默认；只有候选在同一 protocol、route、objective、normalization、adapter 与 seed 集合下持续优于 bag_static，且 subject-day paired bootstrap 支持方向一致性时，才提升为该协议默认模型。
-
-## 9. 脚本与产物导航
-
-| 目标 | 脚本 | 关键产物 |
-| --- | --- | --- |
-| 构建 EMA bags | scripts/daily_affect/73_build_daily_affect_bags.py | bags/{protocol}/{route}/seed_*/ema_bags.npz |
-| Phase-0 静态对照 | scripts/daily_affect/74_run_daily_affect_phase0_baselines.py | window_replicated 与 bag_static paired runs |
-| state/prior/kernel 矩阵 | scripts/daily_affect/75_run_daily_affect_state_matrix.py | P0--P5 routing profiles 与基础模型矩阵 |
-| 多 seed 汇总和 atlas | scripts/daily_affect/76_summarize_daily_affect_results.py；77_plot_daily_affect_diagnostics.py | paired delta、bootstrap、diagnostics atlas |
-| focused 机制消融 | scripts/daily_affect/78_report_daily_affect_focused_diagnostics.py；79_run_daily_affect_focused_ablation.py | fixed/global/dynamic kernel 与 prior 诊断 |
-| 缺失与 corruption | scripts/daily_affect/80_run_daily_affect_focused_robustness.py | missing/noise/shuffle robustness report |
-| prior 与 bottleneck | scripts/daily_affect/81_report_daily_affect_prior_guidance.py；82_run_daily_affect_bottleneck_audit.py | state-prior report、时间可辨识性与 drift |
-| routing factorial | scripts/daily_affect/83_run_daily_affect_routing_factorial.py | normalization x adapter 解释性诊断 |
-| expected-score 辅助损失 | scripts/daily_affect/88_run_daily_affect_expected_score_huber.py | validation-locked Huber screen |
-
-当前关键同步产物：
-
-- outputs/server_sync/daily_affect_dynamic_a1_crossday_routefix_20260906/norm_per_modality__adapter_per_modality/reports_7seed/daily_affect_ordinal_summary.md
-- outputs/server_sync/daily_affect_dynamic_a1_crossday_routefix_20260906/norm_per_modality__adapter_per_modality/robustness_7seed/focused_robustness_report.md
-- outputs/server_sync/daily_affect_bottleneck_audit_20260905/daily_affect_bottleneck_audit.md
-- outputs/server_sync/daily_affect_expected_score_huber_20260907/expected_score_huber_screen.md
-- outputs/server_sync/daily_affect_ordinal_20260903/reports/protocol_route_summary.csv
-
-当前远端结果（尚未同步到本地 `outputs/server_sync/`）：
-
-- /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/daily_affect_focused_other_protocols_20260907/cross_subject/reports/daily_affect_ordinal_summary.md
-- /vePFS-0x0d/home/wangzw/DailyEEG_multimodal_eeg_aligned/outputs/daily_affect_focused_other_protocols_20260907/within_subject_day/reports/daily_affect_ordinal_summary.md
+本轮决策：within_subject_day 使用匹配窗口 full-mean，cross_day 使用静态 last-30s EMA-bag，cross_subject 保留 prior-uniform 的相关性优势候选。所有结果保留各自协议、上游监督、输入组合、seed 数量和 event-level 评价边界。

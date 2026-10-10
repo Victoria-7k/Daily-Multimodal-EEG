@@ -1,7 +1,7 @@
 # 日常情境四模态疲劳等级分类：可执行技术路线
 
-> Status: Current design reference
-> Canonical concise entry: [0906 EMA-bag 技术路线](technical_route_20260906.md)
+> Status: Historical ordinal design reference
+> 本文保留原五分类 / QWK 设计。当前标量回归 head、MSE 训练和 raw-r 结果以 [0906 EMA-bag 技术路线](technical_route_20260906.md)为准；原序数结果见[历史快照](experiments/technical_route_20260906_ordinal_snapshot_20261010.md)。
 
 **版本：2026-08-27**  
 **目标：在现有 EEG / Wear / Video / Audio 四模态 256D embedding 基础上，将“窗口级静态融合 + 标签复制”升级为“连续潜在疲劳状态估计 + EMA 级动态时间聚合”，最终预测 1–5 级有序疲劳标签。**
